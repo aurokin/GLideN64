@@ -160,6 +160,12 @@ namespace vulkan {
 struct ContextImpl::VulkanState
 {
 #if GLIDEN64_VULKAN_HEADERS_AVAILABLE
+	struct FrameSync {
+		VkSemaphore imageAvailable = VK_NULL_HANDLE;
+		VkSemaphore renderFinished = VK_NULL_HANDLE;
+		VkFence inFlight = VK_NULL_HANDLE;
+	};
+
 	VkInstance instance = VK_NULL_HANDLE;
 	VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
 	VkDevice device = VK_NULL_HANDLE;
@@ -173,10 +179,9 @@ struct ContextImpl::VulkanState
 	VkExtent2D swapchainExtent = {};
 	std::vector<VkImage> swapchainImages;
 	std::vector<VkImageView> swapchainImageViews;
-	VkSemaphore imageAvailableSemaphore = VK_NULL_HANDLE;
-	VkSemaphore renderFinishedSemaphore = VK_NULL_HANDLE;
-	u32 currentImageIndex = 0;
-	bool imageAcquired = false;
+	std::vector<VkFence> swapchainImageFences;
+	std::vector<FrameSync> frameSync;
+	u32 frameSyncIndex = 0;
 	bool surfaceExtensionEnabled = false;
 	bool xlibSurfaceExtensionEnabled = false;
 	bool win32SurfaceExtensionEnabled = false;
@@ -223,6 +228,9 @@ void ContextImpl::setPresentationWindowInfo(const graphics::Context::Presentatio
 #if GLIDEN64_VULKAN_HEADERS_AVAILABLE
 	if (!changed || !m_vk || m_vk->instance == VK_NULL_HANDLE)
 		return;
+
+	if (m_vk->device != VK_NULL_HANDLE)
+		vkDeviceWaitIdle(m_vk->device);
 
 	destroySwapchain();
 	destroySurface();
@@ -573,71 +581,98 @@ bool ContextImpl::present()
 		return false;
 	if (m_vk->graphicsQueue == VK_NULL_HANDLE || m_vk->presentQueue == VK_NULL_HANDLE)
 		return false;
-	if (m_vk->imageAvailableSemaphore == VK_NULL_HANDLE || m_vk->renderFinishedSemaphore == VK_NULL_HANDLE)
+	if (m_vk->frameSync.empty())
 		return false;
 
-	if (!m_vk->imageAcquired) {
-		const VkResult acquireResult = vkAcquireNextImageKHR(
-			m_vk->device,
-			m_vk->swapchain,
-			UINT64_MAX,
-			m_vk->imageAvailableSemaphore,
-			VK_NULL_HANDLE,
-			&m_vk->currentImageIndex);
-
-		if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR || acquireResult == VK_SUBOPTIMAL_KHR) {
-			destroySwapchain();
-			createSwapchain();
-			return false;
-		}
-
-		if (acquireResult != VK_SUCCESS) {
-			LOG(LOG_WARNING, "vkAcquireNextImageKHR failed: %d", static_cast<int>(acquireResult));
-			return false;
-		}
-		m_vk->imageAcquired = true;
+	VulkanState::FrameSync & currentFrame = m_vk->frameSync[m_vk->frameSyncIndex];
+	if (currentFrame.imageAvailable == VK_NULL_HANDLE
+		|| currentFrame.renderFinished == VK_NULL_HANDLE
+		|| currentFrame.inFlight == VK_NULL_HANDLE) {
+		return false;
 	}
+
+	if (vkWaitForFences(m_vk->device, 1, &currentFrame.inFlight, VK_TRUE, UINT64_MAX) != VK_SUCCESS) {
+		LOG(LOG_WARNING, "vkWaitForFences failed.");
+		return false;
+	}
+
+	u32 currentImageIndex = 0;
+	const VkResult acquireResult = vkAcquireNextImageKHR(
+		m_vk->device,
+		m_vk->swapchain,
+		UINT64_MAX,
+		currentFrame.imageAvailable,
+		VK_NULL_HANDLE,
+		&currentImageIndex);
+
+	if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR || acquireResult == VK_SUBOPTIMAL_KHR) {
+		vkDeviceWaitIdle(m_vk->device);
+		destroySwapchain();
+		createSwapchain();
+		return false;
+	}
+
+	if (acquireResult != VK_SUCCESS) {
+		LOG(LOG_WARNING, "vkAcquireNextImageKHR failed: %d", static_cast<int>(acquireResult));
+		return false;
+	}
+
+	if (currentImageIndex >= m_vk->swapchainImageFences.size()) {
+		LOG(LOG_WARNING, "Acquired Vulkan swapchain image index is out of range: %u", currentImageIndex);
+		return false;
+	}
+
+	VkFence & imageFence = m_vk->swapchainImageFences[currentImageIndex];
+	if (imageFence != VK_NULL_HANDLE && imageFence != currentFrame.inFlight) {
+		if (vkWaitForFences(m_vk->device, 1, &imageFence, VK_TRUE, UINT64_MAX) != VK_SUCCESS) {
+			LOG(LOG_WARNING, "vkWaitForFences failed for swapchain image.");
+			return false;
+		}
+	}
+
+	if (vkResetFences(m_vk->device, 1, &currentFrame.inFlight) != VK_SUCCESS) {
+		LOG(LOG_WARNING, "vkResetFences failed.");
+		return false;
+	}
+	imageFence = currentFrame.inFlight;
 
 	VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 	VkSubmitInfo submitInfo{};
 	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 	submitInfo.waitSemaphoreCount = 1;
-	submitInfo.pWaitSemaphores = &m_vk->imageAvailableSemaphore;
+	submitInfo.pWaitSemaphores = &currentFrame.imageAvailable;
 	submitInfo.pWaitDstStageMask = &waitStage;
 	submitInfo.commandBufferCount = 0;
 	submitInfo.signalSemaphoreCount = 1;
-	submitInfo.pSignalSemaphores = &m_vk->renderFinishedSemaphore;
+	submitInfo.pSignalSemaphores = &currentFrame.renderFinished;
 
-	const VkResult submitResult = vkQueueSubmit(m_vk->graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+	const VkResult submitResult = vkQueueSubmit(m_vk->graphicsQueue, 1, &submitInfo, currentFrame.inFlight);
 	if (submitResult != VK_SUCCESS) {
 		LOG(LOG_WARNING, "vkQueueSubmit failed: %d", static_cast<int>(submitResult));
-		m_vk->imageAcquired = false;
 		return false;
 	}
 
 	VkPresentInfoKHR presentInfo{};
 	presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
 	presentInfo.waitSemaphoreCount = 1;
-	presentInfo.pWaitSemaphores = &m_vk->renderFinishedSemaphore;
+	presentInfo.pWaitSemaphores = &currentFrame.renderFinished;
 	presentInfo.swapchainCount = 1;
 	presentInfo.pSwapchains = &m_vk->swapchain;
-	presentInfo.pImageIndices = &m_vk->currentImageIndex;
+	presentInfo.pImageIndices = &currentImageIndex;
 
 	const VkResult presentResult = vkQueuePresentKHR(m_vk->presentQueue, &presentInfo);
 	if (presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR) {
-		m_vk->imageAcquired = false;
+		vkDeviceWaitIdle(m_vk->device);
 		destroySwapchain();
 		createSwapchain();
 		return false;
 	}
 	if (presentResult != VK_SUCCESS) {
 		LOG(LOG_WARNING, "vkQueuePresentKHR failed: %d", static_cast<int>(presentResult));
-		m_vk->imageAcquired = false;
 		return false;
 	}
 
-	vkQueueWaitIdle(m_vk->presentQueue);
-	m_vk->imageAcquired = false;
+	m_vk->frameSyncIndex = (m_vk->frameSyncIndex + 1U) % static_cast<u32>(m_vk->frameSync.size());
 	return true;
 #endif
 }
@@ -1085,19 +1120,31 @@ bool ContextImpl::createPresentSyncObjects()
 
 	destroyPresentSyncObjects();
 
+	constexpr size_t kFramesInFlight = 2;
 	VkSemaphoreCreateInfo semaphoreCreateInfo{};
 	semaphoreCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+	VkFenceCreateInfo fenceCreateInfo{};
+	fenceCreateInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+	fenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
-	if (vkCreateSemaphore(m_vk->device, &semaphoreCreateInfo, nullptr, &m_vk->imageAvailableSemaphore) != VK_SUCCESS)
-		return false;
-	if (vkCreateSemaphore(m_vk->device, &semaphoreCreateInfo, nullptr, &m_vk->renderFinishedSemaphore) != VK_SUCCESS) {
-		vkDestroySemaphore(m_vk->device, m_vk->imageAvailableSemaphore, nullptr);
-		m_vk->imageAvailableSemaphore = VK_NULL_HANDLE;
-		return false;
+	m_vk->frameSync.clear();
+	m_vk->frameSync.resize(kFramesInFlight);
+	for (VulkanState::FrameSync & frame : m_vk->frameSync) {
+		if (vkCreateSemaphore(m_vk->device, &semaphoreCreateInfo, nullptr, &frame.imageAvailable) != VK_SUCCESS) {
+			destroyPresentSyncObjects();
+			return false;
+		}
+		if (vkCreateSemaphore(m_vk->device, &semaphoreCreateInfo, nullptr, &frame.renderFinished) != VK_SUCCESS) {
+			destroyPresentSyncObjects();
+			return false;
+		}
+		if (vkCreateFence(m_vk->device, &fenceCreateInfo, nullptr, &frame.inFlight) != VK_SUCCESS) {
+			destroyPresentSyncObjects();
+			return false;
+		}
 	}
 
-	m_vk->imageAcquired = false;
-	m_vk->currentImageIndex = 0;
+	m_vk->frameSyncIndex = 0;
 	return true;
 #endif
 }
@@ -1116,8 +1163,10 @@ void ContextImpl::createSwapchain()
 		return;
 	}
 
-	if (m_vk->swapchain != VK_NULL_HANDLE)
+	if (m_vk->swapchain != VK_NULL_HANDLE) {
+		vkDeviceWaitIdle(m_vk->device);
 		destroySwapchain();
+	}
 
 	VkSurfaceCapabilitiesKHR capabilities{};
 	if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_vk->physicalDevice, m_vk->surface, &capabilities) != VK_SUCCESS) {
@@ -1267,8 +1316,8 @@ void ContextImpl::createSwapchain()
 
 	m_vk->swapchainFormat = selectedFormat.format;
 	m_vk->swapchainExtent = extent;
-	m_vk->currentImageIndex = 0;
-	m_vk->imageAcquired = false;
+	m_vk->swapchainImageFences.assign(m_vk->swapchainImages.size(), VK_NULL_HANDLE);
+	m_vk->frameSyncIndex = 0;
 
 	LOG(LOG_VERBOSE, "Vulkan swapchain created: %ux%u", extent.width, extent.height);
 #endif
@@ -1289,10 +1338,9 @@ void ContextImpl::destroySwapchain()
 	}
 
 	m_vk->swapchainImages.clear();
+	m_vk->swapchainImageFences.clear();
 	m_vk->swapchainFormat = VK_FORMAT_UNDEFINED;
 	m_vk->swapchainExtent = {};
-	m_vk->currentImageIndex = 0;
-	m_vk->imageAcquired = false;
 
 	if (m_vk->swapchain == VK_NULL_HANDLE)
 		return;
@@ -1307,18 +1355,23 @@ void ContextImpl::destroyPresentSyncObjects()
 	if (!m_vk || m_vk->device == VK_NULL_HANDLE)
 		return;
 
-	if (m_vk->imageAvailableSemaphore != VK_NULL_HANDLE) {
-		vkDestroySemaphore(m_vk->device, m_vk->imageAvailableSemaphore, nullptr);
-		m_vk->imageAvailableSemaphore = VK_NULL_HANDLE;
+	for (VulkanState::FrameSync & frame : m_vk->frameSync) {
+		if (frame.imageAvailable != VK_NULL_HANDLE) {
+			vkDestroySemaphore(m_vk->device, frame.imageAvailable, nullptr);
+			frame.imageAvailable = VK_NULL_HANDLE;
+		}
+		if (frame.renderFinished != VK_NULL_HANDLE) {
+			vkDestroySemaphore(m_vk->device, frame.renderFinished, nullptr);
+			frame.renderFinished = VK_NULL_HANDLE;
+		}
+		if (frame.inFlight != VK_NULL_HANDLE) {
+			vkDestroyFence(m_vk->device, frame.inFlight, nullptr);
+			frame.inFlight = VK_NULL_HANDLE;
+		}
 	}
 
-	if (m_vk->renderFinishedSemaphore != VK_NULL_HANDLE) {
-		vkDestroySemaphore(m_vk->device, m_vk->renderFinishedSemaphore, nullptr);
-		m_vk->renderFinishedSemaphore = VK_NULL_HANDLE;
-	}
-
-	m_vk->imageAcquired = false;
-	m_vk->currentImageIndex = 0;
+	m_vk->frameSync.clear();
+	m_vk->frameSyncIndex = 0;
 #endif
 }
 
