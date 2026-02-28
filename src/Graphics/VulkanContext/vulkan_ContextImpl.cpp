@@ -180,6 +180,8 @@ struct ContextImpl::VulkanState
 	std::vector<VkImage> swapchainImages;
 	std::vector<VkImageView> swapchainImageViews;
 	std::vector<VkFence> swapchainImageFences;
+	VkCommandPool commandPool = VK_NULL_HANDLE;
+	std::vector<VkCommandBuffer> frameCommandBuffers;
 	std::vector<FrameSync> frameSync;
 	u32 frameSyncIndex = 0;
 	bool surfaceExtensionEnabled = false;
@@ -581,13 +583,17 @@ bool ContextImpl::present()
 		return false;
 	if (m_vk->graphicsQueue == VK_NULL_HANDLE || m_vk->presentQueue == VK_NULL_HANDLE)
 		return false;
-	if (m_vk->frameSync.empty())
+	if (m_vk->frameSync.empty() || m_vk->frameCommandBuffers.empty())
 		return false;
 
 	VulkanState::FrameSync & currentFrame = m_vk->frameSync[m_vk->frameSyncIndex];
+	if (m_vk->frameSyncIndex >= m_vk->frameCommandBuffers.size())
+		return false;
+	VkCommandBuffer commandBuffer = m_vk->frameCommandBuffers[m_vk->frameSyncIndex];
 	if (currentFrame.imageAvailable == VK_NULL_HANDLE
 		|| currentFrame.renderFinished == VK_NULL_HANDLE
-		|| currentFrame.inFlight == VK_NULL_HANDLE) {
+		|| currentFrame.inFlight == VK_NULL_HANDLE
+		|| commandBuffer == VK_NULL_HANDLE) {
 		return false;
 	}
 
@@ -630,6 +636,23 @@ bool ContextImpl::present()
 		}
 	}
 
+	if (vkResetCommandBuffer(commandBuffer, 0) != VK_SUCCESS) {
+		LOG(LOG_WARNING, "vkResetCommandBuffer failed.");
+		return false;
+	}
+
+	VkCommandBufferBeginInfo commandBufferBeginInfo{};
+	commandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	commandBufferBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+	if (vkBeginCommandBuffer(commandBuffer, &commandBufferBeginInfo) != VK_SUCCESS) {
+		LOG(LOG_WARNING, "vkBeginCommandBuffer failed.");
+		return false;
+	}
+	if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
+		LOG(LOG_WARNING, "vkEndCommandBuffer failed.");
+		return false;
+	}
+
 	if (vkResetFences(m_vk->device, 1, &currentFrame.inFlight) != VK_SUCCESS) {
 		LOG(LOG_WARNING, "vkResetFences failed.");
 		return false;
@@ -642,7 +665,8 @@ bool ContextImpl::present()
 	submitInfo.waitSemaphoreCount = 1;
 	submitInfo.pWaitSemaphores = &currentFrame.imageAvailable;
 	submitInfo.pWaitDstStageMask = &waitStage;
-	submitInfo.commandBufferCount = 0;
+	submitInfo.commandBufferCount = 1;
+	submitInfo.pCommandBuffers = &commandBuffer;
 	submitInfo.signalSemaphoreCount = 1;
 	submitInfo.pSignalSemaphores = &currentFrame.renderFinished;
 
@@ -1126,6 +1150,10 @@ bool ContextImpl::createPresentSyncObjects()
 	VkFenceCreateInfo fenceCreateInfo{};
 	fenceCreateInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
 	fenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+	VkCommandPoolCreateInfo commandPoolCreateInfo{};
+	commandPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+	commandPoolCreateInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+	commandPoolCreateInfo.queueFamilyIndex = m_vk->graphicsQueueFamily;
 
 	m_vk->frameSync.clear();
 	m_vk->frameSync.resize(kFramesInFlight);
@@ -1142,6 +1170,23 @@ bool ContextImpl::createPresentSyncObjects()
 			destroyPresentSyncObjects();
 			return false;
 		}
+	}
+
+	if (vkCreateCommandPool(m_vk->device, &commandPoolCreateInfo, nullptr, &m_vk->commandPool) != VK_SUCCESS) {
+		destroyPresentSyncObjects();
+		return false;
+	}
+
+	m_vk->frameCommandBuffers.clear();
+	m_vk->frameCommandBuffers.resize(kFramesInFlight, VK_NULL_HANDLE);
+	VkCommandBufferAllocateInfo commandBufferAllocateInfo{};
+	commandBufferAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	commandBufferAllocateInfo.commandPool = m_vk->commandPool;
+	commandBufferAllocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	commandBufferAllocateInfo.commandBufferCount = static_cast<u32>(m_vk->frameCommandBuffers.size());
+	if (vkAllocateCommandBuffers(m_vk->device, &commandBufferAllocateInfo, m_vk->frameCommandBuffers.data()) != VK_SUCCESS) {
+		destroyPresentSyncObjects();
+		return false;
 	}
 
 	m_vk->frameSyncIndex = 0;
@@ -1368,6 +1413,12 @@ void ContextImpl::destroyPresentSyncObjects()
 			vkDestroyFence(m_vk->device, frame.inFlight, nullptr);
 			frame.inFlight = VK_NULL_HANDLE;
 		}
+	}
+
+	m_vk->frameCommandBuffers.clear();
+	if (m_vk->commandPool != VK_NULL_HANDLE) {
+		vkDestroyCommandPool(m_vk->device, m_vk->commandPool, nullptr);
+		m_vk->commandPool = VK_NULL_HANDLE;
 	}
 
 	m_vk->frameSync.clear();
