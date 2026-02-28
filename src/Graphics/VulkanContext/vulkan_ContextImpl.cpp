@@ -179,6 +179,8 @@ struct ContextImpl::VulkanState
 	VkExtent2D swapchainExtent = {};
 	std::vector<VkImage> swapchainImages;
 	std::vector<VkImageView> swapchainImageViews;
+	VkRenderPass renderPass = VK_NULL_HANDLE;
+	std::vector<VkFramebuffer> swapchainFramebuffers;
 	std::vector<VkFence> swapchainImageFences;
 	VkCommandPool commandPool = VK_NULL_HANDLE;
 	std::vector<VkCommandBuffer> frameCommandBuffers;
@@ -627,6 +629,14 @@ bool ContextImpl::present()
 		LOG(LOG_WARNING, "Acquired Vulkan swapchain image index is out of range: %u", currentImageIndex);
 		return false;
 	}
+	if (currentImageIndex >= m_vk->swapchainFramebuffers.size()) {
+		LOG(LOG_WARNING, "Acquired Vulkan framebuffer index is out of range: %u", currentImageIndex);
+		return false;
+	}
+	if (m_vk->renderPass == VK_NULL_HANDLE) {
+		LOG(LOG_WARNING, "Vulkan render pass is not initialized.");
+		return false;
+	}
 
 	VkFence & imageFence = m_vk->swapchainImageFences[currentImageIndex];
 	if (imageFence != VK_NULL_HANDLE && imageFence != currentFrame.inFlight) {
@@ -648,6 +658,23 @@ bool ContextImpl::present()
 		LOG(LOG_WARNING, "vkBeginCommandBuffer failed.");
 		return false;
 	}
+
+	VkClearValue clearValue{};
+	clearValue.color.float32[0] = 0.0f;
+	clearValue.color.float32[1] = 0.0f;
+	clearValue.color.float32[2] = 0.0f;
+	clearValue.color.float32[3] = 1.0f;
+	VkRenderPassBeginInfo renderPassBeginInfo{};
+	renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+	renderPassBeginInfo.renderPass = m_vk->renderPass;
+	renderPassBeginInfo.framebuffer = m_vk->swapchainFramebuffers[currentImageIndex];
+	renderPassBeginInfo.renderArea.offset = { 0, 0 };
+	renderPassBeginInfo.renderArea.extent = m_vk->swapchainExtent;
+	renderPassBeginInfo.clearValueCount = 1;
+	renderPassBeginInfo.pClearValues = &clearValue;
+	vkCmdBeginRenderPass(commandBuffer, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+	vkCmdEndRenderPass(commandBuffer);
+
 	if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
 		LOG(LOG_WARNING, "vkEndCommandBuffer failed.");
 		return false;
@@ -1359,6 +1386,68 @@ void ContextImpl::createSwapchain()
 		m_vk->swapchainImageViews.push_back(imageView);
 	}
 
+	VkAttachmentDescription colorAttachment{};
+	colorAttachment.format = selectedFormat.format;
+	colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+	colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+	VkAttachmentReference colorAttachmentReference{};
+	colorAttachmentReference.attachment = 0;
+	colorAttachmentReference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+	VkSubpassDescription subpassDescription{};
+	subpassDescription.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+	subpassDescription.colorAttachmentCount = 1;
+	subpassDescription.pColorAttachments = &colorAttachmentReference;
+
+	VkSubpassDependency subpassDependency{};
+	subpassDependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+	subpassDependency.dstSubpass = 0;
+	subpassDependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	subpassDependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	subpassDependency.srcAccessMask = 0;
+	subpassDependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+	VkRenderPassCreateInfo renderPassCreateInfo{};
+	renderPassCreateInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+	renderPassCreateInfo.attachmentCount = 1;
+	renderPassCreateInfo.pAttachments = &colorAttachment;
+	renderPassCreateInfo.subpassCount = 1;
+	renderPassCreateInfo.pSubpasses = &subpassDescription;
+	renderPassCreateInfo.dependencyCount = 1;
+	renderPassCreateInfo.pDependencies = &subpassDependency;
+	if (vkCreateRenderPass(m_vk->device, &renderPassCreateInfo, nullptr, &m_vk->renderPass) != VK_SUCCESS) {
+		LOG(LOG_WARNING, "vkCreateRenderPass failed for swapchain.");
+		destroySwapchain();
+		return;
+	}
+
+	m_vk->swapchainFramebuffers.clear();
+	m_vk->swapchainFramebuffers.reserve(m_vk->swapchainImageViews.size());
+	for (VkImageView imageView : m_vk->swapchainImageViews) {
+		VkFramebufferCreateInfo framebufferCreateInfo{};
+		framebufferCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+		framebufferCreateInfo.renderPass = m_vk->renderPass;
+		framebufferCreateInfo.attachmentCount = 1;
+		framebufferCreateInfo.pAttachments = &imageView;
+		framebufferCreateInfo.width = extent.width;
+		framebufferCreateInfo.height = extent.height;
+		framebufferCreateInfo.layers = 1;
+
+		VkFramebuffer framebuffer = VK_NULL_HANDLE;
+		if (vkCreateFramebuffer(m_vk->device, &framebufferCreateInfo, nullptr, &framebuffer) != VK_SUCCESS) {
+			LOG(LOG_WARNING, "vkCreateFramebuffer failed for swapchain image.");
+			destroySwapchain();
+			return;
+		}
+		m_vk->swapchainFramebuffers.push_back(framebuffer);
+	}
+
 	m_vk->swapchainFormat = selectedFormat.format;
 	m_vk->swapchainExtent = extent;
 	m_vk->swapchainImageFences.assign(m_vk->swapchainImages.size(), VK_NULL_HANDLE);
@@ -1373,6 +1462,19 @@ void ContextImpl::destroySwapchain()
 #if GLIDEN64_VULKAN_HEADERS_AVAILABLE
 	if (!m_vk || m_vk->device == VK_NULL_HANDLE)
 		return;
+
+	if (!m_vk->swapchainFramebuffers.empty()) {
+		for (VkFramebuffer framebuffer : m_vk->swapchainFramebuffers) {
+			if (framebuffer != VK_NULL_HANDLE)
+				vkDestroyFramebuffer(m_vk->device, framebuffer, nullptr);
+		}
+		m_vk->swapchainFramebuffers.clear();
+	}
+
+	if (m_vk->renderPass != VK_NULL_HANDLE) {
+		vkDestroyRenderPass(m_vk->device, m_vk->renderPass, nullptr);
+		m_vk->renderPass = VK_NULL_HANDLE;
+	}
 
 	if (!m_vk->swapchainImageViews.empty()) {
 		for (VkImageView imageView : m_vk->swapchainImageViews) {
