@@ -19,6 +19,10 @@
 #include <bcm_host.h>
 #endif
 
+#if defined(OS_LINUX) && !defined(EGL)
+#include <GL/glx.h>
+#endif
+
 using namespace opengl;
 
 class DisplayWindowMupen64plus : public DisplayWindow
@@ -29,6 +33,7 @@ public:
 private:
 	void _setAttributes();
 	void _getDisplaySize();
+	void _updatePresentationWindowInfo();
 
 	bool _start() override;
 	void _stop() override;
@@ -115,6 +120,8 @@ bool DisplayWindowMupen64plus::_start()
 		return false;
 	}
 
+	_updatePresentationWindowInfo();
+
 	char caption[128];
 #ifdef PLUGIN_REVISION
 # ifdef _DEBUG
@@ -189,6 +196,7 @@ bool DisplayWindowMupen64plus::_resizeWindow()
 
 	_setBufferSize();
 	opengl::Utils::isGLError(); // reset GL error.
+	_updatePresentationWindowInfo();
 	return true;
 }
 
@@ -218,8 +226,10 @@ void DisplayWindowMupen64plus::_changeWindow()
 #endif // M64P_GLIDENUI
 		CoreVideo_ToggleFullScreen();
 #ifdef M64P_GLIDENUI
-	}
+		}
 #endif // M64P_GLIDENUI
+
+	_updatePresentationWindowInfo();
 }
 
 void DisplayWindowMupen64plus::_getDisplaySize()
@@ -239,6 +249,29 @@ void DisplayWindowMupen64plus::_getDisplaySize()
 		}
 	}
 #endif
+}
+
+void DisplayWindowMupen64plus::_updatePresentationWindowInfo()
+{
+	graphics::Context::PresentationWindowInfo presentationInfo;
+	presentationInfo.width = m_screenWidth;
+	presentationInfo.height = m_screenHeight;
+
+#if defined(OS_LINUX) && !defined(EGL)
+	if (gfxContext.getBackend() == graphics::GraphicsBackend::Vulkan) {
+		Display * display = glXGetCurrentDisplay();
+		const GLXDrawable drawable = glXGetCurrentDrawable();
+		if (display != nullptr && drawable != 0) {
+			presentationInfo.system = graphics::Context::PresentationWindowInfo::WindowSystem::Xlib;
+			presentationInfo.display = reinterpret_cast<void *>(display);
+			presentationInfo.window = static_cast<uintptr_t>(drawable);
+		} else {
+			LOG(LOG_WARNING, "Unable to query current GLX drawable for Vulkan presentation bootstrap.");
+		}
+	}
+#endif
+
+	gfxContext.setPresentationWindowInfo(presentationInfo);
 }
 
 void DisplayWindowMupen64plus::_readScreen2(void * _dest, int * _width, int * _height, int _front)

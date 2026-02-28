@@ -13,6 +13,8 @@ namespace vulkan {
 
 		static bool hasVulkanSupport();
 
+		void setPresentationWindowInfo(const graphics::Context::PresentationWindowInfo & _info) override;
+
 		void init() override;
 
 		void destroy() override;
@@ -149,10 +151,12 @@ namespace vulkan {
 		void initFramebufferFormats();
 		bool initializeVulkanCore();
 		bool createInstance();
+		bool createSurface();
 		bool selectPhysicalDevice();
 		bool createDeviceAndQueue();
 		void createSwapchain();
 		void destroySwapchain();
+		void destroySurface();
 		void shutdownVulkanCore();
 
 		graphics::ObjectHandle _allocateHandle();
@@ -165,6 +169,7 @@ namespace vulkan {
 		f32 m_maxAnisotropy;
 		u32 m_nextHandle;
 		bool m_coreReady;
+		graphics::Context::PresentationWindowInfo m_presentationWindowInfo;
 		std::unique_ptr<graphics::FramebufferTextureFormats> m_fbTexFormats;
 		std::unique_ptr<VulkanState> m_vk;
 	};

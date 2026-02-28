@@ -10,6 +10,7 @@ namespace graphics {
 	{
 	public:
 		virtual ~ContextImpl() {}
+		virtual void setPresentationWindowInfo(const Context::PresentationWindowInfo & _info) { (void)_info; }
 		virtual void init() = 0;
 		virtual void destroy() = 0;
 		virtual void setClampMode(ClampMode _mode) = 0;

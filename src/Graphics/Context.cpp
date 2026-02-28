@@ -35,6 +35,7 @@ bool Context::DualSourceBlending = false;
 
 Context::Context()
 	: m_backend(getDefaultBackend())
+	, m_presentationWindowInfo()
 {}
 
 Context::~Context() {
@@ -51,10 +52,18 @@ GraphicsBackend Context::getBackend() const
 	return m_backend;
 }
 
+void Context::setPresentationWindowInfo(const PresentationWindowInfo & _info)
+{
+	m_presentationWindowInfo = _info;
+	if (m_impl)
+		m_impl->setPresentationWindowInfo(m_presentationWindowInfo);
+}
+
 
 void Context::init()
 {
 	m_impl = createContextImpl(m_backend);
+	m_impl->setPresentationWindowInfo(m_presentationWindowInfo);
 	m_impl->init();
 	m_fbTexFormats.reset(m_impl->getFramebufferTextureFormats());
 	Multisampling = m_impl->isSupported(SpecialFeatures::Multisampling);

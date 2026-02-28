@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <Combiner.h>
 #include "ObjectHandle.h"
@@ -48,12 +49,28 @@ namespace graphics {
 	class Context
 	{
 	public:
+		struct PresentationWindowInfo {
+			enum class WindowSystem {
+				Unknown,
+				Xlib,
+				Win32
+			};
+
+			WindowSystem system = WindowSystem::Unknown;
+			void * display = nullptr;
+			uintptr_t window = 0;
+			u32 width = 0;
+			u32 height = 0;
+		};
+
 		Context();
 		~Context();
 
 		void setBackend(GraphicsBackend _backend);
 
 		GraphicsBackend getBackend() const;
+
+		void setPresentationWindowInfo(const PresentationWindowInfo & _info);
 
 		void init();
 
@@ -317,6 +334,7 @@ namespace graphics {
 
 	private:
 		GraphicsBackend m_backend;
+		PresentationWindowInfo m_presentationWindowInfo;
 		std::unique_ptr<ContextImpl> m_impl;
 		std::unique_ptr<FramebufferTextureFormats> m_fbTexFormats;
 	};

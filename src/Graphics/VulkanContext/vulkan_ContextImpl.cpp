@@ -2,11 +2,16 @@
 
 #include <algorithm>
 #include <cstring>
+#include <limits>
 #include <vector>
 #include <Log.h>
 #include <Graphics/ColorBufferReader.h>
 #include <Graphics/Parameters.h>
 #include <Graphics/ShaderProgram.h>
+
+#if defined(OS_LINUX) && !defined(VK_USE_PLATFORM_XLIB_KHR)
+#define VK_USE_PLATFORM_XLIB_KHR 1
+#endif
 
 #if __has_include(<vulkan/vulkan.h>)
 #define GLIDEN64_VULKAN_HEADERS_AVAILABLE 1
@@ -158,6 +163,8 @@ struct ContextImpl::VulkanState
 	u32 graphicsQueueFamily = UINT32_MAX;
 	VkSurfaceKHR surface = VK_NULL_HANDLE;
 	VkSwapchainKHR swapchain = VK_NULL_HANDLE;
+	bool surfaceExtensionEnabled = false;
+	bool xlibSurfaceExtensionEnabled = false;
 	bool swapchainExtensionEnabled = false;
 #endif
 };
@@ -171,6 +178,7 @@ ContextImpl::ContextImpl()
 	, m_maxAnisotropy(1.0f)
 	, m_nextHandle(1U)
 	, m_coreReady(false)
+	, m_presentationWindowInfo()
 {
 }
 
@@ -185,6 +193,26 @@ bool ContextImpl::hasVulkanSupport()
 	return true;
 #else
 	return false;
+#endif
+}
+
+void ContextImpl::setPresentationWindowInfo(const graphics::Context::PresentationWindowInfo & _info)
+{
+	const bool changed = m_presentationWindowInfo.system != _info.system
+		|| m_presentationWindowInfo.display != _info.display
+		|| m_presentationWindowInfo.window != _info.window
+		|| m_presentationWindowInfo.width != _info.width
+		|| m_presentationWindowInfo.height != _info.height;
+	m_presentationWindowInfo = _info;
+
+#if GLIDEN64_VULKAN_HEADERS_AVAILABLE
+	if (!changed || !m_vk || m_vk->instance == VK_NULL_HANDLE)
+		return;
+
+	destroySwapchain();
+	destroySurface();
+	if (createSurface())
+		createSwapchain();
 #endif
 }
 
@@ -599,6 +627,13 @@ bool ContextImpl::initializeVulkanCore()
 		return false;
 	if (!createInstance())
 		return false;
+	if (!createSurface()) {
+		const bool hasPresentationTarget = m_presentationWindowInfo.system != graphics::Context::PresentationWindowInfo::WindowSystem::Unknown
+			&& m_presentationWindowInfo.window != 0;
+		if (hasPresentationTarget) {
+			LOG(LOG_WARNING, "Vulkan presentation target was provided, but surface creation failed.");
+		}
+	}
 	if (!selectPhysicalDevice())
 		return false;
 	if (!createDeviceAndQueue())
@@ -615,6 +650,66 @@ bool ContextImpl::createInstance()
 #else
 	if (!m_vk)
 		m_vk.reset(new VulkanState);
+
+	m_vk->surfaceExtensionEnabled = false;
+	m_vk->xlibSurfaceExtensionEnabled = false;
+	m_vk->swapchainExtensionEnabled = false;
+
+	u32 instanceExtensionCount = 0;
+	std::vector<VkExtensionProperties> instanceExtensions;
+	if (vkEnumerateInstanceExtensionProperties(nullptr, &instanceExtensionCount, nullptr) == VK_SUCCESS && instanceExtensionCount > 0U) {
+		instanceExtensions.resize(instanceExtensionCount);
+		if (vkEnumerateInstanceExtensionProperties(nullptr, &instanceExtensionCount, instanceExtensions.data()) != VK_SUCCESS) {
+			instanceExtensions.clear();
+		}
+	}
+
+	auto hasInstanceExtension = [&instanceExtensions](const char * _extensionName) {
+		for (const auto & extension : instanceExtensions) {
+			if (strcmp(extension.extensionName, _extensionName) == 0)
+				return true;
+		}
+		return false;
+	};
+
+	std::vector<const char *> enabledInstanceExtensions;
+	const bool hasPresentationTarget = m_presentationWindowInfo.system != graphics::Context::PresentationWindowInfo::WindowSystem::Unknown
+		&& m_presentationWindowInfo.window != 0;
+	if (hasPresentationTarget) {
+		bool platformExtensionReady = false;
+
+		switch (m_presentationWindowInfo.system) {
+#if defined(OS_LINUX)
+		case graphics::Context::PresentationWindowInfo::WindowSystem::Xlib:
+			if (hasInstanceExtension(VK_KHR_XLIB_SURFACE_EXTENSION_NAME)) {
+				enabledInstanceExtensions.push_back(VK_KHR_XLIB_SURFACE_EXTENSION_NAME);
+				m_vk->xlibSurfaceExtensionEnabled = true;
+				platformExtensionReady = true;
+			} else {
+				LOG(LOG_WARNING, "Vulkan extension %s is unavailable; Xlib surface creation is disabled.", VK_KHR_XLIB_SURFACE_EXTENSION_NAME);
+			}
+			break;
+#endif
+		case graphics::Context::PresentationWindowInfo::WindowSystem::Win32:
+			LOG(LOG_WARNING, "Win32 Vulkan presentation wiring is not implemented yet.");
+			break;
+		case graphics::Context::PresentationWindowInfo::WindowSystem::Unknown:
+		default:
+			break;
+		}
+
+		if (platformExtensionReady) {
+			if (hasInstanceExtension(VK_KHR_SURFACE_EXTENSION_NAME)) {
+				enabledInstanceExtensions.insert(enabledInstanceExtensions.begin(), VK_KHR_SURFACE_EXTENSION_NAME);
+				m_vk->surfaceExtensionEnabled = true;
+			} else {
+				LOG(LOG_WARNING, "Vulkan extension %s is unavailable; surface creation is disabled.", VK_KHR_SURFACE_EXTENSION_NAME);
+				m_vk->xlibSurfaceExtensionEnabled = false;
+				enabledInstanceExtensions.clear();
+			}
+		}
+	}
+
 	VkApplicationInfo appInfo{};
 	appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
 	appInfo.pApplicationName = "GLideN64 Vulkan";
@@ -626,6 +721,8 @@ bool ContextImpl::createInstance()
 	VkInstanceCreateInfo createInfo{};
 	createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
 	createInfo.pApplicationInfo = &appInfo;
+	createInfo.enabledExtensionCount = static_cast<u32>(enabledInstanceExtensions.size());
+	createInfo.ppEnabledExtensionNames = enabledInstanceExtensions.empty() ? nullptr : enabledInstanceExtensions.data();
 
 	const VkResult result = vkCreateInstance(&createInfo, nullptr, &m_vk->instance);
 	if (result != VK_SUCCESS) {
@@ -636,11 +733,54 @@ bool ContextImpl::createInstance()
 #endif
 }
 
+bool ContextImpl::createSurface()
+{
+#if !GLIDEN64_VULKAN_HEADERS_AVAILABLE
+	return false;
+#else
+	if (!m_vk || m_vk->instance == VK_NULL_HANDLE)
+		return false;
+	if (m_vk->surface != VK_NULL_HANDLE)
+		return true;
+
+	switch (m_presentationWindowInfo.system) {
+#if defined(OS_LINUX)
+	case graphics::Context::PresentationWindowInfo::WindowSystem::Xlib:
+		if (!m_vk->surfaceExtensionEnabled || !m_vk->xlibSurfaceExtensionEnabled)
+			return false;
+		if (m_presentationWindowInfo.display == nullptr || m_presentationWindowInfo.window == 0)
+			return false;
+	{
+		VkXlibSurfaceCreateInfoKHR createInfo{};
+		createInfo.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
+		createInfo.dpy = reinterpret_cast<Display *>(m_presentationWindowInfo.display);
+		createInfo.window = static_cast<Window>(m_presentationWindowInfo.window);
+
+		const VkResult result = vkCreateXlibSurfaceKHR(m_vk->instance, &createInfo, nullptr, &m_vk->surface);
+		if (result != VK_SUCCESS) {
+			LOG(LOG_WARNING, "vkCreateXlibSurfaceKHR failed: %d", static_cast<int>(result));
+			return false;
+		}
+		return true;
+	}
+#endif
+	case graphics::Context::PresentationWindowInfo::WindowSystem::Win32:
+		return false;
+	case graphics::Context::PresentationWindowInfo::WindowSystem::Unknown:
+	default:
+		return false;
+	}
+#endif
+}
+
 bool ContextImpl::selectPhysicalDevice()
 {
 #if !GLIDEN64_VULKAN_HEADERS_AVAILABLE
 	return false;
 #else
+	if (!m_vk || m_vk->instance == VK_NULL_HANDLE)
+		return false;
+
 	u32 deviceCount = 0;
 	if (vkEnumeratePhysicalDevices(m_vk->instance, &deviceCount, nullptr) != VK_SUCCESS || deviceCount == 0U) {
 		LOG(LOG_WARNING, "Vulkan physical device enumeration failed or no device found.");
@@ -664,6 +804,12 @@ bool ContextImpl::selectPhysicalDevice()
 		for (u32 i = 0; i < queueFamilyCount; ++i) {
 			if ((queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) == 0)
 				continue;
+
+			if (m_vk->surface != VK_NULL_HANDLE) {
+				VkBool32 presentSupported = VK_FALSE;
+				if (vkGetPhysicalDeviceSurfaceSupportKHR(device, i, m_vk->surface, &presentSupported) != VK_SUCCESS || presentSupported == VK_FALSE)
+					continue;
+			}
 
 			m_vk->physicalDevice = device;
 			m_vk->graphicsQueueFamily = i;
@@ -690,7 +836,11 @@ bool ContextImpl::selectPhysicalDevice()
 		}
 	}
 
-	LOG(LOG_WARNING, "No Vulkan queue family with graphics capability was found.");
+	if (m_vk->surface != VK_NULL_HANDLE) {
+		LOG(LOG_WARNING, "No Vulkan queue family with both graphics and presentation support was found.");
+	} else {
+		LOG(LOG_WARNING, "No Vulkan queue family with graphics capability was found.");
+	}
 	return false;
 #endif
 }
@@ -700,6 +850,11 @@ bool ContextImpl::createDeviceAndQueue()
 #if !GLIDEN64_VULKAN_HEADERS_AVAILABLE
 	return false;
 #else
+	if (!m_vk || m_vk->physicalDevice == VK_NULL_HANDLE || m_vk->graphicsQueueFamily == UINT32_MAX)
+		return false;
+
+	m_vk->swapchainExtensionEnabled = false;
+
 	const float queuePriority = 1.0f;
 	VkDeviceQueueCreateInfo queueCreateInfo{};
 	queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
@@ -720,13 +875,18 @@ bool ContextImpl::createDeviceAndQueue()
 		if (vkEnumerateDeviceExtensionProperties(m_vk->physicalDevice, nullptr, &extensionCount, extensionProperties.data()) == VK_SUCCESS) {
 			for (const auto & extension : extensionProperties) {
 				if (strcmp(extension.extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME) == 0) {
-					extensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
-					m_vk->swapchainExtensionEnabled = true;
+					if (m_vk->surface != VK_NULL_HANDLE) {
+						extensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+						m_vk->swapchainExtensionEnabled = true;
+					}
 					break;
 				}
 			}
 		}
 	}
+
+	if (m_vk->surface != VK_NULL_HANDLE && !m_vk->swapchainExtensionEnabled)
+		LOG(LOG_WARNING, "Vulkan device extension %s is unavailable; swapchain creation is disabled.", VK_KHR_SWAPCHAIN_EXTENSION_NAME);
 
 	VkDeviceCreateInfo createInfo{};
 	createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -756,6 +916,107 @@ void ContextImpl::createSwapchain()
 		LOG(LOG_WARNING, "Vulkan surface is not initialized yet; swapchain creation is deferred.");
 		return;
 	}
+
+	if (m_vk->swapchain != VK_NULL_HANDLE)
+		destroySwapchain();
+
+	VkSurfaceCapabilitiesKHR capabilities{};
+	if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_vk->physicalDevice, m_vk->surface, &capabilities) != VK_SUCCESS) {
+		LOG(LOG_WARNING, "vkGetPhysicalDeviceSurfaceCapabilitiesKHR failed.");
+		return;
+	}
+
+	if ((capabilities.supportedUsageFlags & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) == 0) {
+		LOG(LOG_WARNING, "Vulkan surface does not support color-attachment swapchain images.");
+		return;
+	}
+
+	u32 formatCount = 0;
+	if (vkGetPhysicalDeviceSurfaceFormatsKHR(m_vk->physicalDevice, m_vk->surface, &formatCount, nullptr) != VK_SUCCESS || formatCount == 0) {
+		LOG(LOG_WARNING, "vkGetPhysicalDeviceSurfaceFormatsKHR failed.");
+		return;
+	}
+
+	std::vector<VkSurfaceFormatKHR> formats(formatCount);
+	if (vkGetPhysicalDeviceSurfaceFormatsKHR(m_vk->physicalDevice, m_vk->surface, &formatCount, formats.data()) != VK_SUCCESS) {
+		LOG(LOG_WARNING, "vkGetPhysicalDeviceSurfaceFormatsKHR failed.");
+		return;
+	}
+
+	VkSurfaceFormatKHR selectedFormat = formats[0];
+	for (const auto & format : formats) {
+		if (format.format == VK_FORMAT_B8G8R8A8_UNORM && format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+			selectedFormat = format;
+			break;
+		}
+		if (format.format == VK_FORMAT_R8G8B8A8_UNORM && format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+			selectedFormat = format;
+		}
+	}
+
+	u32 presentModeCount = 0;
+	std::vector<VkPresentModeKHR> presentModes;
+	if (vkGetPhysicalDeviceSurfacePresentModesKHR(m_vk->physicalDevice, m_vk->surface, &presentModeCount, nullptr) == VK_SUCCESS && presentModeCount > 0) {
+		presentModes.resize(presentModeCount);
+		if (vkGetPhysicalDeviceSurfacePresentModesKHR(m_vk->physicalDevice, m_vk->surface, &presentModeCount, presentModes.data()) != VK_SUCCESS) {
+			presentModes.clear();
+		}
+	}
+
+	VkPresentModeKHR selectedPresentMode = VK_PRESENT_MODE_FIFO_KHR;
+	for (VkPresentModeKHR presentMode : presentModes) {
+		if (presentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
+			selectedPresentMode = presentMode;
+			break;
+		}
+	}
+
+	VkExtent2D extent = capabilities.currentExtent;
+	if (extent.width == std::numeric_limits<u32>::max()) {
+		const u32 requestedWidth = std::max<u32>(1U, m_presentationWindowInfo.width);
+		const u32 requestedHeight = std::max<u32>(1U, m_presentationWindowInfo.height);
+		extent.width = std::min(capabilities.maxImageExtent.width, std::max(capabilities.minImageExtent.width, requestedWidth));
+		extent.height = std::min(capabilities.maxImageExtent.height, std::max(capabilities.minImageExtent.height, requestedHeight));
+	}
+
+	u32 imageCount = capabilities.minImageCount + 1;
+	if (capabilities.maxImageCount > 0 && imageCount > capabilities.maxImageCount)
+		imageCount = capabilities.maxImageCount;
+
+	VkCompositeAlphaFlagBitsKHR compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+	if ((capabilities.supportedCompositeAlpha & compositeAlpha) == 0) {
+		if (capabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR) {
+			compositeAlpha = VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR;
+		} else if (capabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR) {
+			compositeAlpha = VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR;
+		} else if (capabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR) {
+			compositeAlpha = VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;
+		}
+	}
+
+	VkSwapchainCreateInfoKHR createInfo{};
+	createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+	createInfo.surface = m_vk->surface;
+	createInfo.minImageCount = imageCount;
+	createInfo.imageFormat = selectedFormat.format;
+	createInfo.imageColorSpace = selectedFormat.colorSpace;
+	createInfo.imageExtent = extent;
+	createInfo.imageArrayLayers = 1;
+	createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+	createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	createInfo.preTransform = capabilities.currentTransform;
+	createInfo.compositeAlpha = compositeAlpha;
+	createInfo.presentMode = selectedPresentMode;
+	createInfo.clipped = VK_TRUE;
+	createInfo.oldSwapchain = VK_NULL_HANDLE;
+
+	const VkResult result = vkCreateSwapchainKHR(m_vk->device, &createInfo, nullptr, &m_vk->swapchain);
+	if (result != VK_SUCCESS) {
+		LOG(LOG_WARNING, "vkCreateSwapchainKHR failed: %d", static_cast<int>(result));
+		return;
+	}
+
+	LOG(LOG_VERBOSE, "Vulkan swapchain created: %ux%u", extent.width, extent.height);
 #endif
 }
 
@@ -769,6 +1030,16 @@ void ContextImpl::destroySwapchain()
 #endif
 }
 
+void ContextImpl::destroySurface()
+{
+#if GLIDEN64_VULKAN_HEADERS_AVAILABLE
+	if (!m_vk || m_vk->instance == VK_NULL_HANDLE || m_vk->surface == VK_NULL_HANDLE)
+		return;
+	vkDestroySurfaceKHR(m_vk->instance, m_vk->surface, nullptr);
+	m_vk->surface = VK_NULL_HANDLE;
+#endif
+}
+
 void ContextImpl::shutdownVulkanCore()
 {
 #if GLIDEN64_VULKAN_HEADERS_AVAILABLE
@@ -777,13 +1048,17 @@ void ContextImpl::shutdownVulkanCore()
 		return;
 	}
 
+	if (m_vk->device != VK_NULL_HANDLE)
+		vkDeviceWaitIdle(m_vk->device);
+
 	destroySwapchain();
 
 	if (m_vk->device != VK_NULL_HANDLE) {
-		vkDeviceWaitIdle(m_vk->device);
 		vkDestroyDevice(m_vk->device, nullptr);
 		m_vk->device = VK_NULL_HANDLE;
 	}
+
+	destroySurface();
 
 	if (m_vk->instance != VK_NULL_HANDLE) {
 		vkDestroyInstance(m_vk->instance, nullptr);
