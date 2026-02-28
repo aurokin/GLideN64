@@ -72,6 +72,7 @@ namespace graphics {
 		virtual void drawRects(const Context::DrawRectParameters & _params) = 0;
 		virtual void drawLine(f32 _width, SPVertex * _vertices) = 0;
 		virtual f32 getMaxLineWidth() = 0;
+		virtual bool present() { return false; }
 		virtual bool isSupported(SpecialFeatures _feature) const = 0;
 		virtual s32 getMaxMSAALevel() = 0;
 		virtual bool isError() const = 0;

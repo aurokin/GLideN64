@@ -137,6 +137,8 @@ namespace vulkan {
 
 		f32 getMaxLineWidth() override;
 
+		bool present() override;
+
 		bool isSupported(graphics::SpecialFeatures _feature) const override;
 
 		s32 getMaxMSAALevel() override;
@@ -154,8 +156,10 @@ namespace vulkan {
 		bool createSurface();
 		bool selectPhysicalDevice();
 		bool createDeviceAndQueue();
+		bool createPresentSyncObjects();
 		void createSwapchain();
 		void destroySwapchain();
+		void destroyPresentSyncObjects();
 		void destroySurface();
 		void shutdownVulkanCore();
 

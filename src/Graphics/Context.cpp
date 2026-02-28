@@ -387,6 +387,11 @@ f32 Context::getMaxLineWidth()
 	return m_impl->getMaxLineWidth();
 }
 
+bool Context::present()
+{
+	return m_impl->present();
+}
+
 s32 Context::getMaxMSAALevel()
 {
 	return m_impl->getMaxMSAALevel();

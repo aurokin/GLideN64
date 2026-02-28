@@ -311,6 +311,8 @@ namespace graphics {
 
 		f32 getMaxLineWidth();
 
+		bool present();
+
 		/*---------------Misc-------------*/
 		s32 getMaxMSAALevel();
 

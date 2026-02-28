@@ -19,6 +19,8 @@ public:
 	DisplayWindowWindows() = default;
 
 private:
+	void _updatePresentationWindowInfo();
+
 	bool _start() override;
 	void _stop() override;
 	void _restart() override;
@@ -44,7 +46,9 @@ bool DisplayWindowWindows::_start()
 	FunctionWrapper::setThreadedMode(config.video.threadedVideo);
 
 	FunctionWrapper::windowsStart();
-	return _resizeWindow();
+	if (!_resizeWindow())
+		return false;
+	return true;
 }
 
 void DisplayWindowWindows::_stop()
@@ -59,7 +63,15 @@ void DisplayWindowWindows::_restart()
 
 void DisplayWindowWindows::_swapBuffers()
 {
-	//Don't let the command queue grow too big buy waiting on no more swap buffers being queued
+	//Don't let the command queue grow too big by waiting on no more swap buffers being queued
+	if (gfxContext.getBackend() == graphics::GraphicsBackend::Vulkan) {
+		if (!gfxContext.present()) {
+			FunctionWrapper::WaitForSwapBuffersQueued();
+			FunctionWrapper::windowsSwapBuffers();
+		}
+		return;
+	}
+
 	FunctionWrapper::WaitForSwapBuffersQueued();
 
 	FunctionWrapper::windowsSwapBuffers();
@@ -226,15 +238,20 @@ bool DisplayWindowWindows::_resizeWindow()
 	windowRect = statusRect = toolRect = { 0 };
 
 	if (m_bFullscreen) {
-		if (config.video.borderless != 0u && _borderlessDevice())
+		if (config.video.borderless != 0u && _borderlessDevice()) {
+			_updatePresentationWindowInfo();
 			return true;
+		}
 
 		m_screenWidth = config.video.fullscreenWidth;
 		m_screenHeight = config.video.fullscreenHeight;
 		m_heightOffset = 0;
 		_setBufferSize();
 
-		return (SetWindowPos(hWnd, NULL, 0, 0, m_screenWidth, m_screenHeight, SWP_NOACTIVATE | SWP_NOZORDER | SWP_SHOWWINDOW) == TRUE);
+		const bool resized = SetWindowPos(hWnd, NULL, 0, 0, m_screenWidth, m_screenHeight, SWP_NOACTIVATE | SWP_NOZORDER | SWP_SHOWWINDOW) == TRUE;
+		if (resized)
+			_updatePresentationWindowInfo();
+		return resized;
 	} else {
 		m_screenWidth = m_width = config.video.windowedWidth;
 		m_screenHeight = config.video.windowedHeight;
@@ -254,8 +271,11 @@ bool DisplayWindowWindows::_resizeWindow()
 
 		AdjustWindowRect( &windowRect, GetWindowLong( hWnd, GWL_STYLE ), GetMenu( hWnd ) != NULL );
 
-		return (SetWindowPos( hWnd, NULL, 0, 0, windowRect.right - windowRect.left + 1,
-			windowRect.bottom - windowRect.top + 1 + toolRect.bottom - toolRect.top + 1, SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOMOVE ) == TRUE);
+		const bool resized = SetWindowPos( hWnd, NULL, 0, 0, windowRect.right - windowRect.left + 1,
+			windowRect.bottom - windowRect.top + 1 + toolRect.bottom - toolRect.top + 1, SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOMOVE ) == TRUE;
+		if (resized)
+			_updatePresentationWindowInfo();
+		return resized;
 	}
 }
 
@@ -288,4 +308,19 @@ void DisplayWindowWindows::_readScreen(void **_pDest, long *_pWidth, long *_pHei
 graphics::ObjectHandle DisplayWindowWindows::_getDefaultFramebuffer()
 {
 	return graphics::ObjectHandle::null;
+}
+
+void DisplayWindowWindows::_updatePresentationWindowInfo()
+{
+	graphics::Context::PresentationWindowInfo presentationInfo;
+	presentationInfo.width = m_screenWidth;
+	presentationInfo.height = m_screenHeight;
+
+	if (gfxContext.getBackend() == graphics::GraphicsBackend::Vulkan && hWnd != nullptr) {
+		presentationInfo.system = graphics::Context::PresentationWindowInfo::WindowSystem::Win32;
+		presentationInfo.display = reinterpret_cast<void *>(hInstance);
+		presentationInfo.window = reinterpret_cast<uintptr_t>(hWnd);
+	}
+
+	gfxContext.setPresentationWindowInfo(presentationInfo);
 }
