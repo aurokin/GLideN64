@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <memory>
 #include <Graphics/ContextImpl.h>
 
@@ -157,11 +158,19 @@ namespace vulkan {
 		bool selectPhysicalDevice();
 		bool createDeviceAndQueue();
 		bool createPresentSyncObjects();
+		bool createDrawResources();
+		bool createShaderModules();
+		bool createPipelines();
 		void createSwapchain();
 		void destroySwapchain();
+		void destroyDrawResources();
 		void destroyPresentSyncObjects();
 		void destroySurface();
 		void shutdownVulkanCore();
+		void resetFrameRenderData();
+		bool ensureFrameVertexBuffer(u32 _frameIndex, size_t _requiredBytes);
+		u32 findMemoryType(u32 _typeFilter, u32 _propertyFlags) const;
+		bool isDefaultDrawFramebufferBound() const;
 
 		graphics::ObjectHandle _allocateHandle();
 
@@ -173,6 +182,8 @@ namespace vulkan {
 		f32 m_maxAnisotropy;
 		u32 m_nextHandle;
 		bool m_coreReady;
+		graphics::ObjectHandle m_drawFramebufferBinding;
+		graphics::ObjectHandle m_readFramebufferBinding;
 		graphics::Context::PresentationWindowInfo m_presentationWindowInfo;
 		std::unique_ptr<graphics::FramebufferTextureFormats> m_fbTexFormats;
 		std::unique_ptr<VulkanState> m_vk;
