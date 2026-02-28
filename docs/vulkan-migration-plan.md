@@ -13,8 +13,8 @@ Replace the OpenGL rendering backend with a Vulkan backend while preserving GLid
 ## Current state
 
 - `graphics::Context` already abstracts rendering through `ContextImpl`.
-- OpenGL is the only functional backend today.
-- A Vulkan selection scaffold now exists; selecting Vulkan currently logs and falls back to OpenGL.
+- Vulkan backend bootstrap now initializes Vulkan instance/device/queue and defers swapchain until surface integration exists.
+- Vulkan render/resource/shader calls are still stubbed while subsystem ports are in progress.
 
 ## Milestones
 

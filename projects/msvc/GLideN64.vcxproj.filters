@@ -428,7 +428,7 @@
     <ClCompile Include="..\..\src\Graphics\OpenGLContext\ThreadedOpenGl\RingBufferPool.cpp">
       <Filter>Source Files\Graphics\OpenGL\ThreadedOpenGL</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\src\Graphics\VulkanContext\vulkan_BackendStub.cpp">
+    <ClCompile Include="..\..\src\Graphics\VulkanContext\vulkan_ContextImpl.cpp">
       <Filter>Source Files\Graphics</Filter>
     </ClCompile>
     <ClCompile Include="..\..\src\BufferCopy\BlueNoiseTexture.cpp">
@@ -625,7 +625,7 @@
     <ClInclude Include="..\..\src\Graphics\ShaderProgram.h">
       <Filter>Header Files\Graphics</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\src\Graphics\VulkanContext\vulkan_BackendStub.h">
+    <ClInclude Include="..\..\src\Graphics\VulkanContext\vulkan_ContextImpl.h">
       <Filter>Header Files\Graphics</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\Graphics\PixelBuffer.h">

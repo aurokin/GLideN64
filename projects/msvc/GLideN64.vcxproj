@@ -396,7 +396,7 @@ copy /Y "$(OutDir)$(TargetName).*" "$(Mupen64PluginsDir_x64)")</Command>
     <ClCompile Include="..\..\src\Graphics\OpenGLContext\ThreadedOpenGl\opengl_Command.cpp" />
     <ClCompile Include="..\..\src\Graphics\OpenGLContext\ThreadedOpenGl\opengl_ObjectPool.cpp" />
     <ClCompile Include="..\..\src\Graphics\OpenGLContext\ThreadedOpenGl\RingBufferPool.cpp" />
-    <ClCompile Include="..\..\src\Graphics\VulkanContext\vulkan_BackendStub.cpp" />
+    <ClCompile Include="..\..\src\Graphics\VulkanContext\vulkan_ContextImpl.cpp" />
     <ClCompile Include="..\..\src\Graphics\OpenGLContext\windows\windows_DisplayWindow.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)'=='Debug_mupenplus' Or '$(Configuration)'=='Release_mupenplus'">true</ExcludedFromBuild>
     </ClCompile>
@@ -569,7 +569,7 @@ copy /Y "$(OutDir)$(TargetName).*" "$(Mupen64PluginsDir_x64)")</Command>
     <ClInclude Include="..\..\src\Graphics\Parameters.h" />
     <ClInclude Include="..\..\src\Graphics\PixelBuffer.h" />
     <ClInclude Include="..\..\src\Graphics\ShaderProgram.h" />
-    <ClInclude Include="..\..\src\Graphics\VulkanContext\vulkan_BackendStub.h" />
+    <ClInclude Include="..\..\src\Graphics\VulkanContext\vulkan_ContextImpl.h" />
     <ClInclude Include="..\..\src\gSP.h" />
     <ClInclude Include="..\..\src\inc\glext.h" />
     <ClInclude Include="..\..\src\Log.h" />
