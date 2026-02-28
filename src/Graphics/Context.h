@@ -15,6 +15,11 @@ struct CachedTexture;
 
 namespace graphics {
 
+	enum class GraphicsBackend {
+		OpenGL,
+		Vulkan
+	};
+
 	enum class SpecialFeatures {
 		Multisampling,
 		BlitFramebuffer,
@@ -45,6 +50,10 @@ namespace graphics {
 	public:
 		Context();
 		~Context();
+
+		void setBackend(GraphicsBackend _backend);
+
+		GraphicsBackend getBackend() const;
 
 		void init();
 
@@ -307,6 +316,7 @@ namespace graphics {
 		static bool DualSourceBlending;
 
 	private:
+		GraphicsBackend m_backend;
 		std::unique_ptr<ContextImpl> m_impl;
 		std::unique_ptr<FramebufferTextureFormats> m_fbTexFormats;
 	};

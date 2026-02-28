@@ -13,6 +13,8 @@ option(GL_PROFILE "Set to ON to turn on GL profiling" ${GL_PROFILE})
 option(DEBUG_DUMP "Set to ON to enable debug dump" ${DEBUG_DUMP})
 option(NO_OSD "Set to ON to disable OSD text drawing" ${NO_OSD})
 option(USE_IPO "Enables IPO/LTO when supported" ON)
+set(GLIDEN64_GRAPHICS_BACKEND "OpenGL" CACHE STRING "Select graphics backend (OpenGL or Vulkan)")
+set_property(CACHE GLIDEN64_GRAPHICS_BACKEND PROPERTY STRINGS OpenGL Vulkan)
 
 # run script to generate Revision.h
 set(PATH_REVISION "${CMAKE_CURRENT_BINARY_DIR}/inc/Revision.h")
@@ -38,6 +40,16 @@ include_directories("${CMAKE_CURRENT_BINARY_DIR}/inc")
 project( GLideN64 )
 
 include(GNUInstallDirs)
+
+string(TOUPPER "${GLIDEN64_GRAPHICS_BACKEND}" GLIDEN64_GRAPHICS_BACKEND_UPPER)
+if(GLIDEN64_GRAPHICS_BACKEND_UPPER STREQUAL "OPENGL")
+  message(STATUS "GLideN64 backend: OpenGL")
+elseif(GLIDEN64_GRAPHICS_BACKEND_UPPER STREQUAL "VULKAN")
+  add_definitions(-DGLIDEN64_DEFAULT_BACKEND_VULKAN)
+  message(STATUS "GLideN64 backend: Vulkan scaffold (runtime fallback to OpenGL)")
+else()
+  message(FATAL_ERROR "Invalid GLIDEN64_GRAPHICS_BACKEND='${GLIDEN64_GRAPHICS_BACKEND}'. Use OpenGL or Vulkan.")
+endif()
 
 set(GLideN64_SOURCES
   3DMath.cpp
@@ -82,9 +94,11 @@ set(GLideN64_SOURCES
   DepthBufferRender/DepthBufferRender.cpp
   common/CommonAPIImpl_common.cpp
   Graphics/Context.cpp
+  Graphics/ContextFactory.cpp
   Graphics/ColorBufferReader.cpp
   Graphics/CombinerProgram.cpp
   Graphics/ObjectHandle.cpp
+  Graphics/VulkanContext/vulkan_BackendStub.cpp
   Graphics/OpenGLContext/GLFunctions.cpp
   Graphics/OpenGLContext/ThreadedOpenGl/opengl_Command.cpp
   Graphics/OpenGLContext/ThreadedOpenGl/opengl_ObjectPool.cpp

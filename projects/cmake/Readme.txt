@@ -18,3 +18,8 @@ cmake [-DCMAKE_BUILD_TYPE=Debug] [-DVEC4_OPT=On] [-DCRC_OPT=On] [-DX86_OPT=On] [
 -DMESA=On - set to disable Raspberry Pi autodetection
 -DGL_PROFILE=On - set to turn on GL profiling
 -DNO_OSD=On - set to disable OSD text drawing
+-DGLIDEN64_GRAPHICS_BACKEND=OpenGL|Vulkan - selects default backend (`Vulkan` currently uses scaffold fallback to OpenGL)
+
+Local CI gate helper script:
+
+./scripts/local_gate.sh

@@ -1,9 +1,23 @@
 #include "Context.h"
-#include "OpenGLContext/opengl_ContextImpl.h"
+#include "ContextFactory.h"
+#include "ContextImpl.h"
 
 using namespace graphics;
 
 Context gfxContext;
+
+namespace {
+
+GraphicsBackend getDefaultBackend()
+{
+#ifdef GLIDEN64_DEFAULT_BACKEND_VULKAN
+	return GraphicsBackend::Vulkan;
+#else
+	return GraphicsBackend::OpenGL;
+#endif
+}
+
+}
 
 bool Context::Multisampling = false;
 bool Context::BlitFramebuffer = false;
@@ -19,16 +33,28 @@ bool Context::EglImage = false;
 bool Context::EglImageFramebuffer = false;
 bool Context::DualSourceBlending = false;
 
-Context::Context() {}
+Context::Context()
+	: m_backend(getDefaultBackend())
+{}
 
 Context::~Context() {
 	m_impl.reset();
 }
 
+void Context::setBackend(GraphicsBackend _backend)
+{
+	m_backend = _backend;
+}
+
+GraphicsBackend Context::getBackend() const
+{
+	return m_backend;
+}
+
 
 void Context::init()
 {
-	m_impl.reset(new opengl::ContextImpl);
+	m_impl = createContextImpl(m_backend);
 	m_impl->init();
 	m_fbTexFormats.reset(m_impl->getFramebufferTextureFormats());
 	Multisampling = m_impl->isSupported(SpecialFeatures::Multisampling);
