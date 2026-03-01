@@ -10,6 +10,18 @@
 - `docs/`: workflow, migration plan, smoke/local CI notes.
 - `build/`: generated artifacts only; do not commit generated outputs.
 
+## Vulkan Backend Layout
+- `src/Graphics/VulkanContext/vulkan_ContextImpl.cpp`: high-level draw/present orchestration.
+- `src/Graphics/VulkanContext/vulkan_ContextImpl_InstanceDevice.cpp`: instance/surface/device/queue/sync lifecycle.
+- `src/Graphics/VulkanContext/vulkan_ContextImpl_Swapchain.cpp`: swapchain/render-pass/framebuffer/draw-resource lifecycle.
+- `src/Graphics/VulkanContext/vulkan_ContextImpl_Internal.h`: shared internal `VulkanState` + Vulkan helpers.
+- `src/Graphics/VulkanContext/vulkan_CombinerDecode.*`: combiner selector decode.
+- `src/Graphics/VulkanContext/vulkan_CombinerClassify.*`: combiner pattern classification.
+- `src/Graphics/VulkanContext/vulkan_CombinerApply.*`: packet mutation from combiner intent.
+- `src/Graphics/VulkanContext/vulkan_BlendMux.*`: strict blend mux packing and debug/trace.
+- `src/Graphics/VulkanContext/vulkan_PacketBuilder.*`: packet base init and vertex assembly.
+- `src/Graphics/VulkanContext/vulkan_PacketNormalize.*`: packet normalization policy.
+
 ## Build, Test, and Development Commands
 ```bash
 # Configure + build (Linux CLI plugin)
@@ -26,6 +38,12 @@ REALITYVK_GATE_WITH_SMOKE=1 ./scripts/local_gate.sh
 ./scripts/paper_mario_parity.sh
 ./scripts/local_smoke.sh
 ./scripts/paper_mario_compare_view.sh
+
+# Refresh smoke checksums baseline (committed baseline files)
+REALITYVK_SMOKE_BACKENDS=Vulkan REALITYVK_SMOKE_UPDATE_BASELINES=1 ./scripts/local_smoke.sh
+
+# Refresh Paper Mario parity reference capture cache (non-committed artifact)
+REALITYVK_PM_REFRESH_REFERENCE=1 ./scripts/paper_mario_parity.sh
 ```
 
 ## Coding Style & Naming Conventions
@@ -39,6 +57,7 @@ REALITYVK_GATE_WITH_SMOKE=1 ./scripts/local_gate.sh
 - Primary gate is deterministic smoke/parity, not broad unit tests.
 - Keep Paper Mario parity working (`tests/smoke/scenarios.tsv`, `scripts/paper_mario_parity.sh`).
 - Baselines live in `tests/smoke/baselines/*.checksums.tsv`; update only for intentional rendering changes.
+- Current Vulkan smoke baseline file: `tests/smoke/baselines/Vulkan.checksums.tsv`.
 - When changing render behavior, include before/after artifacts under `build/parity-runs/paper-mario/` during review.
 
 ## Commit & Pull Request Guidelines

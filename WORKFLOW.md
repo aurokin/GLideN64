@@ -111,6 +111,56 @@ Baseline metrics output:
 
 - `build/parity-runs/paper-mario/paper_mario_intro.metrics.json`
 
+## Vulkan Backend Layout (Current)
+
+Use this file split when navigating/refactoring Vulkan backend code:
+
+- [vulkan_ContextImpl.cpp](/home/auro/code/gliden64/src/Graphics/VulkanContext/vulkan_ContextImpl.cpp)
+  - High-level draw/present orchestration and packet flow.
+- [vulkan_ContextImpl_InstanceDevice.cpp](/home/auro/code/gliden64/src/Graphics/VulkanContext/vulkan_ContextImpl_InstanceDevice.cpp)
+  - Instance/surface/device/queue/sync bring-up and teardown.
+- [vulkan_ContextImpl_Swapchain.cpp](/home/auro/code/gliden64/src/Graphics/VulkanContext/vulkan_ContextImpl_Swapchain.cpp)
+  - Swapchain/render-pass/framebuffer/draw-resource lifecycle.
+- [vulkan_ContextImpl_Internal.h](/home/auro/code/gliden64/src/Graphics/VulkanContext/vulkan_ContextImpl_Internal.h)
+  - Shared internal Vulkan context state and helper utilities.
+- [vulkan_CombinerDecode.*](/home/auro/code/gliden64/src/Graphics/VulkanContext/vulkan_CombinerDecode.cpp)
+  - Encoded combiner selector expansion.
+- [vulkan_CombinerClassify.*](/home/auro/code/gliden64/src/Graphics/VulkanContext/vulkan_CombinerClassify.cpp)
+  - Combiner pattern classification.
+- [vulkan_CombinerApply.*](/home/auro/code/gliden64/src/Graphics/VulkanContext/vulkan_CombinerApply.cpp)
+  - Packet mutation from classified combiner intent.
+- [vulkan_BlendMux.*](/home/auro/code/gliden64/src/Graphics/VulkanContext/vulkan_BlendMux.cpp)
+  - Strict blend mux packing and intent tracing.
+- [vulkan_PacketBuilder.*](/home/auro/code/gliden64/src/Graphics/VulkanContext/vulkan_PacketBuilder.cpp)
+  - Packet base init and vertex assembly.
+- [vulkan_PacketNormalize.*](/home/auro/code/gliden64/src/Graphics/VulkanContext/vulkan_PacketNormalize.cpp)
+  - Packet normalization policy.
+
+## Baseline Reset Workflow
+
+Use separate commands for committed smoke checksums vs parity cache artifacts:
+
+1. Update committed smoke baseline checksums:
+
+```bash
+REALITYVK_SMOKE_BACKENDS=Vulkan \
+REALITYVK_SMOKE_PLUGIN_VULKAN=/home/auro/code/gliden64/build/release-vulkan-smoke/plugin/Release/mupen64plus-video-RealityVK.so \
+REALITYVK_SMOKE_UPDATE_BASELINES=1 \
+./scripts/local_smoke.sh
+```
+
+2. Refresh Paper Mario parity reference capture cache (for A/B compare scripts):
+
+```bash
+REALITYVK_PM_REFRESH_REFERENCE=1 ./scripts/paper_mario_parity.sh
+```
+
+3. Verify baseline gate after refresh:
+
+```bash
+./scripts/local_smoke.sh
+```
+
 ## Scripts Used
 
 Main scripts used regularly:

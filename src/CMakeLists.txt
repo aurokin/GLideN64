@@ -101,6 +101,17 @@ set(RealityVK_SOURCES
   Graphics/ObjectHandle.cpp
   Graphics/Parameters.cpp
   Graphics/VulkanContext/vulkan_ContextImpl.cpp
+  Graphics/VulkanContext/vulkan_ContextImpl_InstanceDevice.cpp
+  Graphics/VulkanContext/vulkan_ContextImpl_Swapchain.cpp
+  Graphics/VulkanContext/vulkan_CombinerDecode.cpp
+  Graphics/VulkanContext/vulkan_CombinerClassify.cpp
+  Graphics/VulkanContext/vulkan_CombinerApply.cpp
+  Graphics/VulkanContext/vulkan_BlendMux.cpp
+  Graphics/VulkanContext/vulkan_CombinerHeuristics.cpp
+  Graphics/VulkanContext/vulkan_ReadbackAdapters.cpp
+  Graphics/VulkanContext/vulkan_PacketBuilder.cpp
+  Graphics/VulkanContext/vulkan_PacketNormalize.cpp
+  Graphics/VulkanContext/vulkan_SpecialPrograms.cpp
   uCodes/F3D.cpp
   uCodes/F3DBETA.cpp
   uCodes/F3DDKR.cpp

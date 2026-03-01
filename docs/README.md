@@ -18,6 +18,8 @@ This folder contains working docs for RealityVK Vulkan migration and parity work
   - Current metrics, implemented deltas, in-progress items, deferred batch.
 - [Vulkan Migration Plan](/home/auro/code/gliden64/docs/vulkan-migration-plan.md)
   - Broader migration phases.
+- [Vulkan Backend Intent Map](/home/auro/code/gliden64/docs/vulkan-backend-intent.md)
+  - Module boundaries and agent-safe edit points tied to N64 semantics.
 
 ## Runtime Validation and Test Planning
 
