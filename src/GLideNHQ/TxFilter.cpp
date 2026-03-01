@@ -92,7 +92,7 @@ TxFilter::TxFilter(int maxwidth,
 	INFO(0, wst("    email   : koolsmoky(at)users.sourceforge.net\n"));
 	INFO(0, wst("    website : http://www.3dfxzone.it/koolsmoky\n"));
 	INFO(0, wst("\n"));
-	INFO(0, wst(" GLideN64 GitHub : https://github.com/gonetz/GLideN64\n"));
+	INFO(0, wst(" RealityVK GitHub : https://github.com/gonetz/RealityVK\n"));
 	INFO(0, wst("------------------------------------------------------------------\n"));
 
 	_options = options;

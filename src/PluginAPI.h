@@ -7,11 +7,11 @@
 #endif
 #include "m64p_plugin.h"
 #elif defined (LEGACY_ZILMAR_SPEC)
-#include "windows/GLideN64_windows.h"
+#include "windows/RealityVK_windows.h"
 #include "windows/Project64-plugin-spec/1_3/Video.h"
 #include "FrameBufferInfoAPI.h"
 #else
-#include "windows/GLideN64_windows.h"
+#include "windows/RealityVK_windows.h"
 #include "windows/Project64-plugin-spec/Video.h"
 #include "FrameBufferInfoAPI.h"
 //#define RSPTHREAD

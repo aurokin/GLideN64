@@ -50,10 +50,16 @@ namespace graphics {
 		virtual void initRenderbuffer(const Context::InitRenderbufferParams & _params) = 0;
 		virtual bool blitFramebuffers(const Context::BlitFramebuffersParams & _params) = 0;
 		virtual void setDrawBuffers(u32 _num) = 0;
+		virtual bool readScreen2(void * _dest, int _width, int _height, int _front)
+		{
+			(void)_dest;
+			(void)_width;
+			(void)_height;
+			(void)_front;
+			return false;
+		}
 		virtual PixelReadBuffer * createPixelReadBuffer(size_t _sizeInBytes) = 0;
 		virtual ColorBufferReader * createColorBufferReader(CachedTexture * _pTexture) = 0;
-		virtual bool isCombinerProgramBuilderObsolete() = 0;
-		virtual void resetCombinerProgramBuilder() = 0;
 		virtual CombinerProgram * createCombinerProgram(Combiner & _color, Combiner & _alpha, const CombinerKey & _key) = 0;
 		virtual bool saveShadersStorage(const Combiners & _combiners) = 0;
 		virtual bool loadShadersStorage(Combiners & _combiners) = 0;

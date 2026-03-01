@@ -4,5 +4,5 @@ set -euo pipefail
 ROOT_DIR="$(git rev-parse --show-toplevel)"
 cd "${ROOT_DIR}"
 
-echo "[pre-push] Running GLideN64 local gate..."
+echo "[pre-push] Running RealityVK local gate..."
 ./scripts/local_gate.sh

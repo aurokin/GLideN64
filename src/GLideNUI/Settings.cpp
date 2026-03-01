@@ -12,9 +12,9 @@
 
 #include "Settings.h"
 
-static const char * strIniFileName = "GLideN64.ini";
-static const char * strDefaultIniFileName = "GLideN64.default.ini";
-static const char * strCustomSettingsFileName = "GLideN64.custom.ini";
+static const char * strIniFileName = "RealityVK.ini";
+static const char * strDefaultIniFileName = "RealityVK.default.ini";
+static const char * strCustomSettingsFileName = "RealityVK.custom.ini";
 static QString strUserProfile("User");
 
 static
@@ -165,7 +165,7 @@ void _loadSettings(QSettings & settings)
 static
 void _writeSettingsToFile(const QString & filename)
 {
-//	QSettings settings("Emulation", "GLideN64");
+//	QSettings settings("Emulation", "RealityVK");
 	QSettings settings(filename, QSettings::IniFormat);
 	settings.setValue("version", config.version);
 	settings.setValue("translation", config.translationFile.c_str());

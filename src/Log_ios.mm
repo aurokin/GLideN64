@@ -7,7 +7,7 @@ void LOG(u16 type, const char * format, ...) {
 
 	va_list va;
 	va_start(va, format);
-	NSString *nsformat = [NSString stringWithFormat:@"GLideN64: %s", format];
+	NSString *nsformat = [NSString stringWithFormat:@"RealityVK: %s", format];
 	NSLogv(nsformat, va);
 	va_end(va);
 }

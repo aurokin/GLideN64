@@ -109,7 +109,7 @@ void SaveScreenshot(const wchar_t * _folder, const char * _name, int _width, int
 	int i;
 	for (i = 0; i < 1000; ++i) {
 #pragma warning(disable: 4996)
-		swprintf(fileName, L"%ls\\GLideN64_%ls_%03i.%s", folder.c_str(), romName.c_str(), i, fileExt);
+		swprintf(fileName, L"%ls\\RealityVK_%ls_%03i.%s", folder.c_str(), romName.c_str(), i, fileExt);
 #pragma warning(default: 4996)
 		hFindFile = FindFirstFile(fileName, &FindData);
 		if (hFindFile == INVALID_HANDLE_VALUE)

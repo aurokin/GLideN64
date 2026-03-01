@@ -1,6 +1,6 @@
-#include "GLideN64_Windows.h"
+#include "RealityVK_Windows.h"
 #include "../PluginAPI.h"
-#include "../GLideN64.h"
+#include "../RealityVK.h"
 #include "../GLideNUI/GLideNUI.h"
 #include "../Config.h"
 #include <DisplayWindow.h>

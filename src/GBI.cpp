@@ -6,7 +6,7 @@
 #include <string.h>
 #include "convert.h"
 #include "N64.h"
-#include "GLideN64.h"
+#include "RealityVK.h"
 #include "GBI.h"
 #include "RDP.h"
 #include "RSP.h"
@@ -190,7 +190,7 @@ void GBIInfo::_flushCommands()
 void GBIInfo::_makeCurrent(MicrocodeInfo * _pCurrent)
 {
 	if (_pCurrent->type == NONE) {
-		LOG(LOG_ERROR, "[GLideN64]: error - unknown ucode!!!");
+		LOG(LOG_ERROR, "[RealityVK]: error - unknown ucode!!!");
 		return;
 	}
 

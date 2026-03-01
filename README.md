@@ -1,5 +1,5 @@
 
-# GLideN64 [![Github Badge]][Workflow]
+# RealityVK [![Github Badge]][Workflow]
 
 *A next generation* ***Graphics Plugin*** *for* ***N64*** *emulators.*
 
@@ -35,12 +35,17 @@ Download them from the latest **[Release]** .
 *For earlier builds you will have to log in and <br>
 download them from an older* ***[Workflow]*** *.*
 
+## Documentation
+
+- Start here: [docs/README.md](/home/auro/code/gliden64/docs/README.md)
+- Operations workflow: [WORKFLOW.md](/home/auro/code/gliden64/WORKFLOW.md)
+
 
 <!----------------------------------------------------------------------------->
 
-[Wiki]: https://github.com/gonetz/GLideN64/wiki
+[Wiki]: https://github.com/gonetz/RealityVK/wiki
 
-[Release]: https://github.com/gonetz/GLideN64/releases/tag/github-actions
-[Workflow]: https://github.com/gonetz/GLideN64/actions?query=branch%3Amaster
+[Release]: https://github.com/gonetz/RealityVK/releases/tag/github-actions
+[Workflow]: https://github.com/gonetz/RealityVK/actions?query=branch%3Amaster
 
-[Github Badge]: https://github.com/gonetz/GLideN64/actions/workflows/build.yml/badge.svg?branch=master
+[Github Badge]: https://github.com/gonetz/RealityVK/actions/workflows/build.yml/badge.svg?branch=master

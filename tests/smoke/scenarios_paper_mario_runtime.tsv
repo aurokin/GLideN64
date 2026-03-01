@@ -1,0 +1,10 @@
+# scenario_id	rom_path	frames	scenario_args
+# Runtime parity matrix for Paper Mario checkpoints (reference vs candidate).
+# Use this with scripts/local_smoke.sh and REALITYVK_SMOKE_BACKENDS='Reference Candidate'.
+pm_boot_title_003	/home/auro/code/paper_mario/baseline/papermario-clean.z64	1	--state /home/auro/code/mupen/mupen64plus-runtime/checkpoints/boot_title_003/boot_title_003.st --preset full --scale-div 2
+pm_new_game_intro_001	/home/auro/code/paper_mario/baseline/papermario-clean.z64	1	--state /home/auro/code/mupen/mupen64plus-runtime/checkpoints/new_game_intro_001/new_game_intro_001.st --preset full --scale-div 2
+pm_fresh_castle_prebowser_001	/home/auro/code/paper_mario/baseline/papermario-clean.z64	1	--state /home/auro/code/mupen/mupen64plus-runtime/checkpoints/fresh_castle_prebowser_001/fresh_castle_prebowser_001.st --preset full --scale-div 2
+pm_fresh_goomba_arrival_001	/home/auro/code/paper_mario/baseline/papermario-clean.z64	1	--state /home/auro/code/mupen/mupen64plus-runtime/checkpoints/fresh_goomba_village_arrival_001/fresh_goomba_village_arrival_001.st --preset full --scale-div 2
+pm_live_castle_progress_005	/home/auro/code/paper_mario/baseline/papermario-clean.z64	1	--state /home/auro/code/mupen/mupen64plus-runtime/checkpoints/live_castle_progress_005/live_castle_progress_005.st --preset full --scale-div 2
+pm_live_stairs_party_002_fresh	/home/auro/code/paper_mario/baseline/papermario-clean.z64	1	--state /home/auro/code/mupen/mupen64plus-runtime/checkpoints/live/prologue_castle_stairs_party_002_fresh.st --preset full --scale-div 2
+pm_live_upperhall_right_003_fresh	/home/auro/code/paper_mario/baseline/papermario-clean.z64	1	--state /home/auro/code/mupen/mupen64plus-runtime/checkpoints/live/prologue_castle_upperhall_right_003_fresh.st --preset full --scale-div 2

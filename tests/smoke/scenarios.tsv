@@ -1,0 +1,4 @@
+# scenario_id	rom_path	frames	scenario_args
+# For deterministic capture, prefer using --state and fixed frame stepping.
+# scenario_args is injected directly into the runner command.
+paper_mario_intro	/home/auro/code/paper_mario/baseline/papermario-built.z64	120	--preset full --scale-div 2

@@ -42,7 +42,7 @@ void LoadDefaultStrings(void)
 	g_defaultStrings.insert(LANG_STRINGS::value_type(VIDEO_VSYNC, "Enable VSync"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(VIDEO_VSYNC_TOOLTIP, "Vertical sync, or VSync, can improve the image by syncing the game's frame rate to your monitor's refresh rate. This prevents image tearing, but may cause performance problems.\n\n[Recommended: Usually off, on if you have image tearing problems]"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(VIDEO_THREADED_VIDEO, "Enable threaded video"));
-	g_defaultStrings.insert(LANG_STRINGS::value_type(VIDEO_THREADED_VIDEO_TOOLTIP, "Threaded video can improve performance with poor OpenGL drivers at the cost of very marginal input lag, usually less than half a frame.\n\n[Recommended: Usually off, unless there are performance issues]"));
+	g_defaultStrings.insert(LANG_STRINGS::value_type(VIDEO_THREADED_VIDEO_TOOLTIP, "Threaded video can improve performance with driver bottlenecks at the cost of very marginal input lag, usually less than half a frame.\n\n[Recommended: Usually off, unless there are performance issues]"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(VIDEO_OVERSCAN, "Overscan"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(VIDEO_OVERSCAN_TOOLTIP, "When enabled, the image is cropped by values specified in N64 pixels. Useful to remove black borders in some games."));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(VIDEO_NTSC, "NTSC"));
@@ -53,7 +53,7 @@ void LoadDefaultStrings(void)
 	g_defaultStrings.insert(LANG_STRINGS::value_type(VIDEO_MULTISAMPLE_ANTI_ALIASING, "Multisample anti-aliasing (MSAA):"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(VIDEO_AA_OFF, "Off"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(VIDEO_AA_HIGH, "High"));
-	g_defaultStrings.insert(LANG_STRINGS::value_type(VIDEO_AA_TOOLTIP, "GLideN64 offers two methods to smooth jagged polygons:\n\nFast approximate anti-aliasing (FXAA): FXAA is a post-processing filter that can provide a decent result, but as good as MSAA. The main reason to use FXAA is to use with N64-style depth compare. FXAA adds some blurriness to the output image, causing some textures like text to possibly look worse.\n\nMultisample anti-aliasing (MSAA): MSAA is a standard anti-aliasing technique used in computer graphics to improve image quality. Most modern GPUs support 2, 4, 8, and 16 samples. More samples mean better quality, but are slower. There are two downsides: it's incompatible with N64-style depth compare and may cause minor glitches in some games.\n\nRecommendation: [Usually 16x MSAA, or FXAA with N64-style depth compare]"));
+	g_defaultStrings.insert(LANG_STRINGS::value_type(VIDEO_AA_TOOLTIP, "RealityVK offers two methods to smooth jagged polygons:\n\nFast approximate anti-aliasing (FXAA): FXAA is a post-processing filter that can provide a decent result, but as good as MSAA. The main reason to use FXAA is to use with N64-style depth compare. FXAA adds some blurriness to the output image, causing some textures like text to possibly look worse.\n\nMultisample anti-aliasing (MSAA): MSAA is a standard anti-aliasing technique used in computer graphics to improve image quality. Most modern GPUs support 2, 4, 8, and 16 samples. More samples mean better quality, but are slower. There are two downsides: it's incompatible with N64-style depth compare and may cause minor glitches in some games.\n\nRecommendation: [Usually 16x MSAA, or FXAA with N64-style depth compare]"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(VIDEO_AA_INFO, "Multisample anti-aliasing is not compatible with N64-style depth compare."));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(VIDEO_FILTERING_GROUP, "Filtering"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(VIDEO_ANISOTROPIC, "Anisotropic filtering:"));
@@ -80,7 +80,7 @@ void LoadDefaultStrings(void)
 
 	//Emulation Tab
 	g_defaultStrings.insert(LANG_STRINGS::value_type(EMULATION_USE_PER_GAME, "Use per-game settings"));
-	g_defaultStrings.insert(LANG_STRINGS::value_type(EMULATION_USE_PER_GAME_TOOLTIP, "When enabled, all non-default values of settings are stored individually for each game.\n\nWhen a game is running, settings are displayed and saved for the currently running game.\n\nNote: GLideN64 already contains settings for the optimal performance of most games. Be careful when altering options on 'Emulation' and 'Frame buffer' tab.\n\n[Recommended: Checked]"));
+	g_defaultStrings.insert(LANG_STRINGS::value_type(EMULATION_USE_PER_GAME_TOOLTIP, "When enabled, all non-default values of settings are stored individually for each game.\n\nWhen a game is running, settings are displayed and saved for the currently running game.\n\nNote: RealityVK already contains settings for the optimal performance of most games. Be careful when altering options on 'Emulation' and 'Frame buffer' tab.\n\n[Recommended: Checked]"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(EMULATION_N64_STYLE_MIP_MAPPING, "Enable N64-style mip-mapping"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(EMULATION_N64_STYLE_MIP_MAPPING_TOOLTIP, "The N64 uses a unique method of mip-mapping that's difficult to reproduce correctly on PCs. When checked, this option emulates N64-accurate mip-mapping. When unchecked, some games have sharper distant textures.\n\n[Recommended: Checked]"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(EMULATION_HWLIGHTING, "Enable per-pixel lighting (better quality, HLE only)"));
@@ -88,7 +88,7 @@ void LoadDefaultStrings(void)
 	g_defaultStrings.insert(LANG_STRINGS::value_type(EMULATION_PIXEL_COVERAGE, "Enable pixel coverage calculation"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(EMULATION_PIXEL_COVERAGE_TOOLTIP, "Enables approximated pixel coverage calculation. N64 uses pixel coverage for anti-aliasing and in some special blending modes. Some games have wire-frame mode aka 'pen and ink' mode. This mode also needs pixel coverage calculated.\n\n[Recommended: Checked, unless performance is hurt]"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(EMULATION_SHADERS_STORAGE, "Store compiled shaders for performance (recommended)"));
-	g_defaultStrings.insert(LANG_STRINGS::value_type(EMULATION_SHADERS_STORAGE_TOOLTIP, "Use persistent storage for compiled shader programs.\nEach game uses a set of combiners. A combiner is an equation that defines how to build output color from various color inputs. GLideN64 translates shaders, and compiles shader programs on the fly. Shaders are large and complex. If the game uses several new combiners, compiling new shaders will take time and result in stuttering. When this option is checked, these shaders are saved so they're not recompiled the next time you run the game.\n\n[Recommended: Checked]"));
+	g_defaultStrings.insert(LANG_STRINGS::value_type(EMULATION_SHADERS_STORAGE_TOOLTIP, "Use persistent storage for compiled shader programs.\nEach game uses a set of combiners. A combiner is an equation that defines how to build output color from various color inputs. RealityVK translates shaders, and compiles shader programs on the fly. Shaders are large and complex. If the game uses several new combiners, compiling new shaders will take time and result in stuttering. When this option is checked, these shaders are saved so they're not recompiled the next time you run the game.\n\n[Recommended: Checked]"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(EMULATION_INTERNAL_RES, "Internal resolution"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(EMULATION_INTERNAL_RES_TOOLTIP, "This option sets the output render buffer size. By default, the render buffer is set to the Same as output resolution, but you can set it to the Original N64 resolution or a Multiple of N64 resolution."));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(EMULATION_FACTOR0X, "Same as output resolution"));
@@ -121,18 +121,18 @@ void LoadDefaultStrings(void)
 	g_defaultStrings.insert(LANG_STRINGS::value_type(FRAMEBUFFER_COPY_AUX_BUFFERS, "Copy auxiliary color buffers to N64 memory (sometimes slow, fewer game issues)"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(FRAMEBUFFER_COPY_AUX_BUFFERS_TOOLTIP, "When checked, the auxiliary color buffer is copied to N64 memory right after rendering to it is finished. This option helps to correctly emulate frame buffer effects in some games. This option may noticeably reduce performance.\n\n[Recommended: Usually unchecked]"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(FRAMEBUFFER_SWAP, "Frame buffer swap on:"));
-	g_defaultStrings.insert(LANG_STRINGS::value_type(FRAMEBUFFER_SWAP_TOOLTIP, "This option controls how often GLideN64 updates the main frame buffer.\n\nVertical interrupt: Update the buffer as quickly as possible, every vertical interrupt per second (50 for PAL and 60 for NTSC games). This option is the most compatible. Use this mode unless you have performance problems.\n\nVI origin change: The VI origin changes corresponding to the game's actual FPS. N64 games typically run between 20 to 30 FPS so the buffers swap less often than the first mode. This mode does not work for games that use single buffering, which is rare.\n\nColor buffer change: This option checks to see if the frame buffer has been changed. There are some games where this doesn't work."));
+	g_defaultStrings.insert(LANG_STRINGS::value_type(FRAMEBUFFER_SWAP_TOOLTIP, "This option controls how often RealityVK updates the main frame buffer.\n\nVertical interrupt: Update the buffer as quickly as possible, every vertical interrupt per second (50 for PAL and 60 for NTSC games). This option is the most compatible. Use this mode unless you have performance problems.\n\nVI origin change: The VI origin changes corresponding to the game's actual FPS. N64 games typically run between 20 to 30 FPS so the buffers swap less often than the first mode. This mode does not work for games that use single buffering, which is rare.\n\nColor buffer change: This option checks to see if the frame buffer has been changed. There are some games where this doesn't work."));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(FRAMEBUFFER_VERTICAL_INTERRUPT, "Vertical interrupt (recommended, fewest game issues)"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(FRAMEBUFFER_VI_ORIGIN_CHANGE, "VI origin change (faster, few game issues)"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(FRAMEBUFFER_COLOR_BUFFER_CHANGE, "Color buffer change (fastest, some game issues)"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(FRAMEBUFFER_INFO_ENABLE, "Use emulator help to read/write frame buffers"));
-	g_defaultStrings.insert(LANG_STRINGS::value_type(FRAMEBUFFER_INFO_ENABLE_TOOLTIP, "Some emulators do a poor job of detecting when to read/write frame buffers. You can disable emulator help to let GLideN64 read/write frame buffers itself.\n\n[Recommended: Usually unchecked, but for some games/emulators it may be faster checked]"));
+	g_defaultStrings.insert(LANG_STRINGS::value_type(FRAMEBUFFER_INFO_ENABLE_TOOLTIP, "Some emulators do a poor job of detecting when to read/write frame buffers. You can disable emulator help to let RealityVK read/write frame buffers itself.\n\n[Recommended: Usually unchecked, but for some games/emulators it may be faster checked]"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(FRAMEBUFFER_READ_COLOR_CHUNK, "Read color buffer in 4 KB chunks"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(FRAMEBUFFER_READ_COLOR_CHUNK_TOOLTIP, "When checked, the color buffer will be read in chunks. Otherwise, the buffer will be read in its entirety. If a game needs to read the entire buffer, selecting this option may be slow.\n\n[Recommended: Usually unchecked, because the color buffer is usually read entirely]"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(FRAMEBUFFER_READ_DEPTH_CHUNK, "Read depth buffer in 4 KB chunks"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(FRAMEBUFFER_READ_DEPTH_CHUNK_TOOLTIP, "When checked, the depth buffer will be read in chunks. Otherwise the buffer will be read in its entirety. If a game needs to read the entire buffer, selecting this option may be slow.\n\n[Recommended: Checked, because the depth buffer is not often read entirely]"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(FRAMEBUFFER_COPY_COLOR_BUFFER, "Copy video card frame buffer to N64 memory:"));
-	g_defaultStrings.insert(LANG_STRINGS::value_type(FRAMEBUFFER_COPY_COLOR_BUFFER_TOOLTIP, "In some games GLideN64 can't detect when the game uses the frame buffer. With these options, you can have GLideN64 copy each frame of your video card's frame buffer to N64 memory.\n\nNever: Disable copying buffers from video card.\n\nSynchronous: Effects are detected for all games, but it can be slow. Use for games where Asynchronous doesn't work.\n\nAsynchronous: Effects are detected for most games.\n\n[Recommended: Usually Asynchronous]"));
+	g_defaultStrings.insert(LANG_STRINGS::value_type(FRAMEBUFFER_COPY_COLOR_BUFFER_TOOLTIP, "In some games RealityVK can't detect when the game uses the frame buffer. With these options, you can have RealityVK copy each frame of your video card's frame buffer to N64 memory.\n\nNever: Disable copying buffers from video card.\n\nSynchronous: Effects are detected for all games, but it can be slow. Use for games where Asynchronous doesn't work.\n\nAsynchronous: Effects are detected for most games.\n\n[Recommended: Usually Asynchronous]"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(FRAMEBUFFER_COPY_NEVER, "Never (fastest, many game issues)"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(FRAMEBUFFER_COPY_SYNCHRONOUS, "Synchronous (slowest, fewest game issues)"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(FRAMEBUFFER_COPY_ASYNCHRONOUS, "Asynchronous (fast, few game issues)"));
@@ -142,7 +142,7 @@ void LoadDefaultStrings(void)
 	g_defaultStrings.insert(LANG_STRINGS::value_type(FRAMEBUFFER_COPY_DEPTH_VRAM, "From VRAM (slow, some game issues)"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(FRAMEBUFFER_COPY_DEPTH_SOFTWARE, "In software (fast, fewest game issues)"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(FRAMEBUFFER_N64_DEPTH_COMPARE, "N64-style depth compare (experimental, disables MSAA)"));
-	g_defaultStrings.insert(LANG_STRINGS::value_type(FRAMEBUFFER_N64_DEPTH_COMPARE_TOOLTIP, "The N64 uses a unique method of calculating depth to the camera. When enabled, GlideN64 uses shaders to try to emulate these calculations correctly. Not compatible with anti-aliasing. Experimental!\nFast mode requires OpenGL 4.2 and fragment shader interlock extensions.\nCompatible mode requires only core OpenGL 4.2 Can be slow!\n[Recommended: Sometimes checked, for several games]"));
+	g_defaultStrings.insert(LANG_STRINGS::value_type(FRAMEBUFFER_N64_DEPTH_COMPARE_TOOLTIP, "The N64 uses a unique method of calculating depth to the camera. When enabled, RealityVK uses shaders to try to emulate these calculations correctly. Not compatible with anti-aliasing. Experimental!\nFast mode uses Vulkan shader-based depth compare.\nCompatible mode improves edge-case accuracy and can be slow.\n[Recommended: Sometimes checked, for several games]"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(FRAMEBUFFER_N64_DEPTH_DISABLE, "Disable"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(FRAMEBUFFER_N64_DEPTH_FAST, "Fast"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(FRAMEBUFFER_N64_DEPTH_COMPATIBLE, "Compatible"));
@@ -179,7 +179,7 @@ void LoadDefaultStrings(void)
 	g_defaultStrings.insert(LANG_STRINGS::value_type(TEXTURE_CACHE_PATH, "Texture cache path:"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(TEXTURE_DUMP_PATH, "Texture dump path:"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(TEXTURE_USE_FULL_TRANSPARENCIES, "Use full transparencies (recommended for newer texture packs)"));
-	g_defaultStrings.insert(LANG_STRINGS::value_type(TEXTURE_USE_FULL_TRANSPARENCIES_TOOLTIP, "When this option is cleared, textures will be loaded as they are when using Rice Video: transparencies either on or off. When this option is selected, GlideN64 will check how the texture's alpha channel was designed and will select the most appropriate format. This gives texture pack designers freedom to use semi-transparent textures.\n\nClear this option for older or poorly designed texture packs.\n\n[Recommended: Texture pack dependent]"));
+	g_defaultStrings.insert(LANG_STRINGS::value_type(TEXTURE_USE_FULL_TRANSPARENCIES_TOOLTIP, "When this option is cleared, textures will be loaded as they are when using Rice Video: transparencies either on or off. When this option is selected, RealityVK will check how the texture's alpha channel was designed and will select the most appropriate format. This gives texture pack designers freedom to use semi-transparent textures.\n\nClear this option for older or poorly designed texture packs.\n\n[Recommended: Texture pack dependent]"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(TEXTURE_ALTERNATIVE_CRC, "Alternative CRC calculation (for old Rice Video packs)"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(TEXTURE_ALTERNATIVE_CRC_TOOLTIP, "This option emulates a palette CRC calculation bug in Rice Video. If you have problems loading textures, try checking or unchecking this option.\n\n[Recommended: Mostly unchecked, checked for old texture packs]"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(TEXTURE_USE_FILE_STORAGE_TOOLTIP, "This option enables alternative storage for hi-res textures. Normally memory cache is used. It keeps all hi-res textures in RAM and thus limited by available RAM size. File storage keeps texture cache on HDD. It is slower than memory cache, but has virtually no limits on cache size. Disable \"Compress texture cache\" option for better performance."));
@@ -190,7 +190,7 @@ void LoadDefaultStrings(void)
 	g_defaultStrings.insert(LANG_STRINGS::value_type(TEXTURE_COMPRESS_CACHE, "Compress texture cache"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(TEXTURE_COMPRESS_CACHE_TOOLTIP, "Textures will be compressed so more textures can be held in the cache. The compression ratio varies per texture, but the compression is typically 1/5 of the original size.\n\n[Recommended: Checked]"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(TEXTURE_CONVERT_16BPP, "Convert textures to 16 bpp"));
-	g_defaultStrings.insert(LANG_STRINGS::value_type(TEXTURE_CONVERT_16BPP_TOOLTIP, "This option halves the space used by textures in the texture cache and video card memory to improve performance. When reducing the color, GLideN64 tries to perserve the original quality as much as possible. On most textures it's hardly noticeable, but some textures, like skies, can look noticeably worse.\n\n[Recommended: Unchecked]"));
+	g_defaultStrings.insert(LANG_STRINGS::value_type(TEXTURE_CONVERT_16BPP_TOOLTIP, "This option halves the space used by textures in the texture cache and video card memory to improve performance. When reducing the color, RealityVK tries to perserve the original quality as much as possible. On most textures it's hardly noticeable, but some textures, like skies, can look noticeably worse.\n\n[Recommended: Unchecked]"));
 
 	//On-screen display
 	g_defaultStrings.insert(LANG_STRINGS::value_type(OSD_POSITION, "Position"));
@@ -211,7 +211,7 @@ void LoadDefaultStrings(void)
 	g_defaultStrings.insert(LANG_STRINGS::value_type(DEBUG_DUMP_DETAILED_INFO, "Dump detailed info (matrices, vertices, etc.)"));
 
 	//About
-	g_defaultStrings.insert(LANG_STRINGS::value_type(ABOUT_ABOUT_TITLE, "About GLideN64"));
+	g_defaultStrings.insert(LANG_STRINGS::value_type(ABOUT_ABOUT_TITLE, "About RealityVK"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(ABOUT_TAB_ABOUT, "About"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(ABOUT_TAB_CONTRIBUTORS, "Contributors"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(ABOUT_TAB_FUNDERS, "Funders"));
@@ -225,7 +225,7 @@ void LoadDefaultStrings(void)
 	g_defaultStrings.insert(LANG_STRINGS::value_type(ABOUT_AUTHOR_GLN64, "Author of the original glN64 graphics plugin"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(ABOUT_AUTHOR_GLES2N64, "Author of gles2n64, a port of glN64 to GL ES 2.0"));
 	g_defaultStrings.insert(LANG_STRINGS::value_type(ABOUT_AUTHOR_GLIDEHQ, "Author of the GlideHQ texture library"));
-	g_defaultStrings.insert(LANG_STRINGS::value_type(ABOUT_AUTHOR_Z64, "Author of z64, an OpenGL LLE plugin"));
+	g_defaultStrings.insert(LANG_STRINGS::value_type(ABOUT_AUTHOR_Z64, "Author of z64, an N64 LLE plugin"));
 }
 
 LANG_STRINGS GetDefaultStrings(void)
@@ -363,7 +363,7 @@ LanguageList GetLanguageList(const char * path)
 		pluginFolder += '\\';
 	}
 	pluginFolder += "translations\\";
-	std::string nameFilters = pluginFolder + "gliden64_*.Lang";
+	std::string nameFilters = pluginFolder + "realityvk_*.Lang";
 
 	WIN32_FIND_DATAA FindData;
 	HANDLE hFindFile = FindFirstFileA(nameFilters.c_str(), &FindData); // Find anything

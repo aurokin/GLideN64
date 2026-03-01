@@ -213,13 +213,13 @@ void CTextureEnhancementTab::SaveDirectory(int EditCtrl, wchar_t * txPath)
 		if (osal_mkdirp(Path.data()) != 0) {
 			switch (EditCtrl) {
 				case IDC_TEX_PACK_PATH_EDIT:
-					MessageBox(L"Failed to create the texture pack folder. Please change the folder or turn off texture packs.", L"GLideN64", MB_OK | MB_ICONWARNING);
+					MessageBox(L"Failed to create the texture pack folder. Please change the folder or turn off texture packs.", L"RealityVK", MB_OK | MB_ICONWARNING);
 					return;
 				case IDC_TEX_CACHE_PATH_EDIT:
-					MessageBox(L"Failed to create the texture pack cache folder. Please change the folder or turn off texture packs.", L"GLideN64", MB_OK | MB_ICONWARNING);
+					MessageBox(L"Failed to create the texture pack cache folder. Please change the folder or turn off texture packs.", L"RealityVK", MB_OK | MB_ICONWARNING);
 					return;
 				case IDC_TEX_DUMP_PATH_EDIT:
-					MessageBox(L"Failed to create the texture dump folder. Please change the folder or turn off texture packs.", L"GLideN64", MB_OK | MB_ICONWARNING);
+					MessageBox(L"Failed to create the texture dump folder. Please change the folder or turn off texture packs.", L"RealityVK", MB_OK | MB_ICONWARNING);
 					return;
 				default:
 					return;

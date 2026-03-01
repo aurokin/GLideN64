@@ -14,7 +14,7 @@
 // ****************************************************************************
 
 // ****************************************************************************
-// Minor modifications for GLideN64 project by Sergey Lipskiy (gonetz AT ngs DOT ru)
+// Minor modifications for RealityVK project by Sergey Lipskiy (gonetz AT ngs DOT ru)
 // Changes: color formats changed from RGB/ARGB to BGR/ABGR
 //          added init() function.
 //          ScalerCfg moved to this file

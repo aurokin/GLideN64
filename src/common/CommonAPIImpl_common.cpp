@@ -8,7 +8,7 @@
 #include <PluginAPI.h>
 
 #include <N64.h>
-#include <GLideN64.h>
+#include <RealityVK.h>
 #include <RSP.h>
 #include <RDP.h>
 #include <VI.h>

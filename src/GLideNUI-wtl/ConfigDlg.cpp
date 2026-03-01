@@ -424,22 +424,22 @@ void CConfigDlg::ApplyLanguage(void)
 	SetDlgItemTextW(IDCANCEL, wGS(CFG_CLOSE).c_str());
 }
 
-class GlideN64WtlModule :
+class RealityVKWtlModule :
 	public CAppModule
 {
 public:
-	GlideN64WtlModule(HINSTANCE hinst) {
+	RealityVKWtlModule(HINSTANCE hinst) {
 		Init(NULL, hinst);
 	}
-	virtual ~GlideN64WtlModule(void) {
+	virtual ~RealityVKWtlModule(void) {
 		Term();
 	}
 };
 
-GlideN64WtlModule * WtlModule = NULL;
+RealityVKWtlModule * WtlModule = NULL;
 
 void ConfigInit(void * hinst) {
-	WtlModule = new GlideN64WtlModule((HINSTANCE)hinst);
+	WtlModule = new RealityVKWtlModule((HINSTANCE)hinst);
 }
 
 void ConfigCleanup(void) {

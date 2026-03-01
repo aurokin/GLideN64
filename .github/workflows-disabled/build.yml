@@ -1,4 +1,4 @@
-name: GLideN64
+name: RealityVK
 
 on: [push, pull_request, workflow_dispatch]
 
@@ -7,7 +7,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        image: ["GLideN64 (x64 Mupen64Plus-CLI)", "GLideN64 (x64 Mupen64Plus-Qt)"]
+        image: ["RealityVK (x64 Mupen64Plus-CLI)", "RealityVK (x64 Mupen64Plus-Qt)"]
     steps:
       - uses: actions/checkout@v4
       - name: Install Packages
@@ -20,8 +20,8 @@ jobs:
       - name: Prepare Environment
         run: |
           echo "GIT_REVISION=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
-      - name: Build GLideN64 (x64 Mupen64Plus-CLI)
-        if: ${{ matrix.image == 'GLideN64 (x64 Mupen64Plus-CLI)' }}
+      - name: Build RealityVK (x64 Mupen64Plus-CLI)
+        if: ${{ matrix.image == 'RealityVK (x64 Mupen64Plus-CLI)' }}
         run: |
           mkdir -p build/linux-mupen64plus-cli
           pushd build/linux-mupen64plus-cli
@@ -29,9 +29,9 @@ jobs:
           make -j$(nproc)
           popd
           cp build/linux-mupen64plus-cli/plugin/Release/*.so build/linux-mupen64plus-cli/
-          cp ini/GLideN64.custom.ini build/linux-mupen64plus-cli/
-      - name: Build GLideN64 (x64 Mupen64Plus-Qt)
-        if: ${{ matrix.image == 'GLideN64 (x64 Mupen64Plus-Qt)' }}
+          cp ini/RealityVK.custom.ini build/linux-mupen64plus-cli/
+      - name: Build RealityVK (x64 Mupen64Plus-Qt)
+        if: ${{ matrix.image == 'RealityVK (x64 Mupen64Plus-Qt)' }}
         run: |
           mkdir -p build/linux-mupen64plus-qt
           pushd build/linux-mupen64plus-qt
@@ -39,34 +39,34 @@ jobs:
           make -j$(nproc)
           popd
           cp build/linux-mupen64plus-qt/plugin/Release/*.so build/linux-mupen64plus-qt/
-          cp ini/GLideN64.custom.ini build/linux-mupen64plus-qt/
+          cp ini/RealityVK.custom.ini build/linux-mupen64plus-qt/
           cp translations/release/*.qm build/linux-mupen64plus-qt/
-      - name: Upload GLideN64 (x64 Mupen64Plus-CLI)
-        if: ${{ matrix.image == 'GLideN64 (x64 Mupen64Plus-CLI)' }}
+      - name: Upload RealityVK (x64 Mupen64Plus-CLI)
+        if: ${{ matrix.image == 'RealityVK (x64 Mupen64Plus-CLI)' }}
         uses: actions/upload-artifact@v4
         with:
-          name: GLideN64-${{ env.GIT_REVISION }}-Linux-Mupen64Plus-CLI-x64
+          name: RealityVK-${{ env.GIT_REVISION }}-Linux-Mupen64Plus-CLI-x64
           path: |
             build/linux-mupen64plus-cli/*.so
-            build/linux-mupen64plus-cli/GLideN64.custom.ini
-      - name: Upload GLideN64 (x64 Mupen64Plus-Qt)
-        if: ${{ matrix.image == 'GLideN64 (x64 Mupen64Plus-Qt)' }}
+            build/linux-mupen64plus-cli/RealityVK.custom.ini
+      - name: Upload RealityVK (x64 Mupen64Plus-Qt)
+        if: ${{ matrix.image == 'RealityVK (x64 Mupen64Plus-Qt)' }}
         uses: actions/upload-artifact@v4
         with:
-          name: GLideN64-${{ env.GIT_REVISION }}-Linux-Mupen64Plus-Qt-x64
+          name: RealityVK-${{ env.GIT_REVISION }}-Linux-Mupen64Plus-Qt-x64
           path: |
             build/linux-mupen64plus-qt/*.so
-            build/linux-mupen64plus-qt/GLideN64.custom.ini
+            build/linux-mupen64plus-qt/RealityVK.custom.ini
             build/linux-mupen64plus-qt/*.qm
   Windows:
     runs-on: windows-latest
     strategy:
       matrix:
-        image: ["GLideN64 (x64 Project64-Qt)", "GLideN64 (x86 Project64-Qt)", "GLideN64 (x64 Project64-WTL)", "GLideN64 (x86 Project64-WTL)", "GLideN64 (x64 PJ64Legacy-Qt)", "GLideN64 (x86 PJ64Legacy-Qt)", "GLideN64 (x64 PJ64Legacy-WTL)", "GLideN64 (x86 PJ64Legacy-WTL)", "GLideN64 (x64 Mupen64Plus-CLI)", "GLideN64 (x86 Mupen64Plus-CLI)", "GLideN64 (x64 Mupen64Plus-Qt)"]
+        image: ["RealityVK (x64 Project64-Qt)", "RealityVK (x86 Project64-Qt)", "RealityVK (x64 Project64-WTL)", "RealityVK (x86 Project64-WTL)", "RealityVK (x64 PJ64Legacy-Qt)", "RealityVK (x86 PJ64Legacy-Qt)", "RealityVK (x64 PJ64Legacy-WTL)", "RealityVK (x86 PJ64Legacy-WTL)", "RealityVK (x64 Mupen64Plus-CLI)", "RealityVK (x86 Mupen64Plus-CLI)", "RealityVK (x64 Mupen64Plus-Qt)"]
     env:
       QTDIR_x86: C:\Static_Qt_x86
       QTDIR_x64: C:\Static_Qt_x64
-      QT_BUILD_BASE_URL: https://github.com/gonetz/GLideN64/releases/download/qt_build/
+      QT_BUILD_BASE_URL: https://github.com/gonetz/RealityVK/releases/download/qt_build/
       QT_BUILD_x86: qt-5_15-x86-msvc2017-static
       QT_BUILD_x64: qt-5_15-x64-msvc2017-static
     steps:
@@ -96,95 +96,95 @@ jobs:
           echo "GIT_REVISION=$env:revision" >> $env:GITHUB_ENV
         shell: pwsh
       - name: Prepare Qt x64 Builds
-        if: ${{ matrix.image == 'GLideN64 (x64 Project64-Qt)' || matrix.image == 'GLideN64 (x64 PJ64Legacy-Qt)' }}
+        if: ${{ matrix.image == 'RealityVK (x64 Project64-Qt)' || matrix.image == 'RealityVK (x64 PJ64Legacy-Qt)' }}
         run: |
           curl -L -o %QT_BUILD_x64%.7z %QT_BUILD_BASE_URL%/%QT_BUILD_x64%.7z
           7z x -o%QTDIR_x64% %QT_BUILD_x64%.7z
         shell: cmd
       - name: Prepare Qt x86 Builds
-        if: ${{ matrix.image == 'GLideN64 (x86 Project64-Qt)' || matrix.image == 'GLideN64 (x86 PJ64Legacy-Qt)' }}
+        if: ${{ matrix.image == 'RealityVK (x86 Project64-Qt)' || matrix.image == 'RealityVK (x86 PJ64Legacy-Qt)' }}
         run: |
           curl -L -o %QT_BUILD_x86%.7z %QT_BUILD_BASE_URL%/%QT_BUILD_x86%.7z
           7z x -o%QTDIR_x86% %QT_BUILD_x86%.7z
         shell: cmd
-      - name: Build GLideN64 (x64 Project64-Qt)
-        if: ${{ matrix.image == 'GLideN64 (x64 Project64-Qt)' }}
+      - name: Build RealityVK (x64 Project64-Qt)
+        if: ${{ matrix.image == 'RealityVK (x64 Project64-Qt)' }}
         run: |
           set QTDIR=%QTDIR_x64%\%QT_BUILD_x64%
-          msbuild projects/msvc/GLideN64.sln /m /p:Configuration=Release_qt;Platform=x64
-          copy ini\GLideN64.custom.ini %PJ64PluginsDirQT_x64%
+          msbuild projects/msvc/RealityVK.sln /m /p:Configuration=Release_qt;Platform=x64
+          copy ini\RealityVK.custom.ini %PJ64PluginsDirQT_x64%
           copy translations\release\*.qm %PJ64PluginsDirQT_x64%
         shell: cmd
-      - name: Build GLideN64 (x86 Project64-Qt)
-        if: ${{ matrix.image == 'GLideN64 (x86 Project64-Qt)' }}
+      - name: Build RealityVK (x86 Project64-Qt)
+        if: ${{ matrix.image == 'RealityVK (x86 Project64-Qt)' }}
         run: |
           set QTDIR=%QTDIR_x86%\%QT_BUILD_x86%
-          msbuild projects/msvc/GLideN64.sln /m /p:Configuration=Release_qt;Platform=Win32
-          copy ini\GLideN64.custom.ini %PJ64PluginsDirQT%
+          msbuild projects/msvc/RealityVK.sln /m /p:Configuration=Release_qt;Platform=Win32
+          copy ini\RealityVK.custom.ini %PJ64PluginsDirQT%
           copy translations\release\*.qm %PJ64PluginsDirQT%
         shell: cmd
-      - name: Build GLideN64 (x64 Project64-WTL)
-        if: ${{ matrix.image == 'GLideN64 (x64 Project64-WTL)' }}
+      - name: Build RealityVK (x64 Project64-WTL)
+        if: ${{ matrix.image == 'RealityVK (x64 Project64-WTL)' }}
         run: |
-          msbuild projects/msvc/GLideN64.sln /m /p:Configuration=Release_wtl;Platform=x64
-          copy ini\GLideN64.custom.ini %PJ64PluginsDirWTL_x64%
+          msbuild projects/msvc/RealityVK.sln /m /p:Configuration=Release_wtl;Platform=x64
+          copy ini\RealityVK.custom.ini %PJ64PluginsDirWTL_x64%
           mkdir %PJ64PluginsDirWTL_x64%\translations
           copy translations\wtl\*.Lang %PJ64PluginsDirWTL_x64%\translations
         shell: cmd
-      - name: Build GLideN64 (x86 Project64-WTL)
-        if: ${{ matrix.image == 'GLideN64 (x86 Project64-WTL)' }}
+      - name: Build RealityVK (x86 Project64-WTL)
+        if: ${{ matrix.image == 'RealityVK (x86 Project64-WTL)' }}
         run: |
-          msbuild projects/msvc/GLideN64.sln /m /p:Configuration=Release_wtl;Platform=Win32
-          copy ini\GLideN64.custom.ini %PJ64PluginsDirWTL%
+          msbuild projects/msvc/RealityVK.sln /m /p:Configuration=Release_wtl;Platform=Win32
+          copy ini\RealityVK.custom.ini %PJ64PluginsDirWTL%
           mkdir %PJ64PluginsDirWTL%\translations
           copy translations\wtl\*.Lang %PJ64PluginsDirWTL%\translations
         shell: cmd
-      - name: Build GLideN64 (x64 PJ64Legacy-Qt)
-        if: ${{ matrix.image == 'GLideN64 (x64 PJ64Legacy-Qt)' }}
+      - name: Build RealityVK (x64 PJ64Legacy-Qt)
+        if: ${{ matrix.image == 'RealityVK (x64 PJ64Legacy-Qt)' }}
         run: |
           set QTDIR=%QTDIR_x64%\%QT_BUILD_x64%
-          msbuild projects/msvc/GLideN64.sln /m /p:Configuration=Release_qt_legacy;Platform=x64
-          copy ini\GLideN64.custom.ini %PJ64PluginsDirQT_x64%
+          msbuild projects/msvc/RealityVK.sln /m /p:Configuration=Release_qt_legacy;Platform=x64
+          copy ini\RealityVK.custom.ini %PJ64PluginsDirQT_x64%
           copy translations\release\*.qm %PJ64PluginsDirQT_x64%
         shell: cmd
-      - name: Build GLideN64 (x86 PJ64Legacy-Qt)
-        if: ${{ matrix.image == 'GLideN64 (x86 PJ64Legacy-Qt)' }}
+      - name: Build RealityVK (x86 PJ64Legacy-Qt)
+        if: ${{ matrix.image == 'RealityVK (x86 PJ64Legacy-Qt)' }}
         run: |
           set QTDIR=%QTDIR_x86%\%QT_BUILD_x86%
-          msbuild projects/msvc/GLideN64.sln /m /p:Configuration=Release_qt_legacy;Platform=Win32
-          copy ini\GLideN64.custom.ini %PJ64PluginsDirQT%
+          msbuild projects/msvc/RealityVK.sln /m /p:Configuration=Release_qt_legacy;Platform=Win32
+          copy ini\RealityVK.custom.ini %PJ64PluginsDirQT%
           copy translations\release\*.qm %PJ64PluginsDirQT%
         shell: cmd
-      - name: Build GLideN64 (x64 PJ64Legacy-WTL)
-        if: ${{ matrix.image == 'GLideN64 (x64 PJ64Legacy-WTL)' }}
+      - name: Build RealityVK (x64 PJ64Legacy-WTL)
+        if: ${{ matrix.image == 'RealityVK (x64 PJ64Legacy-WTL)' }}
         run: |
-          msbuild projects/msvc/GLideN64.sln /m /p:Configuration=Release_wtl_legacy;Platform=x64
-          copy ini\GLideN64.custom.ini %PJ64PluginsDirWTL_x64%
+          msbuild projects/msvc/RealityVK.sln /m /p:Configuration=Release_wtl_legacy;Platform=x64
+          copy ini\RealityVK.custom.ini %PJ64PluginsDirWTL_x64%
           mkdir %PJ64PluginsDirWTL_x64%\translations
           copy translations\wtl\*.Lang %PJ64PluginsDirWTL_x64%\translations
         shell: cmd
-      - name: Build GLideN64 (x86 PJ64Legacy-WTL)
-        if: ${{ matrix.image == 'GLideN64 (x86 PJ64Legacy-WTL)' }}
+      - name: Build RealityVK (x86 PJ64Legacy-WTL)
+        if: ${{ matrix.image == 'RealityVK (x86 PJ64Legacy-WTL)' }}
         run: |
-          msbuild projects/msvc/GLideN64.sln /m /p:Configuration=Release_wtl_legacy;Platform=Win32
-          copy ini\GLideN64.custom.ini %PJ64PluginsDirWTL%
+          msbuild projects/msvc/RealityVK.sln /m /p:Configuration=Release_wtl_legacy;Platform=Win32
+          copy ini\RealityVK.custom.ini %PJ64PluginsDirWTL%
           mkdir %PJ64PluginsDirWTL%\translations
           copy translations\wtl\*.Lang %PJ64PluginsDirWTL%\translations
         shell: cmd
-      - name: Build GLideN64 (x64 Mupen64Plus-CLI)
-        if: ${{ matrix.image == 'GLideN64 (x64 Mupen64Plus-CLI)' }}
+      - name: Build RealityVK (x64 Mupen64Plus-CLI)
+        if: ${{ matrix.image == 'RealityVK (x64 Mupen64Plus-CLI)' }}
         run: |
-          msbuild projects/msvc/GLideN64.sln /m /p:Configuration=Release_mupenplus;Platform=x64
-          copy ini\GLideN64.custom.ini %Mupen64PluginsDir_x64%\
+          msbuild projects/msvc/RealityVK.sln /m /p:Configuration=Release_mupenplus;Platform=x64
+          copy ini\RealityVK.custom.ini %Mupen64PluginsDir_x64%\
         shell: cmd
-      - name: Build GLideN64 (x86 Mupen64Plus-CLI)
-        if: ${{ matrix.image == 'GLideN64 (x86 Mupen64Plus-CLI)' }}
+      - name: Build RealityVK (x86 Mupen64Plus-CLI)
+        if: ${{ matrix.image == 'RealityVK (x86 Mupen64Plus-CLI)' }}
         run: |
-          msbuild projects/msvc/GLideN64.sln /m /p:Configuration=Release_mupenplus;Platform=Win32
-          copy ini\GLideN64.custom.ini %Mupen64PluginsDir%\
+          msbuild projects/msvc/RealityVK.sln /m /p:Configuration=Release_mupenplus;Platform=Win32
+          copy ini\RealityVK.custom.ini %Mupen64PluginsDir%\
         shell: cmd
-      - name: Build GLideN64 (x64 Mupen64Plus-Qt)
-        if: ${{ matrix.image == 'GLideN64 (x64 Mupen64Plus-Qt)' }}
+      - name: Build RealityVK (x64 Mupen64Plus-Qt)
+        if: ${{ matrix.image == 'RealityVK (x64 Mupen64Plus-Qt)' }}
         run: |
           mkdir -p build/windows-mupen64plus-qt
           pushd build/windows-mupen64plus-qt
@@ -192,105 +192,105 @@ jobs:
           make -j$(nproc)
           popd
           cp build/windows-mupen64plus-qt/plugin/Release/*.dll build/windows-mupen64plus-qt/
-          cp ini/GLideN64.custom.ini build/windows-mupen64plus-qt/
+          cp ini/RealityVK.custom.ini build/windows-mupen64plus-qt/
           cp translations/release/*.qm build/windows-mupen64plus-qt/
         shell: msys2 {0}
-      - name: Upload GLideN64 (x64 Project64-Qt)
+      - name: Upload RealityVK (x64 Project64-Qt)
         uses: actions/upload-artifact@v4
-        if: ${{ matrix.image == 'GLideN64 (x64 Project64-Qt)' }}
+        if: ${{ matrix.image == 'RealityVK (x64 Project64-Qt)' }}
         with:
-          name: GLideN64-${{ env.GIT_REVISION }}-Windows-Project64-Qt-x64
+          name: RealityVK-${{ env.GIT_REVISION }}-Windows-Project64-Qt-x64
           path: |
             build\windows-project64-qt-x64\*.dll
-            build\windows-project64-qt-x64\GLideN64.custom.ini
+            build\windows-project64-qt-x64\RealityVK.custom.ini
             build\windows-project64-qt-x64\*.qm
-      - name: Upload GLideN64 (x86 Project64-Qt)
+      - name: Upload RealityVK (x86 Project64-Qt)
         uses: actions/upload-artifact@v4
-        if: ${{ matrix.image == 'GLideN64 (x86 Project64-Qt)' }}
+        if: ${{ matrix.image == 'RealityVK (x86 Project64-Qt)' }}
         with:
-          name: GLideN64-${{ env.GIT_REVISION }}-Windows-Project64-Qt-x86
+          name: RealityVK-${{ env.GIT_REVISION }}-Windows-Project64-Qt-x86
           path: |
             build\windows-project64-qt\*.dll
-            build\windows-project64-qt\GLideN64.custom.ini
+            build\windows-project64-qt\RealityVK.custom.ini
             build\windows-project64-qt\*.qm
-      - name: Upload GLideN64 (x64 Project64-WTL)
+      - name: Upload RealityVK (x64 Project64-WTL)
         uses: actions/upload-artifact@v4
-        if: ${{ matrix.image == 'GLideN64 (x64 Project64-WTL)' }}
+        if: ${{ matrix.image == 'RealityVK (x64 Project64-WTL)' }}
         with:
-          name: GLideN64-${{ env.GIT_REVISION }}-Windows-Project64-WTL-x64
+          name: RealityVK-${{ env.GIT_REVISION }}-Windows-Project64-WTL-x64
           path: |
             build\windows-project64-wtl-x64\*.dll
-            build\windows-project64-wtl-x64\GLideN64.custom.ini
+            build\windows-project64-wtl-x64\RealityVK.custom.ini
             build\windows-project64-wtl-x64\translations\*.Lang
-      - name: Upload GLideN64 (x86 Project64-WTL)
+      - name: Upload RealityVK (x86 Project64-WTL)
         uses: actions/upload-artifact@v4
-        if: ${{ matrix.image == 'GLideN64 (x86 Project64-WTL)' }}
+        if: ${{ matrix.image == 'RealityVK (x86 Project64-WTL)' }}
         with:
-          name: GLideN64-${{ env.GIT_REVISION }}-Windows-Project64-WTL-x86
+          name: RealityVK-${{ env.GIT_REVISION }}-Windows-Project64-WTL-x86
           path: |
             build\windows-project64-wtl\*.dll
-            build\windows-project64-wtl\GLideN64.custom.ini
+            build\windows-project64-wtl\RealityVK.custom.ini
             build\windows-project64-wtl\translations\*.Lang
-      - name: Upload GLideN64 (x64 PJ64Legacy-Qt)
+      - name: Upload RealityVK (x64 PJ64Legacy-Qt)
         uses: actions/upload-artifact@v4
-        if: ${{ matrix.image == 'GLideN64 (x64 PJ64Legacy-Qt)' }}
+        if: ${{ matrix.image == 'RealityVK (x64 PJ64Legacy-Qt)' }}
         with:
-          name: GLideN64-${{ env.GIT_REVISION }}-Windows-PJ64Legacy-Qt-x64
+          name: RealityVK-${{ env.GIT_REVISION }}-Windows-PJ64Legacy-Qt-x64
           path: |
             build\windows-project64-qt-x64\*.dll
-            build\windows-project64-qt-x64\GLideN64.custom.ini
+            build\windows-project64-qt-x64\RealityVK.custom.ini
             build\windows-project64-qt-x64\*.qm
-      - name: Upload GLideN64 (x86 PJ64Legacy-Qt)
+      - name: Upload RealityVK (x86 PJ64Legacy-Qt)
         uses: actions/upload-artifact@v4
-        if: ${{ matrix.image == 'GLideN64 (x86 PJ64Legacy-Qt)' }}
+        if: ${{ matrix.image == 'RealityVK (x86 PJ64Legacy-Qt)' }}
         with:
-          name: GLideN64-${{ env.GIT_REVISION }}-Windows-PJ64Legacy-Qt-x86
+          name: RealityVK-${{ env.GIT_REVISION }}-Windows-PJ64Legacy-Qt-x86
           path: |
             build\windows-project64-qt\*.dll
-            build\windows-project64-qt\GLideN64.custom.ini
+            build\windows-project64-qt\RealityVK.custom.ini
             build\windows-project64-qt\*.qm
-      - name: Upload GLideN64 (x64 PJ64Legacy-WTL)
+      - name: Upload RealityVK (x64 PJ64Legacy-WTL)
         uses: actions/upload-artifact@v4
-        if: ${{ matrix.image == 'GLideN64 (x64 PJ64Legacy-WTL)' }}
+        if: ${{ matrix.image == 'RealityVK (x64 PJ64Legacy-WTL)' }}
         with:
-          name: GLideN64-${{ env.GIT_REVISION }}-Windows-PJ64Legacy-WTL-x64
+          name: RealityVK-${{ env.GIT_REVISION }}-Windows-PJ64Legacy-WTL-x64
           path: |
             build\windows-project64-wtl-x64\*.dll
-            build\windows-project64-wtl-x64\GLideN64.custom.ini
+            build\windows-project64-wtl-x64\RealityVK.custom.ini
             build\windows-project64-wtl-x64\translations\*.Lang
-      - name: Upload GLideN64 (x86 PJ64Legacy-WTL)
+      - name: Upload RealityVK (x86 PJ64Legacy-WTL)
         uses: actions/upload-artifact@v4
-        if: ${{ matrix.image == 'GLideN64 (x86 PJ64Legacy-WTL)' }}
+        if: ${{ matrix.image == 'RealityVK (x86 PJ64Legacy-WTL)' }}
         with:
-          name: GLideN64-${{ env.GIT_REVISION }}-Windows-PJ64Legacy-WTL-x86
+          name: RealityVK-${{ env.GIT_REVISION }}-Windows-PJ64Legacy-WTL-x86
           path: |
             build\windows-project64-wtl\*.dll
-            build\windows-project64-wtl\GLideN64.custom.ini
+            build\windows-project64-wtl\RealityVK.custom.ini
             build\windows-project64-wtl\translations\*.Lang
-      - name: Upload GLideN64 (x64 Mupen64Plus-CLI)
+      - name: Upload RealityVK (x64 Mupen64Plus-CLI)
         uses: actions/upload-artifact@v4
-        if: ${{ matrix.image == 'GLideN64 (x64 Mupen64Plus-CLI)' }}
+        if: ${{ matrix.image == 'RealityVK (x64 Mupen64Plus-CLI)' }}
         with:
-          name: GLideN64-${{ env.GIT_REVISION }}-Windows-Mupen64Plus-CLI-x64
+          name: RealityVK-${{ env.GIT_REVISION }}-Windows-Mupen64Plus-CLI-x64
           path: |
             build\windows-mupen64plus-cli-x64\*.dll
-            build\windows-mupen64plus-cli-x64\GLideN64.custom.ini
-      - name: Upload GLideN64 (x86 Mupen64Plus-CLI)
+            build\windows-mupen64plus-cli-x64\RealityVK.custom.ini
+      - name: Upload RealityVK (x86 Mupen64Plus-CLI)
         uses: actions/upload-artifact@v4
-        if: ${{ matrix.image == 'GLideN64 (x86 Mupen64Plus-CLI)' }}
+        if: ${{ matrix.image == 'RealityVK (x86 Mupen64Plus-CLI)' }}
         with:
-          name: GLideN64-${{ env.GIT_REVISION }}-Windows-Mupen64Plus-CLI-x86
+          name: RealityVK-${{ env.GIT_REVISION }}-Windows-Mupen64Plus-CLI-x86
           path: |
             build\windows-mupen64plus-cli\*.dll
-            build\windows-mupen64plus-cli\GLideN64.custom.ini
-      - name: Upload GLideN64 (x64 Mupen64Plus-Qt)
+            build\windows-mupen64plus-cli\RealityVK.custom.ini
+      - name: Upload RealityVK (x64 Mupen64Plus-Qt)
         uses: actions/upload-artifact@v4
-        if: ${{ matrix.image == 'GLideN64 (x64 Mupen64Plus-Qt)' }}
+        if: ${{ matrix.image == 'RealityVK (x64 Mupen64Plus-Qt)' }}
         with:
-          name: GLideN64-${{ env.GIT_REVISION }}-Windows-Mupen64Plus-Qt-x64
+          name: RealityVK-${{ env.GIT_REVISION }}-Windows-Mupen64Plus-Qt-x64
           path: |
             build\windows-mupen64plus-qt\*.dll
-            build\windows-mupen64plus-qt\GLideN64.custom.ini
+            build\windows-mupen64plus-qt\RealityVK.custom.ini
             build\windows-mupen64plus-qt\*.qm
   Release:
     runs-on: ubuntu-latest

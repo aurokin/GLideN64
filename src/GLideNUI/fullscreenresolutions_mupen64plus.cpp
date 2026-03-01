@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include "FullscreenResolutions.h"
 #include "../Config.h"
-#include "../mupenplus/GLideN64_mupenplus.h"
+#include "../mupenplus/RealityVK_mupenplus.h"
 
 static struct
 {

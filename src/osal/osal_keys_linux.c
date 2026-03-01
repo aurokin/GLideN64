@@ -55,7 +55,7 @@ typedef struct {
 
 #define KEYBOARD_MAX 4
 #define DEVINPUTPATH "/dev/input/by-id"
-#define KEYBOARD_VAR "GLIDEN64_KEYBOARD"
+#define KEYBOARD_VAR "REALITYVK_KEYBOARD"
 
 static keyboard_t l_Keyboards[KEYBOARD_MAX] = { 0 };
 static int l_KeyBoardCount = 0;

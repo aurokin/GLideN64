@@ -1,7 +1,7 @@
 #include <assert.h>
 #include <algorithm>
 #include <cmath>
-#include "GLideN64.h"
+#include "RealityVK.h"
 #include "N64.h"
 #include "GBI.h"
 #include "RSP.h"

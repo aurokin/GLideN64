@@ -16,9 +16,9 @@ cmake [-DCMAKE_BUILD_TYPE=Debug] [-DVEC4_OPT=On] [-DCRC_OPT=On] [-DX86_OPT=On] [
 -DVERO4K=On - set if you need to build on the OSMC Vero4k.
 -DANDROID=On - set if targeting an Android device
 -DMESA=On - set to disable Raspberry Pi autodetection
--DGL_PROFILE=On - set to turn on GL profiling
 -DNO_OSD=On - set to disable OSD text drawing
--DGLIDEN64_GRAPHICS_BACKEND=OpenGL|Vulkan - selects default backend (`Vulkan` currently uses bootstrap context with stubbed render path)
+-DREALITYVK_BUILD_LEGACY_RENDERER=ON is not supported in this Vulkan-only branch (configure fails intentionally).
+-DREALITYVK_GRAPHICS_BACKEND is retained only for compatibility wiring in smoke tooling; the renderer backend in this branch is Vulkan-only.
 
 Local CI gate helper script:
 

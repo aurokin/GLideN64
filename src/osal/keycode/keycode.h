@@ -142,7 +142,7 @@ enum {
     KEY_RightShift = 229,
     KEY_RightAlt = 230,
     KEY_RightGUI = 231,
-	MB_Left = 233 // GLideN64 - specific. Not an actual HID keycode.
+	MB_Left = 233 // RealityVK - specific. Not an actual HID keycode.
 };
 
 #endif

@@ -6,19 +6,6 @@ using namespace graphics;
 
 Context gfxContext;
 
-namespace {
-
-GraphicsBackend getDefaultBackend()
-{
-#ifdef GLIDEN64_DEFAULT_BACKEND_VULKAN
-	return GraphicsBackend::Vulkan;
-#else
-	return GraphicsBackend::OpenGL;
-#endif
-}
-
-}
-
 bool Context::Multisampling = false;
 bool Context::BlitFramebuffer = false;
 bool Context::WeakBlitFramebuffer = false;
@@ -34,22 +21,11 @@ bool Context::EglImageFramebuffer = false;
 bool Context::DualSourceBlending = false;
 
 Context::Context()
-	: m_backend(getDefaultBackend())
-	, m_presentationWindowInfo()
+	: m_presentationWindowInfo()
 {}
 
 Context::~Context() {
 	m_impl.reset();
-}
-
-void Context::setBackend(GraphicsBackend _backend)
-{
-	m_backend = _backend;
-}
-
-GraphicsBackend Context::getBackend() const
-{
-	return m_backend;
 }
 
 void Context::setPresentationWindowInfo(const PresentationWindowInfo & _info)
@@ -62,7 +38,7 @@ void Context::setPresentationWindowInfo(const PresentationWindowInfo & _info)
 
 void Context::init()
 {
-	m_impl = createContextImpl(m_backend);
+	m_impl = createContextImpl();
 	m_impl->setPresentationWindowInfo(m_presentationWindowInfo);
 	m_impl->init();
 	m_fbTexFormats.reset(m_impl->getFramebufferTextureFormats());
@@ -274,6 +250,11 @@ void Context::setDrawBuffers(u32 _num)
 	m_impl->setDrawBuffers(_num);
 }
 
+bool Context::readScreen2(void * _dest, int _width, int _height, int _front)
+{
+	return m_impl->readScreen2(_dest, _width, _height, _front);
+}
+
 PixelReadBuffer * Context::createPixelReadBuffer(size_t _sizeInBytes)
 {
 	return m_impl->createPixelReadBuffer(_sizeInBytes);
@@ -285,17 +266,6 @@ ColorBufferReader * Context::createColorBufferReader(CachedTexture * _pTexture)
 }
 
 /*---------------Shaders-------------*/
-
-bool Context::isCombinerProgramBuilderObsolete()
-{
-	return m_impl->isCombinerProgramBuilderObsolete();
-
-}
-
-void Context::resetCombinerProgramBuilder()
-{
-	m_impl->resetCombinerProgramBuilder();
-}
 
 CombinerProgram * Context::createCombinerProgram(Combiner & _color, Combiner & _alpha, const CombinerKey & _key)
 {

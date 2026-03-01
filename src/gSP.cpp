@@ -4,7 +4,7 @@
 #include <assert.h>
 #include <algorithm>
 #include "N64.h"
-#include "GLideN64.h"
+#include "RealityVK.h"
 #include "DebugDump.h"
 #include "Types.h"
 #include "RSP.h"

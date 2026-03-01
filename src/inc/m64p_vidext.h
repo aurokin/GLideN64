@@ -32,16 +32,17 @@
 extern "C" {
 #endif
 
-/* VidExt_Init()
+/* VidExt_InitWithRenderMode()
  *
  * This function should be called from within the InitiateGFX() video plugin
- * function call. The default SDL implementation of this function simply calls
+ * function call with the specified rendering mode (Vulkan).
+ * The default SDL implementation of this function simply calls
  * SDL_InitSubSystem(SDL_INIT_VIDEO). It does not open a rendering window or
  * switch video modes.
  */
-typedef m64p_error (*ptr_VidExt_Init)(void);
+typedef m64p_error (*ptr_VidExt_InitWithRenderMode)(m64p_render_mode);
 #if defined(M64P_CORE_PROTOTYPES)
-EXPORT m64p_error CALL VidExt_Init(void);
+EXPORT m64p_error CALL VidExt_InitWithRenderMode(m64p_render_mode);
 #endif
 
 /* VidExt_Quit()
@@ -81,8 +82,7 @@ EXPORT m64p_error CALL VidExt_ListFullscreenRates(m64p_2d_size, int *, int *);
 /* VidExt_SetVideoMode()
  *
  * This function creates a rendering window or switches into a fullscreen
- * video mode. Any desired OpenGL attributes should be set before calling
- * this function.
+ * video mode.
  */
 typedef m64p_error (*ptr_VidExt_SetVideoMode)(int, int, int, m64p_video_mode, m64p_video_flags);
 #if defined(M64P_CORE_PROTOTYPES)
@@ -92,8 +92,7 @@ EXPORT m64p_error CALL VidExt_SetVideoMode(int, int, int, m64p_video_mode, m64p_
 /* VidExt_SetVideoModeWithRate()
  *
  * This function creates a rendering window or switches into a fullscreen
- * video mode. Any desired OpenGL attributes should be set before calling
- * this function.
+ * video mode.
  */
 typedef m64p_error (*ptr_VidExt_SetVideoModeWithRate)(int, int, int, int, m64p_video_mode, m64p_video_flags);
 #if defined(M64P_CORE_PROTOTYPES)
@@ -127,59 +126,23 @@ typedef m64p_error (*ptr_VidExt_ToggleFullScreen)(void);
 EXPORT m64p_error CALL VidExt_ToggleFullScreen(void);
 #endif
 
-/* VidExt_GL_GetProcAddress()
+/* VidExt_VK_GetSurface()
  *
- * This function is used to get a pointer to an OpenGL extension function. This
- * is only necessary on the Windows platform, because the OpenGL implementation
- * shipped with Windows only supports OpenGL version 1.1.
+ * This function gives out a Vulkan surface.
  */
-typedef m64p_function (*ptr_VidExt_GL_GetProcAddress)(const char *);
+typedef m64p_error (*ptr_VidExt_VK_GetSurface)(void**, void*);
 #if defined(M64P_CORE_PROTOTYPES)
-EXPORT m64p_function CALL VidExt_GL_GetProcAddress(const char *);
+EXPORT m64p_error CALL VidExt_VK_GetSurface(void**, void*);
 #endif
 
-/* VidExt_GL_SetAttribute()
+/* VidExt_VK_GetInstanceExtensions()
  *
- * This function is used to set certain OpenGL attributes which must be
- * specified before creating the rendering window with VidExt_SetVideoMode.
+ * This function gives out a list of supported Vulkan instance extensions
+ * and returns the amount of extension strings in the list.
  */
-typedef m64p_error (*ptr_VidExt_GL_SetAttribute)(m64p_GLattr, int);
+typedef m64p_error (*ptr_VidExt_VK_GetInstanceExtensions)(const char**[], uint32_t*);
 #if defined(M64P_CORE_PROTOTYPES)
-EXPORT m64p_error CALL VidExt_GL_SetAttribute(m64p_GLattr, int);
-#endif
-
-/* VidExt_GL_GetAttribute()
- *
- * This function is used to get the value of OpenGL attributes.  These values may
- * be changed when calling VidExt_SetVideoMode.
- */
-typedef m64p_error (*ptr_VidExt_GL_GetAttribute)(m64p_GLattr, int *);
-#if defined(M64P_CORE_PROTOTYPES)
-EXPORT m64p_error CALL VidExt_GL_GetAttribute(m64p_GLattr, int *);
-#endif
-
-/* VidExt_GL_SwapBuffers()
- *
- * This function is used to swap the front/back buffers after rendering an
- * output video frame.
- */
-typedef m64p_error (*ptr_VidExt_GL_SwapBuffers)(void);
-#if defined(M64P_CORE_PROTOTYPES)
-EXPORT m64p_error CALL VidExt_GL_SwapBuffers(void);
-#endif
-
-/* VidExt_GL_GetDefaultFramebuffer()
- *
- * On some platforms (for instance, iOS) the default framebuffer object
- * depends on the surface being rendered to, and might be different from 0.
- * This function should be called after VidExt_SetVideoMode to retrieve the
- * name of the default FBO.
- * Calling this function may have performance implications
- * and it should not be called every time the default FBO is bound.
- */
-typedef uint32_t (*ptr_VidExt_GL_GetDefaultFramebuffer)(void);
-#if defined(M64P_CORE_PROTOTYPES)
-EXPORT uint32_t CALL VidExt_GL_GetDefaultFramebuffer(void);
+EXPORT m64p_error CALL VidExt_VK_GetInstanceExtensions(const char**[], uint32_t*);
 #endif
 
 #ifdef __cplusplus
@@ -187,4 +150,3 @@ EXPORT uint32_t CALL VidExt_GL_GetDefaultFramebuffer(void);
 #endif
 
 #endif /* #define M64P_VIDEXT_H */
-

@@ -6,6 +6,8 @@
 
 namespace vulkan {
 
+	struct DrawPacket;
+
 	class ContextImpl final : public graphics::ContextImpl
 	{
 	public:
@@ -94,13 +96,11 @@ namespace vulkan {
 
 		void setDrawBuffers(u32 _num) override;
 
+		bool readScreen2(void * _dest, int _width, int _height, int _front) override;
+
 		graphics::PixelReadBuffer * createPixelReadBuffer(size_t _sizeInBytes) override;
 
 		graphics::ColorBufferReader * createColorBufferReader(CachedTexture * _pTexture) override;
-
-		bool isCombinerProgramBuilderObsolete() override;
-
-		void resetCombinerProgramBuilder() override;
 
 		graphics::CombinerProgram * createCombinerProgram(Combiner & _color, Combiner & _alpha, const CombinerKey & _key) override;
 
@@ -167,12 +167,11 @@ namespace vulkan {
 		void destroyPresentSyncObjects();
 		void destroySurface();
 		void shutdownVulkanCore();
-		void resetFrameRenderData();
-		bool ensureFrameVertexBuffer(u32 _frameIndex, size_t _requiredBytes);
-		u32 findMemoryType(u32 _typeFilter, u32 _propertyFlags) const;
-		bool isDefaultDrawFramebufferBound() const;
+			void resetFrameRenderData();
+			bool isDefaultDrawFramebufferBound() const;
+			bool executeOffscreenDrawPacket(const DrawPacket & _packet, graphics::ObjectHandle _drawFramebuffer);
 
-		graphics::ObjectHandle _allocateHandle();
+			graphics::ObjectHandle _allocateHandle();
 
 		graphics::ClampMode m_clampMode;
 		s32 m_textureUnpackAlignment;
@@ -182,8 +181,6 @@ namespace vulkan {
 		f32 m_maxAnisotropy;
 		u32 m_nextHandle;
 		bool m_coreReady;
-		graphics::ObjectHandle m_drawFramebufferBinding;
-		graphics::ObjectHandle m_readFramebufferBinding;
 		graphics::Context::PresentationWindowInfo m_presentationWindowInfo;
 		std::unique_ptr<graphics::FramebufferTextureFormats> m_fbTexFormats;
 		std::unique_ptr<VulkanState> m_vk;

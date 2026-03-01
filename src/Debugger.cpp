@@ -3,7 +3,7 @@
 #include "assert.h"
 #include "math.h"
 #include "Platform.h"
-#include "GLideN64.h"
+#include "RealityVK.h"
 #include "RSP.h"
 #include "Config.h"
 #include "Combiner.h"
@@ -15,7 +15,7 @@
 #include "osal_keys.h"
 
 #ifndef MUPENPLUSAPI
-#include "windows/GLideN64_windows.h"
+#include "windows/RealityVK_windows.h"
 #endif
 
 Debugger g_debugger;

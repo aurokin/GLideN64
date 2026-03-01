@@ -32,7 +32,7 @@ int openConfigDialog(void* parent, const wchar_t * _strFileName, const wchar_t *
 		loadCustomRomSettings(strIniFileName, strSharedIniFileName, _romName);
 
 	int argc = 1;
-	char argv0[] = "GLideN64";
+	char argv0[] = "RealityVK";
 	char * argv[] = { argv0 };
 	std::unique_ptr<QApplication> pQApp;
 	QCoreApplication* pApp = QCoreApplication::instance();
@@ -73,7 +73,7 @@ int openAboutDialog(const wchar_t * _strFileName)
 	initMyResource();
 
 	int argc = 1;
-	char argv0[] = "GLideN64";
+	char argv0[] = "RealityVK";
 	char * argv[] = { argv0 };
 	QApplication a(argc, argv);
 

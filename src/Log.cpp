@@ -81,7 +81,7 @@ void LogDebug(const char* _fileName, int _line, u16 _type, const char* _format, 
 		std::wcstombs(logPathChar, logPath, sizeof(logPathChar));
 
 		std::stringstream logPathStream;
-		logPathStream << logPathChar << "/" << "gliden64.log";
+		logPathStream << logPathChar << "/" << "realityvk.log";
 		fileOutput.open(logPathStream.str().c_str(), std::wofstream::out | std::wofstream::app);
 	}
 
@@ -117,7 +117,7 @@ void LogDebug(const char* _fileName, int _line, u16 _type, const char* _format, 
 }
 
 #else // mupen64plus
-#include "mupenplus/GLideN64_mupenplus.h"
+#include "mupenplus/RealityVK_mupenplus.h"
 
 void LogDebug(const char* _fileName, int _line, u16 _type, const char* _format, ...)
 {
@@ -165,7 +165,7 @@ void LogDebug(const char* _fileName, int _line, u16 _type, const char* _format, 
 #endif
 
 #if defined(OS_WINDOWS) && !defined(MINGW)
-#include "windows/GLideN64_windows.h"
+#include "windows/RealityVK_windows.h"
 void debugPrint(const char * format, ...) {
 	char text[256];
 	wchar_t wtext[256];

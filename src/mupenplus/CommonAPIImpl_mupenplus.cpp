@@ -1,4 +1,4 @@
-#include "GLideN64_mupenplus.h"
+#include "RealityVK_mupenplus.h"
 #include <algorithm>
 #include <string>
 #include <sstream>
@@ -108,7 +108,7 @@ void PluginAPI::FindPluginPath(wchar_t * _strPath)
 
 			line = line.substr(loc);
 
-			if (line.find("GLideN64") != std::string::npos)
+			if (line.find("RealityVK") != std::string::npos || line.find("RealityVK") != std::string::npos)
 			{
 				_getWSPath(line.c_str(), _strPath, true);
 				maps.close();

@@ -50,5 +50,5 @@ void LogDebug(const char* _fileName, int _line, u16 _type, const char* _format, 
 			ANDROID_LOG_VERBOSE,
 	};
 
-	__android_log_write(androidLogTranslate[_type], "GLideN64", lcFormatString.str().c_str());
+	__android_log_write(androidLogTranslate[_type], "RealityVK", lcFormatString.str().c_str());
 }

@@ -40,7 +40,7 @@ BufferedLog::BufferedLog(u32 _mode) : m_mode(_mode)
 
 	wchar_t logPath[PLUGIN_PATH_SIZE + 16];
 	api().GetUserDataPath(logPath);
-	gln_wcscat(logPath, wst("/gliden64.debug.log"));
+	gln_wcscat(logPath, wst("/realityvk.debug.log"));
 	const size_t bufSize = PLUGIN_PATH_SIZE * 6;
 	char cbuf[bufSize];
 	wcstombs(cbuf, logPath, bufSize);

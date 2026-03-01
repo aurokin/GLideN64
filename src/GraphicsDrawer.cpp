@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cstdlib>
 #include <string>
 #include <thread>
 #include <assert.h>
@@ -582,6 +583,26 @@ void GraphicsDrawer::_dualSourceBlending() const
 			}
 		}
 
+		static const int strictDualDstMode = []() -> int {
+			const char * env = std::getenv("REALITYVK_VK_STRICT_DUAL_DST_MODE");
+			if (env == nullptr || env[0] == '\0')
+				return 0;
+			return static_cast<int>(std::strtol(env, nullptr, 0));
+		}();
+		if (strictDualDstMode == 1) {
+			dstFactor = blend::SRC1_ALPHA;
+			dstFactorAlpha = blend::SRC1_ALPHA;
+		} else if (strictDualDstMode == 2) {
+			dstFactor = blend::ONE_MINUS_SRC1_COLOR;
+			dstFactorAlpha = blend::ONE_MINUS_SRC1_ALPHA;
+		} else if (strictDualDstMode == 3) {
+			dstFactor = blend::ONE_MINUS_SRC1_ALPHA;
+			dstFactorAlpha = blend::ONE_MINUS_SRC1_ALPHA;
+		} else if (strictDualDstMode == 4) {
+			dstFactor = blend::DST_ALPHA;
+			dstFactorAlpha = blend::DST_ALPHA;
+		}
+
 		gfxContext.enable(enable::BLEND, true);
 		gfxContext.setBlendingSeparate(srcFactor, dstFactor, srcFactorAlpha, dstFactorAlpha);
 	} else {
@@ -606,12 +627,20 @@ void GraphicsDrawer::setBlendMode(bool _forceLegacyBlending) const
 	}
 
 	if (Context::DualSourceBlending && !isTexrectDrawerMode()) {
-		_dualSourceBlending();
+		static const bool strictDualSourceBlend = std::getenv("REALITYVK_VK_STRICT_DUAL_SOURCE_BLEND") != nullptr;
+		if (strictDualSourceBlend)
+			_dualSourceBlending();
+		else
+			_ordinaryBlending();
 		return;
 	}
 
 	if (Context::FramebufferFetchColor && !isTexrectDrawerMode()) {
-		gfxContext.enable(enable::BLEND, false);
+		static const bool strictFramebufferFetchColor = std::getenv("REALITYVK_VK_STRICT_FB_FETCH_COLOR") != nullptr;
+		if (strictFramebufferFetchColor)
+			gfxContext.enable(enable::BLEND, false);
+		else
+			_ordinaryBlending();
 		return;
 	}
 
@@ -1835,12 +1864,20 @@ void GraphicsDrawer::copyTexturedRect(const CopyRectParams & _params)
 
 	m_rect[0].s0 = S0;
 	m_rect[0].t0 = T0;
+	m_rect[0].s1 = S0;
+	m_rect[0].t1 = T0;
 	m_rect[1].s0 = S1;
 	m_rect[1].t0 = T0;
+	m_rect[1].s1 = S1;
+	m_rect[1].t1 = T0;
 	m_rect[2].s0 = S0;
 	m_rect[2].t0 = T1;
+	m_rect[2].s1 = S0;
+	m_rect[2].t1 = T1;
 	m_rect[3].s0 = S1;
 	m_rect[3].t0 = T1;
+	m_rect[3].s1 = S1;
+	m_rect[3].t1 = T1;
 
 	for (u32 i = 0; i < 2; ++i) {
 		CachedTexture * tex = _params.tex[i];

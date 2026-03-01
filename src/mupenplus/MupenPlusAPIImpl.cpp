@@ -1,7 +1,8 @@
-#include "GLideN64_mupenplus.h"
+#include "RealityVK_mupenplus.h"
 #include "../PluginAPI.h"
-#include "../GLideN64.h"
+#include "../RealityVK.h"
 #include "../Config.h"
+#include "../Log.h"
 #include <DisplayWindow.h>
 
 #ifdef OS_WINDOWS
@@ -10,6 +11,19 @@
 #include <dlfcn.h>
 #define DLSYM(a, b) dlsym(a, b)
 #endif // OS_WINDOWS
+
+namespace {
+
+template <typename T>
+bool requireVidExtFunction(T functionPtr, const char * name)
+{
+	if (functionPtr != nullptr)
+		return true;
+	LOG(LOG_ERROR, "Missing required core video extension function: %s", name);
+	return false;
+}
+
+} // namespace
 
 ptr_ConfigGetSharedDataFilepath ConfigGetSharedDataFilepath = nullptr;
 ptr_ConfigGetUserConfigPath ConfigGetUserConfigPath = nullptr;
@@ -32,7 +46,7 @@ ptr_ConfigExternalOpen ConfigExternalOpen = nullptr;
 ptr_ConfigExternalClose ConfigExternalClose = nullptr;
 
 /* definitions of pointers to Core video extension functions */
-ptr_VidExt_Init                  CoreVideo_Init = nullptr;
+ptr_VidExt_InitWithRenderMode    CoreVideo_InitWithRenderMode = nullptr;
 ptr_VidExt_Quit                  CoreVideo_Quit = nullptr;
 ptr_VidExt_ListFullscreenModes   CoreVideo_ListFullscreenModes = nullptr;
 ptr_VidExt_ListFullscreenRates   CoreVideo_ListFullscreenRates = nullptr;
@@ -41,11 +55,8 @@ ptr_VidExt_SetVideoModeWithRate  CoreVideo_SetVideoModeWithRate = nullptr;
 ptr_VidExt_SetCaption            CoreVideo_SetCaption = nullptr;
 ptr_VidExt_ToggleFullScreen      CoreVideo_ToggleFullScreen = nullptr;
 ptr_VidExt_ResizeWindow          CoreVideo_ResizeWindow = nullptr;
-ptr_VidExt_GL_GetProcAddress     CoreVideo_GL_GetProcAddress = nullptr;
-ptr_VidExt_GL_SetAttribute       CoreVideo_GL_SetAttribute = nullptr;
-ptr_VidExt_GL_GetAttribute       CoreVideo_GL_GetAttribute = nullptr;
-ptr_VidExt_GL_SwapBuffers        CoreVideo_GL_SwapBuffers = nullptr;
-ptr_VidExt_GL_GetDefaultFramebuffer CoreVideo_GL_GetDefaultFramebuffer = nullptr;
+ptr_VidExt_VK_GetSurface         CoreVideo_VK_GetSurface = nullptr;
+ptr_VidExt_VK_GetInstanceExtensions CoreVideo_VK_GetInstanceExtensions = nullptr;
 
 ptr_PluginGetVersion             CoreGetVersion = nullptr;
 
@@ -83,7 +94,7 @@ m64p_error PluginAPI::PluginStartup(m64p_dynlib_handle _CoreLibHandle, void* Con
 	ConfigExternalClose = (ptr_ConfigExternalClose)DLSYM(_CoreLibHandle, "ConfigExternalClose");
 
 	/* Get the core Video Extension function pointers from the library handle */
-	CoreVideo_Init = (ptr_VidExt_Init) DLSYM(_CoreLibHandle, "VidExt_Init");
+	CoreVideo_InitWithRenderMode = (ptr_VidExt_InitWithRenderMode) DLSYM(_CoreLibHandle, "VidExt_InitWithRenderMode");
 	CoreVideo_Quit = (ptr_VidExt_Quit) DLSYM(_CoreLibHandle, "VidExt_Quit");
 	CoreVideo_ListFullscreenModes = (ptr_VidExt_ListFullscreenModes) DLSYM(_CoreLibHandle, "VidExt_ListFullscreenModes");
 	CoreVideo_ListFullscreenRates = (ptr_VidExt_ListFullscreenRates) DLSYM(_CoreLibHandle, "VidExt_ListFullscreenRates");
@@ -92,11 +103,23 @@ m64p_error PluginAPI::PluginStartup(m64p_dynlib_handle _CoreLibHandle, void* Con
 	CoreVideo_SetCaption = (ptr_VidExt_SetCaption) DLSYM(_CoreLibHandle, "VidExt_SetCaption");
 	CoreVideo_ToggleFullScreen = (ptr_VidExt_ToggleFullScreen) DLSYM(_CoreLibHandle, "VidExt_ToggleFullScreen");
 	CoreVideo_ResizeWindow = (ptr_VidExt_ResizeWindow) DLSYM(_CoreLibHandle, "VidExt_ResizeWindow");
-	CoreVideo_GL_GetProcAddress = (ptr_VidExt_GL_GetProcAddress) DLSYM(_CoreLibHandle, "VidExt_GL_GetProcAddress");
-	CoreVideo_GL_SetAttribute = (ptr_VidExt_GL_SetAttribute) DLSYM(_CoreLibHandle, "VidExt_GL_SetAttribute");
-	CoreVideo_GL_GetAttribute = (ptr_VidExt_GL_GetAttribute) DLSYM(_CoreLibHandle, "VidExt_GL_GetAttribute");
-	CoreVideo_GL_SwapBuffers = (ptr_VidExt_GL_SwapBuffers) DLSYM(_CoreLibHandle, "VidExt_GL_SwapBuffers");
-	CoreVideo_GL_GetDefaultFramebuffer = (ptr_VidExt_GL_GetDefaultFramebuffer) DLSYM(_CoreLibHandle, "VidExt_GL_GetDefaultFramebuffer");
+	CoreVideo_VK_GetSurface = (ptr_VidExt_VK_GetSurface) DLSYM(_CoreLibHandle, "VidExt_VK_GetSurface");
+	CoreVideo_VK_GetInstanceExtensions =
+		(ptr_VidExt_VK_GetInstanceExtensions) DLSYM(_CoreLibHandle, "VidExt_VK_GetInstanceExtensions");
+
+	if (!requireVidExtFunction(CoreVideo_InitWithRenderMode, "VidExt_InitWithRenderMode")
+		|| !requireVidExtFunction(CoreVideo_Quit, "VidExt_Quit")
+		|| !requireVidExtFunction(CoreVideo_ListFullscreenModes, "VidExt_ListFullscreenModes")
+		|| !requireVidExtFunction(CoreVideo_ListFullscreenRates, "VidExt_ListFullscreenRates")
+		|| !requireVidExtFunction(CoreVideo_SetVideoMode, "VidExt_SetVideoMode")
+		|| !requireVidExtFunction(CoreVideo_SetCaption, "VidExt_SetCaption")
+		|| !requireVidExtFunction(CoreVideo_ToggleFullScreen, "VidExt_ToggleFullScreen")
+		|| !requireVidExtFunction(CoreVideo_ResizeWindow, "VidExt_ResizeWindow")
+		|| !requireVidExtFunction(CoreVideo_VK_GetSurface, "VidExt_VK_GetSurface")
+		|| !requireVidExtFunction(CoreVideo_VK_GetInstanceExtensions, "VidExt_VK_GetInstanceExtensions"))
+	{
+		return M64ERR_INCOMPATIBLE;
+	}
 
 	CoreGetVersion = (ptr_PluginGetVersion) DLSYM(_CoreLibHandle, "PluginGetVersion");
 
@@ -104,7 +127,8 @@ m64p_error PluginAPI::PluginStartup(m64p_dynlib_handle _CoreLibHandle, void* Con
 	if (Config_SetDefault()) {
 		config.version = ConfigGetParamInt(g_configVideoGliden64, "configVersion");
 		if (config.version != CONFIG_VERSION_CURRENT) {
-			ConfigDeleteSection("Video-GLideN64");
+			ConfigDeleteSection("Video-RealityVK");
+			ConfigDeleteSection("Video-RealityVK");
 			ConfigSaveFile();
 			Config_SetDefault();
 		}

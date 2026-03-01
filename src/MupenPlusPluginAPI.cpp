@@ -1,6 +1,6 @@
 #include "PluginAPI.h"
 #include "Types.h"
-#include "mupenplus/GLideN64_mupenplus.h"
+#include "mupenplus/RealityVK_mupenplus.h"
 #include "N64.h"
 
 extern "C" {

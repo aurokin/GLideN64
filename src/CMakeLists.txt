@@ -1,6 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
 
-option(EGL "Set to ON if targeting an EGL device" ${EGL})
 option(PANDORA "Set to ON if targeting an OpenPandora" ${PANDORA})
 option(ODROID "Set to ON if targeting an Odroid" ${ODROID})
 option(MUPENPLUSAPI "Set to ON for Mupen64Plus plugin" ${MUPENPLUSAPI})
@@ -9,12 +8,13 @@ option(GLIDENUI_QT6 "Set to ON to use Qt6 for GLideNUI" ${GLIDENUI_QT6})
 option(MESA "Set to ON to disable Raspberry Pi autodetection" ${MESA})
 option(VERO4K "Set to ON if targeting a Vero4k" ${VERO4K})
 option(ANDROID "Set to ON if targeting an Android device" ${ANDROID})
-option(GL_PROFILE "Set to ON to turn on GL profiling" ${GL_PROFILE})
 option(DEBUG_DUMP "Set to ON to enable debug dump" ${DEBUG_DUMP})
 option(NO_OSD "Set to ON to disable OSD text drawing" ${NO_OSD})
 option(USE_IPO "Enables IPO/LTO when supported" ON)
-set(GLIDEN64_GRAPHICS_BACKEND "OpenGL" CACHE STRING "Select graphics backend (OpenGL or Vulkan)")
-set_property(CACHE GLIDEN64_GRAPHICS_BACKEND PROPERTY STRINGS OpenGL Vulkan)
+
+if(DEFINED REALITYVK_BUILD_LEGACY_RENDERER AND REALITYVK_BUILD_LEGACY_RENDERER)
+  message(FATAL_ERROR "Vulkan-only branch: REALITYVK_BUILD_LEGACY_RENDERER is not supported.")
+endif()
 
 # run script to generate Revision.h
 set(PATH_REVISION "${CMAKE_CURRENT_BINARY_DIR}/inc/Revision.h")
@@ -37,30 +37,22 @@ endif(GIT_FOUND AND EXISTS "${CMAKE_SOURCE_DIR}/../.git")
 set_property(SOURCE ${PATH_REVISION} PROPERTY SKIP_AUTOGEN ON)
 include_directories("${CMAKE_CURRENT_BINARY_DIR}/inc")
 
-project( GLideN64 )
+project( RealityVK )
 
 include(GNUInstallDirs)
 
 find_package(Vulkan QUIET)
 if (Vulkan_FOUND)
-  set(GLIDEN64_VULKAN_LIBRARIES Vulkan::Vulkan)
+  set(REALITYVK_VULKAN_LIBRARIES Vulkan::Vulkan)
   message(STATUS "Vulkan loader: found")
 else()
-  set(GLIDEN64_VULKAN_LIBRARIES "")
+  set(REALITYVK_VULKAN_LIBRARIES "")
   message(STATUS "Vulkan loader: not found (Vulkan backend core init will be unavailable)")
 endif()
 
-string(TOUPPER "${GLIDEN64_GRAPHICS_BACKEND}" GLIDEN64_GRAPHICS_BACKEND_UPPER)
-if(GLIDEN64_GRAPHICS_BACKEND_UPPER STREQUAL "OPENGL")
-  message(STATUS "GLideN64 backend: OpenGL")
-elseif(GLIDEN64_GRAPHICS_BACKEND_UPPER STREQUAL "VULKAN")
-  add_definitions(-DGLIDEN64_DEFAULT_BACKEND_VULKAN)
-  message(STATUS "GLideN64 backend: Vulkan bootstrap (render path is still being ported)")
-else()
-  message(FATAL_ERROR "Invalid GLIDEN64_GRAPHICS_BACKEND='${GLIDEN64_GRAPHICS_BACKEND}'. Use OpenGL or Vulkan.")
-endif()
+message(STATUS "RealityVK backend: Vulkan-first branch")
 
-set(GLideN64_SOURCES
+set(RealityVK_SOURCES
   3DMath.cpp
   Combiner.cpp
   CombinerKey.cpp
@@ -77,7 +69,7 @@ set(GLideN64_SOURCES
   FrameBufferInfo.cpp
   GBI.cpp
   gDP.cpp
-  GLideN64.cpp
+  RealityVK.cpp
   GraphicsDrawer.cpp
   gSP.cpp
   Log.cpp
@@ -107,40 +99,8 @@ set(GLideN64_SOURCES
   Graphics/ColorBufferReader.cpp
   Graphics/CombinerProgram.cpp
   Graphics/ObjectHandle.cpp
+  Graphics/Parameters.cpp
   Graphics/VulkanContext/vulkan_ContextImpl.cpp
-  Graphics/OpenGLContext/GLFunctions.cpp
-  Graphics/OpenGLContext/ThreadedOpenGl/opengl_Command.cpp
-  Graphics/OpenGLContext/ThreadedOpenGl/opengl_ObjectPool.cpp
-  Graphics/OpenGLContext/ThreadedOpenGl/opengl_Wrapper.cpp
-  Graphics/OpenGLContext/ThreadedOpenGl/opengl_WrappedFunctions.cpp
-  Graphics/OpenGLContext/ThreadedOpenGl/RingBufferPool.cpp
-  Graphics/OpenGLContext/opengl_Attributes.cpp
-  Graphics/OpenGLContext/opengl_BufferedDrawer.cpp
-  Graphics/OpenGLContext/opengl_BufferManipulationObjectFactory.cpp
-  Graphics/OpenGLContext/opengl_CachedFunctions.cpp
-  Graphics/OpenGLContext/opengl_ColorBufferReaderWithBufferStorage.cpp
-  Graphics/OpenGLContext/opengl_ColorBufferReaderWithPixelBuffer.cpp
-  Graphics/OpenGLContext/opengl_ColorBufferReaderWithReadPixels.cpp
-  Graphics/OpenGLContext/opengl_ContextImpl.cpp
-  Graphics/OpenGLContext/opengl_GLInfo.cpp
-  Graphics/OpenGLContext/opengl_Parameters.cpp
-  Graphics/OpenGLContext/opengl_TextureManipulationObjectFactory.cpp
-  Graphics/OpenGLContext/opengl_UnbufferedDrawer.cpp
-  Graphics/OpenGLContext/opengl_Utils.cpp
-  Graphics/OpenGLContext/GLSL/glsl_CombinerInputs.cpp
-  Graphics/OpenGLContext/GLSL/glsl_CombinerProgramBuilder.cpp
-  Graphics/OpenGLContext/GLSL/glsl_CombinerProgramBuilderCommon.cpp
-  Graphics/OpenGLContext/GLSL/glsl_CombinerProgramBuilderAccurate.cpp
-  Graphics/OpenGLContext/GLSL/glsl_CombinerProgramBuilderFast.cpp
-  Graphics/OpenGLContext/GLSL/glsl_CombinerProgramImpl.cpp
-  Graphics/OpenGLContext/GLSL/glsl_CombinerProgramUniformFactory.cpp
-  Graphics/OpenGLContext/GLSL/glsl_CombinerProgramUniformFactoryCommon.cpp
-  Graphics/OpenGLContext/GLSL/glsl_CombinerProgramUniformFactoryAccurate.cpp
-  Graphics/OpenGLContext/GLSL/glsl_CombinerProgramUniformFactoryFast.cpp
-  Graphics/OpenGLContext/GLSL/glsl_FXAA.cpp
-  Graphics/OpenGLContext/GLSL/glsl_ShaderStorage.cpp
-  Graphics/OpenGLContext/GLSL/glsl_SpecialShadersFactory.cpp
-  Graphics/OpenGLContext/GLSL/glsl_Utils.cpp
   uCodes/F3D.cpp
   uCodes/F3DBETA.cpp
   uCodes/F3DDKR.cpp
@@ -183,7 +143,7 @@ set(GLideNUI_SOURCES
   GLideNUI/icon.qrc
 )
 
-set(OpenGL_GL_PREFERENCE GLVND)
+message(STATUS "Legacy renderer sources: disabled (Vulkan-only branch)")
 
 if(MUPENPLUSAPI_GLIDENUI OR NOT MUPENPLUSAPI)
   set(CMAKE_AUTOMOC ON)
@@ -220,17 +180,14 @@ endif( NOT CMAKE_BUILD_TYPE)
 
 if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "MinSizeRel" OR
    CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
-        set(GLIDEN64_BUILD_TYPE Release)
+        set(REALITYVK_BUILD_TYPE Release)
 elseif(CMAKE_BUILD_TYPE STREQUAL "Debug")
-        set(GLIDEN64_BUILD_TYPE Debug)
+        set(REALITYVK_BUILD_TYPE Debug)
 endif()
 
-if( GLIDEN64_BUILD_TYPE STREQUAL "Debug")
+if( REALITYVK_BUILD_TYPE STREQUAL "Debug")
 	set( DEBUG_BUILD TRUE)
-	add_definitions(
-		-DGL_DEBUG
-	)
-endif( GLIDEN64_BUILD_TYPE STREQUAL "Debug")
+endif( REALITYVK_BUILD_TYPE STREQUAL "Debug")
 
 if (DEBUG_DUMP)
   add_definitions(
@@ -267,57 +224,53 @@ if(MUPENPLUSAPI)
 		-DTXFILTER_LIB
   )
   include_directories( . inc )
-  set(GLideN64_SOURCES_UNIX
+  set(RealityVK_SOURCES_UNIX
 	MupenPlusPluginAPI.cpp
 	mupenplus/CommonAPIImpl_mupenplus.cpp
 	mupenplus/MemoryStatus_mupenplus.cpp
 	mupenplus/MupenPlusAPIImpl.cpp
-	Graphics/OpenGLContext/mupen64plus/mupen64plus_DisplayWindow.cpp
+	Graphics/Host/mupen64plus/mupen64plus_DisplayWindow.cpp
   )
 
   if(MUPENPLUSAPI_GLIDENUI)
       add_definitions(-DM64P_GLIDENUI)
-      list(APPEND GLideN64_SOURCES_UNIX
+      list(APPEND RealityVK_SOURCES_UNIX
         ${GLideNUI_SOURCES}
       )
   else()
-      list(APPEND GLideN64_SOURCES_UNIX
+      list(APPEND RealityVK_SOURCES_UNIX
         mupenplus/Config_mupenplus.cpp
       )
   endif()
 
-  set(GLideN64_SOURCES_WIN ${GLideN64_SOURCES_UNIX}
+  set(RealityVK_SOURCES_WIN ${RealityVK_SOURCES_UNIX}
   )
   if (ANDROID)
-      set(GLideN64_DLL_NAME libmupen64plus-video-GLideN64)
+      set(RealityVK_DLL_NAME libmupen64plus-video-RealityVK)
   else()
-      set(GLideN64_DLL_NAME mupen64plus-video-GLideN64)
+      set(RealityVK_DLL_NAME mupen64plus-video-RealityVK)
   endif()
 else(MUPENPLUSAPI)
-  if(UNIX)
-    message(FATAL_ERROR "UNIX build requires MUPENPLUSAPI!")
-  endif(UNIX)
+  message(FATAL_ERROR "Vulkan-only branch currently supports only MUPENPLUSAPI builds.")
   include_directories( . inc )
-  set(GLideN64_SOURCES_WIN
-	ZilmarPluginAPI.cpp
-	GLideNUI/Config_GLideNUI.cpp
-	windows/CommonAPIImpl_windows.cpp
-	windows/GLideN64_windows.cpp
-	windows/MemoryStatus_windows.cpp
-	windows/ZilmarAPIImpl_windows.cpp
-  windows/ScreenShot.cpp
-	Graphics/OpenGLContext/windows/windows_DisplayWindow.cpp
-  Graphics/OpenGLContext/windows/WindowsWGL.cpp
-  ${GLideNUI_SOURCES}
-  )
-  set(GLideN64_DLL_NAME GLideN64)
+	set(RealityVK_SOURCES_WIN
+		ZilmarPluginAPI.cpp
+		GLideNUI/Config_GLideNUI.cpp
+		windows/CommonAPIImpl_windows.cpp
+		windows/RealityVK_windows.cpp
+		windows/MemoryStatus_windows.cpp
+		windows/ZilmarAPIImpl_windows.cpp
+	  windows/ScreenShot.cpp
+	  ${GLideNUI_SOURCES}
+	  )
+	set(RealityVK_DLL_NAME RealityVK)
 endif(MUPENPLUSAPI)
 
 add_subdirectory( osal )
 include_directories( osal )
 
 if (NOHQ)
-  list(APPEND GLideN64_SOURCES
+  list(APPEND RealityVK_SOURCES
     TxFilterStub.cpp
   )
 else (NOHQ)
@@ -326,7 +279,7 @@ else (NOHQ)
 endif(NOHQ)
 
 if(UNIX)
-  list(APPEND GLideN64_SOURCES ${GLideN64_SOURCES_UNIX})
+  list(APPEND RealityVK_SOURCES ${RealityVK_SOURCES_UNIX})
   if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
 	add_definitions(
 	  -DOS_MAC_OS_X
@@ -351,7 +304,7 @@ if(MINGW)
 endif(MINGW)
 
 if(WIN32)
-  list(APPEND GLideN64_SOURCES ${GLideN64_SOURCES_WIN})
+  list(APPEND RealityVK_SOURCES ${RealityVK_SOURCES_WIN})
   add_definitions(
     -DOS_WINDOWS
     -D__WIN32__
@@ -393,38 +346,7 @@ if(VERO4K)
 endif(VERO4K)
 
 if(ANDROID)
-   add_definitions(-DOS_ANDROID -DEGL_EGLEXT_PROTOTYPES -DEGL)
-   set(EGL ON)
-
-   if(ANDROID_ABI STREQUAL "armeabi-v7a" OR ANDROID_ABI STREQUAL "arm64-v8a")
-       set(NEON_OPT ON)
-       set(VEC4_OPT ON)
-       set(CRC_NEON ON)
-   elseif(ANDROID_ABI STREQUAL "x86" OR ANDROID_ABI STREQUAL "x86_64")
-       set(CRC_OPT ON)
-       set(VEC4_OPT ON)
-   endif()
-
-   list(APPEND GLideN64_SOURCES
-           Log_android.cpp
-           Graphics/OpenGLContext/opengl_ColorBufferReaderWithEGLImage.cpp
-           Graphics/OpenGLContext/GraphicBuffer/PrivateApi/GraphicBuffer.cpp
-           Graphics/OpenGLContext/GraphicBuffer/PrivateApi/libhardware.cpp
-           Graphics/OpenGLContext/GraphicBuffer/PublicApi/android_hardware_buffer_compat.cpp
-           Graphics/OpenGLContext/GraphicBuffer/GraphicBufferWrapper.cpp
-           )
-
-   list(REMOVE_ITEM GLideN64_SOURCES
-           Log.cpp
-           )
-
-   find_library( # Defines the name of the path variable that stores the
-           # location of the NDK library.
-           LOG_LIB
-
-           # Specifies the name of the NDK library that
-           # CMake needs to locate.
-           log )
+   message(FATAL_ERROR "Vulkan-only branch: Android path is not yet ported.")
 endif(ANDROID)
 
 if(NOT NO_OSD)
@@ -441,7 +363,7 @@ if(NOT NO_OSD)
               SHARED
               IMPORTED )
 
-      if( GLIDEN64_BUILD_TYPE STREQUAL "Debug")
+      if( REALITYVK_BUILD_TYPE STREQUAL "Debug")
           set( BUILD_VARIANT "debug" )
       else()
           set( BUILD_VARIANT "release" )
@@ -467,10 +389,10 @@ if(NOT NO_OSD)
 
   include_directories( ${FREETYPE_INCLUDE_DIRS} )
 else()
-  list(REMOVE_ITEM GLideN64_SOURCES
+  list(REMOVE_ITEM RealityVK_SOURCES
     TextDrawer.cpp
   )
-  list(APPEND GLideN64_SOURCES
+  list(APPEND RealityVK_SOURCES
     TextDrawerStub.cpp
   )
 endif(NOT NO_OSD)
@@ -482,24 +404,24 @@ if(VEC4_OPT)
 endif(VEC4_OPT)
 
 if(CRC_ARMV8)
-  list(REMOVE_ITEM GLideN64_SOURCES
+  list(REMOVE_ITEM RealityVK_SOURCES
 	CRC32.cpp
   )
-  list(APPEND GLideN64_SOURCES
+  list(APPEND RealityVK_SOURCES
 	CRC32_ARMV8.cpp
   )
 elseif(CRC_OPT)
-  list(REMOVE_ITEM GLideN64_SOURCES
+  list(REMOVE_ITEM RealityVK_SOURCES
     CRC32.cpp
   )
-  list(APPEND GLideN64_SOURCES
+  list(APPEND RealityVK_SOURCES
     CRC_OPT.cpp
   )
 elseif(CRC_NEON)
-  list(REMOVE_ITEM GLideN64_SOURCES
+  list(REMOVE_ITEM RealityVK_SOURCES
     CRC32.cpp
   )
-  list(APPEND GLideN64_SOURCES
+  list(APPEND RealityVK_SOURCES
     Neon/CRC_OPT_NEON.cpp
   )
 endif(CRC_ARMV8)
@@ -508,71 +430,35 @@ if(NEON_OPT)
   add_definitions(
     -D__NEON_OPT
   )
-  list(APPEND GLideN64_SOURCES
+  list(APPEND RealityVK_SOURCES
     Neon/3DMathNeon.cpp
     Neon/gSPNeon.cpp
     Neon/RSP_LoadMatrixNeon.cpp
   )
-  list(REMOVE_ITEM GLideN64_SOURCES
+  list(REMOVE_ITEM RealityVK_SOURCES
     3DMath.cpp
     RSP_LoadMatrix.cpp
   )
 endif(NEON_OPT)
 
 if(X86_OPT)
-  list(APPEND GLideN64_SOURCES
+  list(APPEND RealityVK_SOURCES
     RSP_LoadMatrixX86.cpp
   )
-  list(REMOVE_ITEM GLideN64_SOURCES
+  list(REMOVE_ITEM RealityVK_SOURCES
     RSP_LoadMatrix.cpp
   )
 endif(X86_OPT)
-
-if( GLIDEN64_BUILD_TYPE STREQUAL "Debug")
-	set( DEBUG_BUILD TRUE)
-	add_definitions(
-	-DGL_DEBUG
-	)
-endif( GLIDEN64_BUILD_TYPE STREQUAL "Debug")
-
-if(GL_PROFILE)
-    add_definitions(
-            -DGL_PROFILE -DGL_DEBUG
-    )
-endif(GL_PROFILE)
-
-if(EGL)
-  add_definitions(
-    -DEGL
-  )
-  set(OPENGL_LIBRARIES ${EGL_LIB})
-else(EGL)
-  find_package(OpenGL REQUIRED)
-
-  if(CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
-    add_compile_definitions(OS_FREEBSD)
-    if(OPENGL_FOUND)
-      include_directories(${OPENGL_INCLUDE_DIR})
-    endif()
-  endif()
-
-  include_directories(${OpenGL_INCLUDE_DIRS})
-  link_directories(${OpenGL_LIBRARY_DIRS})
-  add_definitions(${OpenGL_DEFINITIONS})
-  if(NOT OPENGL_FOUND)
-  	message(ERROR " OPENGL not found!")
-  endif(NOT OPENGL_FOUND)
-endif(EGL)
 
 if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU" OR "${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
   #check for compiler version
   execute_process(COMMAND ${CMAKE_CXX_COMPILER} -dumpversion OUTPUT_VARIABLE G++_VERSION)
   if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU" AND G++_VERSION VERSION_LESS 4.8)
     message("Found compiler version " ${G++_VERSION})
-    message(SEND_ERROR "You need at least G++ 4.8 to compile GLideN64!")
+    message(SEND_ERROR "You need at least G++ 4.8 to compile RealityVK!")
   elseif(G++_VERSION VERSION_LESS 3.3)
     message("Found compiler version " ${G++_VERSION})
-    message(SEND_ERROR "You need at least Clang 3.3 to compile GLideN64!")
+    message(SEND_ERROR "You need at least Clang 3.3 to compile RealityVK!")
   endif()
   set(GCC_CPP11_COMPILE_FLAGS "-std=c++11 -pthread")
   set( CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} ${GCC_CPP11_COMPILE_FLAGS}" )
@@ -585,10 +471,10 @@ endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED YES)
 
-add_library( ${GLideN64_DLL_NAME} SHARED ${GLideN64_SOURCES} ${PATH_REVISION})
+add_library( ${RealityVK_DLL_NAME} SHARED ${RealityVK_SOURCES} ${PATH_REVISION})
 
 set_target_properties(
-	${GLideN64_DLL_NAME}
+	${RealityVK_DLL_NAME}
 	PROPERTIES
 	LINKER_LANGUAGE CXX # Or else we get an error message, because cmake can't figure out from the ".o"-suffix that it is a C-linker we need.
 	PREFIX ""
@@ -597,62 +483,62 @@ set_target_properties(
 get_property(is_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
 if(is_multi_config)
 	SET_TARGET_PROPERTIES(
-		${GLideN64_DLL_NAME}
+		${RealityVK_DLL_NAME}
 		PROPERTIES
 		LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/plugin
 		RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/plugin
 	)
-elseif(GLIDEN64_BUILD_TYPE)
+elseif(REALITYVK_BUILD_TYPE)
 	SET_TARGET_PROPERTIES(
-		${GLideN64_DLL_NAME}
+		${RealityVK_DLL_NAME}
 		PROPERTIES
-		LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/plugin/${GLIDEN64_BUILD_TYPE}
-		RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/plugin/${GLIDEN64_BUILD_TYPE}
+		LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/plugin/${REALITYVK_BUILD_TYPE}
+		RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/plugin/${REALITYVK_BUILD_TYPE}
 	)
 endif(is_multi_config)
 
-if(USE_IPO AND GLIDEN64_BUILD_TYPE STREQUAL "Release")
+if(USE_IPO AND REALITYVK_BUILD_TYPE STREQUAL "Release")
   include(CheckIPOSupported)
   check_ipo_supported(RESULT result)
   if(result)
     message("Interprocedural optimizations enabled")
-    set_property(TARGET ${GLideN64_DLL_NAME} PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+    set_property(TARGET ${RealityVK_DLL_NAME} PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
     set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -O3")
   endif()
-endif(USE_IPO AND GLIDEN64_BUILD_TYPE STREQUAL "Release")
+endif(USE_IPO AND REALITYVK_BUILD_TYPE STREQUAL "Release")
 
-if(GLIDEN64_BUILD_TYPE STREQUAL "Debug")
+if(REALITYVK_BUILD_TYPE STREQUAL "Debug")
   if(SDL)
 	if (NOHQ)
-	  target_link_libraries(${GLideN64_DLL_NAME} PRIVATE ${OPENGL_LIBRARIES} ${SDL_LIBRARIES} ${FREETYPE_LIBRARIES} ${LOG_LIB} ${GLIDENUI_LIBRARIES} osald ${GLIDEN64_VULKAN_LIBRARIES} )
+	  target_link_libraries(${RealityVK_DLL_NAME} PRIVATE ${SDL_LIBRARIES} ${FREETYPE_LIBRARIES} ${LOG_LIB} ${GLIDENUI_LIBRARIES} osald ${REALITYVK_VULKAN_LIBRARIES} )
 	else (NOHQ)
-	  target_link_libraries(${GLideN64_DLL_NAME} PRIVATE ${OPENGL_LIBRARIES} ${SDL_LIBRARIES} ${FREETYPE_LIBRARIES} ${LOG_LIB} ${GLIDENUI_LIBRARIES} osald GLideNHQd ${GLIDEN64_VULKAN_LIBRARIES} )
+	  target_link_libraries(${RealityVK_DLL_NAME} PRIVATE ${SDL_LIBRARIES} ${FREETYPE_LIBRARIES} ${LOG_LIB} ${GLIDENUI_LIBRARIES} osald GLideNHQd ${REALITYVK_VULKAN_LIBRARIES} )
 	endif (NOHQ)
   else(SDL)
 	if (NOHQ)
-	  target_link_libraries(${GLideN64_DLL_NAME} PRIVATE ${OPENGL_LIBRARIES} ${FREETYPE_LIBRARIES} ${LOG_LIB} ${GLIDENUI_LIBRARIES} osald ${GLIDEN64_VULKAN_LIBRARIES} )
+	  target_link_libraries(${RealityVK_DLL_NAME} PRIVATE ${FREETYPE_LIBRARIES} ${LOG_LIB} ${GLIDENUI_LIBRARIES} osald ${REALITYVK_VULKAN_LIBRARIES} )
 	else (NOHQ)
-	  target_link_libraries(${GLideN64_DLL_NAME} PRIVATE ${OPENGL_LIBRARIES} ${FREETYPE_LIBRARIES} ${LOG_LIB} ${GLIDENUI_LIBRARIES} osald GLideNHQd ${GLIDEN64_VULKAN_LIBRARIES} )
+	  target_link_libraries(${RealityVK_DLL_NAME} PRIVATE ${FREETYPE_LIBRARIES} ${LOG_LIB} ${GLIDENUI_LIBRARIES} osald GLideNHQd ${REALITYVK_VULKAN_LIBRARIES} )
 	endif (NOHQ)
   endif(SDL)
-else(GLIDEN64_BUILD_TYPE STREQUAL "Debug")
+else(REALITYVK_BUILD_TYPE STREQUAL "Debug")
   if(SDL)
         if (NOHQ)
-          target_link_libraries(${GLideN64_DLL_NAME} ${OPENGL_LIBRARIES} ${SDL_LIBRARIES} ${FREETYPE_LIBRARIES} ${LOG_LIB} ${GLIDENUI_LIBRARIES} osal ${GLIDEN64_VULKAN_LIBRARIES} )
+          target_link_libraries(${RealityVK_DLL_NAME} ${SDL_LIBRARIES} ${FREETYPE_LIBRARIES} ${LOG_LIB} ${GLIDENUI_LIBRARIES} osal ${REALITYVK_VULKAN_LIBRARIES} )
         else (NOHQ)
-          target_link_libraries(${GLideN64_DLL_NAME} ${OPENGL_LIBRARIES} ${SDL_LIBRARIES} ${FREETYPE_LIBRARIES} ${LOG_LIB} ${GLIDENUI_LIBRARIES} osal GLideNHQ ${GLIDEN64_VULKAN_LIBRARIES} )
+          target_link_libraries(${RealityVK_DLL_NAME} ${SDL_LIBRARIES} ${FREETYPE_LIBRARIES} ${LOG_LIB} ${GLIDENUI_LIBRARIES} osal GLideNHQ ${REALITYVK_VULKAN_LIBRARIES} )
         endif (NOHQ)
   else(SDL)
         if (NOHQ)
-          target_link_libraries(${GLideN64_DLL_NAME} ${OPENGL_LIBRARIES} ${FREETYPE_LIBRARIES} ${LOG_LIB} ${GLIDENUI_LIBRARIES} osal ${GLIDEN64_VULKAN_LIBRARIES} )
+          target_link_libraries(${RealityVK_DLL_NAME} ${FREETYPE_LIBRARIES} ${LOG_LIB} ${GLIDENUI_LIBRARIES} osal ${REALITYVK_VULKAN_LIBRARIES} )
         else (NOHQ)
-          target_link_libraries(${GLideN64_DLL_NAME} ${OPENGL_LIBRARIES} ${FREETYPE_LIBRARIES} ${LOG_LIB} ${GLIDENUI_LIBRARIES} osal GLideNHQ ${GLIDEN64_VULKAN_LIBRARIES} )
+          target_link_libraries(${RealityVK_DLL_NAME} ${FREETYPE_LIBRARIES} ${LOG_LIB} ${GLIDENUI_LIBRARIES} osal GLideNHQ ${REALITYVK_VULKAN_LIBRARIES} )
         endif (NOHQ)
   endif(SDL)
-endif(GLIDEN64_BUILD_TYPE STREQUAL "Debug")
+endif(REALITYVK_BUILD_TYPE STREQUAL "Debug")
 
 if(UNIX AND NOT APPLE AND NOT ANDROID)
-	install(TARGETS ${GLideN64_DLL_NAME}
+	install(TARGETS ${RealityVK_DLL_NAME}
 		DESTINATION "${CMAKE_INSTALL_LIBDIR}/mupen64plus"
 	)
 	install(FILES ../ini/${PROJECT_NAME}.custom.ini

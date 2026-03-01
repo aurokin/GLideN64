@@ -14,7 +14,7 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>About GLideN64</string>
+   <string>About RealityVK</string>
   </property>
   <property name="windowIcon">
    <iconset resource="icon.qrc">
@@ -55,7 +55,7 @@
         </font>
        </property>
        <property name="text">
-        <string notr="true">GLideN64</string>
+        <string notr="true">RealityVK</string>
        </property>
       </widget>
      </item>
@@ -539,7 +539,7 @@ jeremydmiller</string>
        <item>
         <widget class="QLabel" name="label_29">
          <property name="text">
-          <string>Author of z64, an OpenGL LLE plugin</string>
+          <string>Author of z64, an N64 LLE plugin</string>
          </property>
          <property name="wordWrap">
           <bool>true</bool>

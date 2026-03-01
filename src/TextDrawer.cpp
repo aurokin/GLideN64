@@ -28,7 +28,7 @@
 #include <osal_files.h>
 
 #ifdef MUPENPLUSAPI
-#include "mupenplus/GLideN64_mupenplus.h"
+#include "mupenplus/RealityVK_mupenplus.h"
 #endif
 
 using namespace graphics;

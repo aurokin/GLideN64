@@ -1,6 +1,6 @@
 #include <algorithm>
 #include <assert.h>
-#include "GLideN64.h"
+#include "RealityVK.h"
 #include "RSP.h"
 #include "gSP.h"
 #include "F3D.h"

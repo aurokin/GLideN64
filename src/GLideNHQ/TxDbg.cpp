@@ -52,7 +52,7 @@ TxDbg::output(const int level, const wchar_t *format, ...)
 
 	va_list ap;
 	va_start(ap, format);
-	__android_log_vprint(ANDROID_LOG_DEBUG, "GLideN64", fmt, ap);
+	__android_log_vprint(ANDROID_LOG_DEBUG, "RealityVK", fmt, ap);
 	va_end(ap);
 }
 

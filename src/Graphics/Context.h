@@ -16,11 +16,6 @@ struct CachedTexture;
 
 namespace graphics {
 
-	enum class GraphicsBackend {
-		OpenGL,
-		Vulkan
-	};
-
 	enum class SpecialFeatures {
 		Multisampling,
 		BlitFramebuffer,
@@ -65,10 +60,6 @@ namespace graphics {
 
 		Context();
 		~Context();
-
-		void setBackend(GraphicsBackend _backend);
-
-		GraphicsBackend getBackend() const;
 
 		void setPresentationWindowInfo(const PresentationWindowInfo & _info);
 
@@ -240,6 +231,8 @@ namespace graphics {
 
 		void setDrawBuffers(u32 _num);
 
+		bool readScreen2(void * _dest, int _width, int _height, int _front);
+
 		/*---------------Pixelbuffer-------------*/
 
 		PixelReadBuffer * createPixelReadBuffer(size_t _sizeInBytes);
@@ -247,10 +240,6 @@ namespace graphics {
 		ColorBufferReader * createColorBufferReader(CachedTexture * _pTexture);
 
 		/*---------------Shaders-------------*/
-
-		bool isCombinerProgramBuilderObsolete();
-
-		void resetCombinerProgramBuilder();
 
 		CombinerProgram * createCombinerProgram(Combiner & _color, Combiner & _alpha, const CombinerKey & _key);
 
@@ -335,7 +324,6 @@ namespace graphics {
 		static bool DualSourceBlending;
 
 	private:
-		GraphicsBackend m_backend;
 		PresentationWindowInfo m_presentationWindowInfo;
 		std::unique_ptr<ContextImpl> m_impl;
 		std::unique_ptr<FramebufferTextureFormats> m_fbTexFormats;

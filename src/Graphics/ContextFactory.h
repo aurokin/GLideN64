@@ -7,6 +7,6 @@ namespace graphics {
 
 	class ContextImpl;
 
-	std::unique_ptr<ContextImpl> createContextImpl(GraphicsBackend _backend);
+	std::unique_ptr<ContextImpl> createContextImpl();
 
 }

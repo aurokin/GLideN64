@@ -487,7 +487,7 @@ void ConfigDialog::_init(bool reInit, bool blockCustomSettings)
 void ConfigDialog::_getTranslations(QStringList & _translationFiles) const
 {
 	QDir pluginFolder(m_strSharedIniPath);
-	QStringList nameFilters("gliden64_*.qm");
+	QStringList nameFilters("realityvk_*.qm");
 	_translationFiles = pluginFolder.entryList(nameFilters, QDir::Files, QDir::Name);
 }
 
@@ -716,7 +716,7 @@ void ConfigDialog::accept(bool justSave) {
 		config.textureFilter.txHiresEnable != 0) {
 		QMessageBox msgBox;
 		msgBox.setStandardButtons(QMessageBox::Close);
-		msgBox.setWindowTitle("GLideN64");
+		msgBox.setWindowTitle("RealityVK");
 		msgBox.setText(tr("Failed to create the texture pack folder. Please change the folder or turn off texture packs."));
 		msgBox.exec();
 		ui->tabWidget->setCurrentIndex(3);
@@ -732,7 +732,7 @@ void ConfigDialog::accept(bool justSave) {
 		config.textureFilter.txHiresEnable != 0) {
 		QMessageBox msgBox;
 		msgBox.setStandardButtons(QMessageBox::Close);
-		msgBox.setWindowTitle("GLideN64");
+		msgBox.setWindowTitle("RealityVK");
 		msgBox.setText(tr("Failed to create the texture pack cache folder. Please change the folder or turn off texture packs."));
 		msgBox.exec();
 		ui->tabWidget->setCurrentIndex(3);
@@ -749,7 +749,7 @@ void ConfigDialog::accept(bool justSave) {
 		config.hotkeys.enabledKeys[Config::HotKey::hkTexDump] != 0) {
 		QMessageBox msgBox;
 		msgBox.setStandardButtons(QMessageBox::Close);
-		msgBox.setWindowTitle("GLideN64");
+		msgBox.setWindowTitle("RealityVK");
 		msgBox.setText(tr("Failed to create the texture dump folder. Please change the folder or turn off dumping texture packs."));
 		msgBox.exec();
 		ui->tabWidget->setCurrentIndex(3);
@@ -1082,7 +1082,7 @@ void ConfigDialog::on_anisotropicSlider_valueChanged(int value)
 
 void ConfigDialog::setTitle()
 {
-	setWindowTitle(tr("GLideN64 Settings"));
+	setWindowTitle(tr("RealityVK Settings"));
 }
 
 void ConfigDialog::on_profilesComboBox_currentTextChanged(const QString &profile)

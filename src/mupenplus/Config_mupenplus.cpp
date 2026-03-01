@@ -1,14 +1,15 @@
-#include "GLideN64_mupenplus.h"
+#include "RealityVK_mupenplus.h"
 #include <assert.h>
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 #include <osal_files.h>
 #include <algorithm>
+#include <fstream>
 
 #include "../Textures.h"
 #include "../Config.h"
-#include "../GLideN64.h"
+#include "../RealityVK.h"
 #include "../GBI.h"
 #include "../RSP.h"
 #include "../Log.h"
@@ -17,6 +18,11 @@ Config config;
 
 m64p_handle g_configVideoGeneral = nullptr;
 m64p_handle g_configVideoGliden64 = nullptr;
+
+static const char * kPrimaryVideoSectionName = "Video-RealityVK";
+static const char * kLegacyVideoSectionName = "Video-RealityVK";
+static const char * kPrimaryCustomConfigName = "RealityVK.custom.ini";
+static const char * kLegacyCustomConfigName = "RealityVK.custom.ini";
 
 static
 const char* _hotkeyDescription(u32 _idx)
@@ -98,15 +104,19 @@ u8 ASCIItoHID(const char * pStr) {
 
 bool Config_SetDefault()
 {
+	const char * activeVideoSectionName = kPrimaryVideoSectionName;
 	if (ConfigOpenSection("Video-General", &g_configVideoGeneral) != M64ERR_SUCCESS) {
 		LOG(LOG_ERROR, "Unable to open Video-General configuration section");
 		g_configVideoGeneral = nullptr;
 		return false;
 	}
-	if (ConfigOpenSection("Video-GLideN64", &g_configVideoGliden64) != M64ERR_SUCCESS) {
-		LOG(LOG_ERROR, "Unable to open GLideN64 configuration section");
-		g_configVideoGliden64 = nullptr;
-		return false;
+	if (ConfigOpenSection(kPrimaryVideoSectionName, &g_configVideoGliden64) != M64ERR_SUCCESS) {
+		if (ConfigOpenSection(kLegacyVideoSectionName, &g_configVideoGliden64) != M64ERR_SUCCESS) {
+			LOG(LOG_ERROR, "Unable to open RealityVK configuration section");
+			g_configVideoGliden64 = nullptr;
+			return false;
+		}
+		activeVideoSectionName = kLegacyVideoSectionName;
 	}
 
 	config.resetToDefaults();
@@ -117,7 +127,7 @@ bool Config_SetDefault()
 	assert(res == M64ERR_SUCCESS);
 	res = ConfigSetDefaultInt(g_configVideoGeneral, "ScreenHeight", config.video.windowedHeight, "Height of output window or fullscreen height.");
 	assert(res == M64ERR_SUCCESS);
-	res = ConfigSetDefaultBool(g_configVideoGeneral, "VerticalSync", config.video.verticalSync, "If true, activate the SDL_GL_SWAP_CONTROL attribute.");
+	res = ConfigSetDefaultBool(g_configVideoGeneral, "VerticalSync", config.video.verticalSync, "If true, request vertical sync via the frontend video extension.");
 	assert(res == M64ERR_SUCCESS);
 
 	res = ConfigSetDefaultInt(g_configVideoGliden64, "configVersion", CONFIG_VERSION_CURRENT, "Settings version. Don't touch it.");
@@ -171,7 +181,7 @@ bool Config_SetDefault()
 	assert(res == M64ERR_SUCCESS);
 	res = ConfigSetDefaultBool(g_configVideoGliden64, "EnableFragmentDepthWrite", config.generalEmulation.enableFragmentDepthWrite, "Enable writing of fragment depth. Some mobile GPUs do not support it, thus made optional. Leave enabled.");
 	assert(res == M64ERR_SUCCESS);
-	res = ConfigSetDefaultBool(g_configVideoGliden64, "EnableCustomSettings", config.generalEmulation.enableCustomSettings, "Use GLideN64 per-game settings.");
+	res = ConfigSetDefaultBool(g_configVideoGliden64, "EnableCustomSettings", config.generalEmulation.enableCustomSettings, "Use RealityVK per-game settings.");
 	assert(res == M64ERR_SUCCESS);
 #if defined(OS_ANDROID) || defined(OS_IOS)
 	res = ConfigSetDefaultBool(g_configVideoGliden64, "ForcePolygonOffset", config.generalEmulation.forcePolygonOffset, "If true, use polygon offset values specified below.");
@@ -196,7 +206,7 @@ bool Config_SetDefault()
 	assert(res == M64ERR_SUCCESS);
 	res = ConfigSetDefaultBool(g_configVideoGliden64, "EnableCopyAuxiliaryToRDRAM", config.frameBufferEmulation.copyAuxToRDRAM, "Copy auxiliary buffers to RDRAM.");
 	assert(res == M64ERR_SUCCESS);
-	res = ConfigSetDefaultInt(g_configVideoGliden64, "EnableN64DepthCompare", config.frameBufferEmulation.N64DepthCompare, "Enable N64 depth compare instead of OpenGL standard one. Experimental. (0=Off, 1=Fast, 2=Compatible)");
+	res = ConfigSetDefaultInt(g_configVideoGliden64, "EnableN64DepthCompare", config.frameBufferEmulation.N64DepthCompare, "Enable N64 depth compare instead of the standard depth compare path. Experimental. (0=Off, 1=Fast, 2=Compatible)");
 	assert(res == M64ERR_SUCCESS);
 	res = ConfigSetDefaultBool(g_configVideoGliden64, "ForceDepthBufferClear", config.frameBufferEmulation.forceDepthBufferClear, "Force depth buffer clear. Hack. Needed for Eikou no Saint Andrews.");
 	assert(res == M64ERR_SUCCESS);
@@ -323,7 +333,7 @@ bool Config_SetDefault()
 	assert(res == M64ERR_SUCCESS);
 #endif
 
-	return ConfigSaveSection("Video-GLideN64") == M64ERR_SUCCESS;
+	return ConfigSaveSection(activeVideoSectionName) == M64ERR_SUCCESS;
 }
 
 void Config_LoadCustomConfig()
@@ -333,9 +343,16 @@ void Config_LoadCustomConfig()
 	char value[PATH_MAX];
 	m64p_error result;
 	std::string ROMname = RSP.romname;
-	const char* pathName = ConfigGetSharedDataFilepath("GLideN64.custom.ini");
+	const char* pathName = ConfigGetSharedDataFilepath(kPrimaryCustomConfigName);
 	if (pathName == nullptr)
 		return;
+	std::ifstream customConfig(pathName);
+	if (!customConfig.good()) {
+		const char * legacyPath = ConfigGetSharedDataFilepath(kLegacyCustomConfigName);
+		if (legacyPath != nullptr) {
+			pathName = legacyPath;
+		}
+	}
 	for (size_t pos = ROMname.find(' '); pos != std::string::npos; pos = ROMname.find(' ', pos))
 		ROMname.replace(pos, 1, "%20");
 	for (size_t pos = ROMname.find('\''); pos != std::string::npos; pos = ROMname.find('\'', pos))

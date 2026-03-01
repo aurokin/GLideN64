@@ -228,7 +228,7 @@ int main()
 #ifdef DEBUG_LANG
 				if (langCode == "es_ES")
 				{
-					dst.SetName("gliden64_en");
+					dst.SetName("realityvk_en");
 					dst.SetExtension("Lang");
 					WriteLangFile(dst, "English", translations, 1);
 				}

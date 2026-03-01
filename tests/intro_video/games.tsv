@@ -1,0 +1,16 @@
+# game_id	rom_pattern	rationale
+paper_mario	*Paper Mario (USA).zip	Framebuffer effects and pause-overlay regressions
+oot_rev2	*Legend of Zelda, The - Ocarina of Time (USA) (Rev 2).zip	TEX_RECT and transition regressions
+mmask	*Legend of Zelda, The - Majora's Mask (USA).zip	Known depth/overlay sensitivity
+perfect_dark	*Perfect Dark (USA).zip	Transitions/lens flare regressions
+mario_tennis	*Mario Tennis (USA).zip	Shadow and score-board regressions
+pokemon_snap	*Pokemon Snap (USA).zip	CPU-readback/photo pipeline sensitivity
+pokemon_stadium	*Pokemon Stadium (USA) (Rev 2).zip	Special blend mode path
+pilotwings64	*Pilotwings 64 (USA).zip	Shadow/model issues in historical trackers
+goldeneye	*GoldenEye 007 (USA).zip	Close-model and HUD edge cases
+tonic_trouble	*Tonic Trouble (USA) (Rev 1).zip	Transition black-screen regressions
+top_gear_rally	*Top Gear Rally (USA).zip	Historical artifact reports
+sm64	*Super Mario 64 (USA).zip	Core baseline title and HUD/reflection edge cases
+dk64	*Donkey Kong 64 (USA).zip	Complex FB/depth usage in intro scenes
+rogue_squadron	*Star Wars - Rogue Squadron (USA) (Rev 1).zip	Historical geometry/path regressions
+indy_infernal	*Indiana Jones and the Infernal Machine (USA).zip	High-resolution and artifact regressions
