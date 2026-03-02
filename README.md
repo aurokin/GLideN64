@@ -94,6 +94,18 @@ python3 scripts/rvk2_packet_trace_replay.py \
   --jobs 0
 ```
 
+## Texture Pack Index Tooling
+
+Maintain deterministic hi-res pack index files (`rkv2_pack_index_v1.tsv`):
+
+```bash
+# Generate canonical index rows from .rgba32 names and dimensions
+python3 scripts/rvk2_texture_pack_index.py generate --pack-dir /path/to/pack
+
+# Validate index contract and file-size consistency
+python3 scripts/rvk2_texture_pack_index.py validate --pack-dir /path/to/pack
+```
+
 ## Key Paths
 
 1. `src/Graphics/RealityVK2/`: rvk2 rewrite modules.

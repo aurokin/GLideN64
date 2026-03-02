@@ -17,6 +17,19 @@ RVK2_TRACE_FILE="${REALITYVK_GATE_RVK2_TRACE_FILE:-${BUILD_ROOT}/rvk2.packet.tsv
 RVK2_TRACE_REPORT_FILE="${REALITYVK_GATE_RVK2_TRACE_REPORT_FILE:-${BUILD_ROOT}/rvk2.packet.replay.json}"
 RUN_RVK2_UNIT_TESTS="${REALITYVK_GATE_RUN_RVK2_UNIT_TESTS:-1}"
 RUN_RVK2_CONFORMANCE_TESTS="${REALITYVK_GATE_RUN_RVK2_CONFORMANCE_TESTS:-1}"
+TX_PACK_DIR="${REALITYVK_GATE_TX_PACK_DIR:-}"
+TX_PACK_INDEX="${REALITYVK_GATE_TX_PACK_INDEX:-}"
+TX_PACK_REQUIRE_COVERAGE="${REALITYVK_GATE_TX_PACK_REQUIRE_COVERAGE:-0}"
+TX_PACK_ALLOW_EMPTY="${REALITYVK_GATE_TX_PACK_ALLOW_EMPTY:-0}"
+TX_PACK_ALLOW_ABSOLUTE_PATHS="${REALITYVK_GATE_TX_PACK_ALLOW_ABSOLUTE_PATHS:-0}"
+TX_PACK_VALIDATE="${REALITYVK_GATE_TX_PACK_VALIDATE:-}"
+if [[ -z "${TX_PACK_VALIDATE}" ]]; then
+  if [[ -n "${TX_PACK_DIR}" ]]; then
+    TX_PACK_VALIDATE=1
+  else
+    TX_PACK_VALIDATE=0
+  fi
+fi
 
 if ! command -v cmake >/dev/null 2>&1; then
   echo "ERROR: cmake is required but was not found in PATH." >&2
@@ -123,8 +136,49 @@ run_rvk2_conformance_tests() {
   echo "==> [${name}] rvk2 conformance tests OK"
 }
 
+validate_texture_pack_index() {
+  if [[ "${TX_PACK_VALIDATE}" != "1" ]]; then
+    return
+  fi
+  if [[ -z "${TX_PACK_DIR}" ]]; then
+    echo "ERROR: REALITYVK_GATE_TX_PACK_VALIDATE=1 requires REALITYVK_GATE_TX_PACK_DIR." >&2
+    exit 1
+  fi
+  if [[ ! -d "${TX_PACK_DIR}" ]]; then
+    echo "ERROR: REALITYVK_GATE_TX_PACK_DIR does not exist: ${TX_PACK_DIR}" >&2
+    exit 1
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "ERROR: python3 is required for texture-pack index validation." >&2
+    exit 127
+  fi
+
+  local validate_args=(
+    "${ROOT_DIR}/scripts/rvk2_texture_pack_index.py"
+    validate
+    --pack-dir "${TX_PACK_DIR}"
+  )
+  if [[ -n "${TX_PACK_INDEX}" ]]; then
+    validate_args+=(--index "${TX_PACK_INDEX}")
+  fi
+  if [[ "${TX_PACK_REQUIRE_COVERAGE}" == "1" ]]; then
+    validate_args+=(--require-index-covers-pack)
+  fi
+  if [[ "${TX_PACK_ALLOW_EMPTY}" == "1" ]]; then
+    validate_args+=(--allow-empty)
+  fi
+  if [[ "${TX_PACK_ALLOW_ABSOLUTE_PATHS}" == "1" ]]; then
+    validate_args+=(--allow-absolute-paths)
+  fi
+
+  echo "==> [texture-pack] Validate rkv2_pack_index_v1.tsv"
+  python3 "${validate_args[@]}"
+  echo "==> [texture-pack] OK"
+}
+
 mkdir -p "${BUILD_ROOT}"
 validate_doc_links
+validate_texture_pack_index
 
 configure_and_build "linux-release-cli" "Release" "OFF"
 configure_and_build "linux-debug-cli" "Debug" "OFF"

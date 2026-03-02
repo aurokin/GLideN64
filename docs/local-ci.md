@@ -61,6 +61,13 @@ By default, the gate runs:
 - `REALITYVK_GATE_RVK2_TRACE_REPLAY_JOBS=<n>` sets replay worker process count (`0` = auto/all cores).
 - `REALITYVK_GATE_RVK2_TRACE_FILE=<path>` overrides packet trace output file for replay checks.
 - `REALITYVK_GATE_RVK2_TRACE_REPORT_FILE=<path>` overrides replay JSON report path.
+- Texture-pack index validation is opt-in:
+  - `REALITYVK_GATE_TX_PACK_DIR=<dir>` enables pack-index validation automatically.
+  - `REALITYVK_GATE_TX_PACK_VALIDATE=1|0` forces enable/disable behavior.
+  - `REALITYVK_GATE_TX_PACK_INDEX=<path>` overrides index path (`<pack-dir>/rkv2_pack_index_v1.tsv` by default).
+  - `REALITYVK_GATE_TX_PACK_REQUIRE_COVERAGE=1` fails if any `.rgba32` under pack dir is not indexed.
+  - `REALITYVK_GATE_TX_PACK_ALLOW_EMPTY=1` allows empty index files.
+  - `REALITYVK_GATE_TX_PACK_ALLOW_ABSOLUTE_PATHS=1` allows absolute `rgba_file` rows in index.
 
 Examples:
 
@@ -68,12 +75,23 @@ Examples:
 REALITYVK_GATE_WITH_QT=1 ./scripts/local_gate.sh
 REALITYVK_GATE_WITH_SMOKE=1 ./scripts/local_gate.sh
 REALITYVK_GATE_WITH_SMOKE=1 REALITYVK_PM_VISUAL_GATE=0 ./scripts/local_gate.sh
+REALITYVK_GATE_TX_PACK_DIR=/path/to/pack ./scripts/local_gate.sh
 ```
 
 Determinism utility:
 
 ```bash
 ./scripts/rvk2_trace_determinism.sh
+```
+
+Texture-pack index tooling:
+
+```bash
+# Generate canonical index from .rgba32 files
+python3 scripts/rvk2_texture_pack_index.py generate --pack-dir /path/to/pack
+
+# Validate index contract (rewrite if order drifted)
+python3 scripts/rvk2_texture_pack_index.py validate --pack-dir /path/to/pack --rewrite
 ```
 
 ## Smoke gate details
