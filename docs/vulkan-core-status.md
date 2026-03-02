@@ -34,6 +34,7 @@ This is the single execution tracker for the rewrite.
 28. VI presenter now models `VI_CTRL.DEDITHER_ENABLE` (bit 16) for 16bpp in compatible AA modes and treats `AA_MODE=REPLICATE` as the only no-resample path.
 29. VI register path now hard-fails reserved/invalid control states (`TYPE=1`, `VI_WIDTH=0`) to deterministic blank output.
 30. VI-specific conformance now covers filter-mode behavior and fail-safe control-state blanking at executor level.
+31. VI register path now models `PIXEL_ADVANCE[15:12]` as deterministic horizontal subpixel sample offset.
 
 ## Phase Status
 
@@ -48,7 +49,7 @@ This is the single execution tracker for the rewrite.
 
 ## Completion Estimate
 
-Estimated overall roadmap completion: **~71%**.
+Estimated overall roadmap completion: **~72%**.
 
 Heuristic phase weighting used for this estimate:
 - A: 20%
@@ -62,7 +63,7 @@ Estimated phase progress used:
 - A: 100%
 - B: 74%
 - C: 65%
-- D: 85%
+- D: 89%
 - E: 0%
 - F: 0%
 
@@ -197,6 +198,11 @@ Estimated phase progress used:
    - added executor-level conformance for dedither behavior in compatible modes and dedither inactivity in incompatible AA modes
    - added executor-level conformance for fail-safe blanking on reserved VI type and zero `VI_WIDTH`
    - integrated these checks into `rvk2_conformance_tests` and local gate
+32. Added VI pixel-advance semantics and validation:
+   - register-driven sampling now consumes `VI_CTRL.PIXEL_ADVANCE[15:12]` as a fixed horizontal subpixel offset
+   - out-of-range pixel-advance samples deterministically clip to black through existing stride/bounds validation
+   - unit coverage added for pixel-advance shift and overflow clip behavior
+   - executor-level conformance added for pixel-advance hash/frame divergence and overflow clipping
 
 ## Current Bottlenecks
 

@@ -16,6 +16,7 @@ constexpr u32 kVIStatusGammaEnabled = 0x000008U;
 constexpr u32 kVIStatusDivotEnabled = 0x000010U;
 constexpr u32 kVIStatusSerrateEnabled = 0x000040U;
 constexpr u32 kVIStatusAAModeMask = 0x000300U;
+constexpr u32 kVIStatusPixelAdvanceMask = 0x0000F000U;
 constexpr u32 kVIStatusDeditherEnabled = 0x010000U;
 constexpr u8 kVIType16Bpp = 2U;
 constexpr u8 kVIType32Bpp = 3U;
@@ -41,6 +42,7 @@ struct VIResolvedState
 	u32 yStart = 0U;
 	u32 xStep = 1024U;
 	u32 yStep = 1024U;
+	u32 pixelAdvance = 0U;
 };
 
 inline u32 clampU32(u32 _value, u32 _minimum, u32 _maximum)
@@ -338,6 +340,7 @@ VIResolvedState resolveVIState(
 	state.interlaced = (_input.registers.status & kVIStatusSerrateEnabled) != 0U;
 	state.interlaceField = static_cast<u8>(_input.registers.vCurrentLine & 0x1U);
 	state.aaMode = static_cast<u8>((_input.registers.status & kVIStatusAAModeMask) >> 8U);
+	state.pixelAdvance = (_input.registers.status & kVIStatusPixelAdvanceMask) >> 12U;
 	const u32 viWidth = _input.registers.width & 0x0FFFU;
 	if (viWidth == 0U) {
 		state.outputWidth = 0U;
@@ -511,7 +514,8 @@ VIFrameSummary VIRenderer::present(
 				u64 sampleIndex = 0ULL;
 				bool sampleValid = true;
 				if (viState.useRegisters) {
-					const u32 sampleXFP = viState.xStart + baseX * viState.xStep;
+					const u32 pixelAdvanceFP = viState.pixelAdvance << 8U;
+					const u32 sampleXFP = viState.xStart + pixelAdvanceFP + baseX * viState.xStep;
 					u32 sampleYFP = 0U;
 					if (viState.interlaced) {
 						const u32 fieldBaseY = baseY * 2U + static_cast<u32>(viState.interlaceField);

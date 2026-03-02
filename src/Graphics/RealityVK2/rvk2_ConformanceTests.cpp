@@ -1526,6 +1526,77 @@ void testVIFailSafeConformance()
 		"VI zero width should blank present height");
 }
 
+void testVIPixelAdvanceConformance()
+{
+	const u32 colorAddress = 0x00AD0000U;
+	constexpr u16 colorWidth = 4U;
+	std::vector<rvk2::RenderWorkPacket> workPackets;
+	workPackets.reserve(8U);
+	static constexpr u32 pattern[8] = {
+		0x101010FFU, 0x202020FFU, 0x303030FFU, 0x404040FFU,
+		0x505050FFU, 0x606060FFU, 0x707070FFU, 0x808080FFU
+	};
+	for (u32 y = 0U; y < 2U; ++y) {
+		for (u32 x = 0U; x < 4U; ++x) {
+			const u32 idx = y * 4U + x;
+			workPackets.push_back(
+				makePixelFillWork(
+					300ULL + static_cast<u64>(idx),
+					colorAddress,
+					colorWidth,
+					x,
+					y,
+					pattern[idx]));
+		}
+	}
+
+	const std::vector<rvk2::SubmissionBatchPacket> batches{
+		makeBatchForWorkCount(static_cast<u32>(workPackets.size()))
+	};
+	const rvk2::ExecutorConfig baseConfig =
+		makeVIExecutorConfig(3U | (3U << 8U), colorAddress, 4U, 2U, 4U);
+	rvk2::Executor baseExecutor(baseConfig);
+	const rvk2::ExecutorOutput baseOut =
+		baseExecutor.executeWithOutput(workPackets, batches);
+	expectTrue(
+		!baseOut.presentFrame.pixels.empty(),
+		"VI pixel-advance base scene should produce present pixels");
+
+	rvk2::ExecutorConfig shiftedConfig = baseConfig;
+	shiftedConfig.viStatus = (3U | (3U << 8U)) | (4U << 12U);
+	rvk2::Executor shiftedExecutor(shiftedConfig);
+	const rvk2::ExecutorOutput shiftedOut =
+		shiftedExecutor.executeWithOutput(workPackets, batches);
+	expectEq(
+		shiftedOut.presentFrame.width,
+		baseOut.presentFrame.width,
+		"VI pixel-advance should preserve present width");
+	expectEq(
+		shiftedOut.presentFrame.height,
+		baseOut.presentFrame.height,
+		"VI pixel-advance should preserve present height");
+	expectTrue(
+		shiftedOut.summary.presentHash != baseOut.summary.presentHash,
+		"VI pixel-advance should alter present hash");
+	expectEq(
+		shiftedOut.presentFrame.pixels[0],
+		baseOut.presentFrame.pixels[1],
+		"VI pixel-advance should shift first visible sample");
+
+	rvk2::ExecutorConfig overflowConfig = baseConfig;
+	overflowConfig.viStatus = (3U | (3U << 8U)) | (12U << 12U);
+	rvk2::Executor overflowExecutor(overflowConfig);
+	const rvk2::ExecutorOutput overflowOut =
+		overflowExecutor.executeWithOutput(workPackets, batches);
+	expectTrue(
+		overflowOut.summary.presentHash != baseOut.summary.presentHash,
+		"VI pixel-advance overflow should alter present hash");
+	expectEq(
+		overflowOut.presentFrame.pixels[1],
+		0x00000000U,
+		"VI pixel-advance overflow should clip out-of-range sample to black");
+}
+
 } // namespace
 
 int main()
@@ -1554,6 +1625,7 @@ int main()
 	testRenderTargetIsolationConformance();
 	testVIFilterModeConformance();
 	testVIFailSafeConformance();
+	testVIPixelAdvanceConformance();
 
 	if (g_failures == 0) {
 		std::printf("rvk2 conformance tests: PASS\n");

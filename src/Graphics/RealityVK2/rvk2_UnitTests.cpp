@@ -1307,6 +1307,62 @@ void testVIRendererAspectScaling()
 		aaMode2Pixels != aaMode3Pixels,
 		"VIRenderer AA mode3 should alter sampled pixel values vs mode2");
 
+	std::vector<u32> pixelAdvanceSource{
+		0x101010FFU, 0x202020FFU, 0x303030FFU, 0x404040FFU,
+		0x505050FFU, 0x606060FFU, 0x707070FFU, 0x808080FFU
+	};
+	rvk2::VIFrameInput pixelAdvanceInput{};
+	pixelAdvanceInput.sourceWidth = 4U;
+	pixelAdvanceInput.sourceHeight = 2U;
+	pixelAdvanceInput.sourcePixels = &pixelAdvanceSource;
+	pixelAdvanceInput.registers.valid = true;
+	pixelAdvanceInput.registers.status = 3U | (3U << 8U);
+	pixelAdvanceInput.registers.width = 4U;
+	pixelAdvanceInput.registers.vSync = 525U;
+	pixelAdvanceInput.registers.hStart = (0U << 16U) | 2U;
+	pixelAdvanceInput.registers.vStart = (0U << 16U) | 4U;
+	pixelAdvanceInput.registers.xScale = 1024U;
+	pixelAdvanceInput.registers.yScale = 1024U;
+	std::vector<u32> pixelAdvanceBasePixels;
+	const rvk2::VIFrameSummary pixelAdvanceBaseSummary =
+		rendererSquare.present(pixelAdvanceInput, &pixelAdvanceBasePixels);
+	pixelAdvanceInput.registers.status = (3U | (3U << 8U)) | (4U << 12U);
+	std::vector<u32> pixelAdvanceShiftedPixels;
+	const rvk2::VIFrameSummary pixelAdvanceShiftedSummary =
+		rendererSquare.present(pixelAdvanceInput, &pixelAdvanceShiftedPixels);
+	expectEq(pixelAdvanceBaseSummary.presentWidth, 2U, "VIRenderer pixel-advance base width mismatch");
+	expectEq(pixelAdvanceBaseSummary.presentHeight, 2U, "VIRenderer pixel-advance base height mismatch");
+	expectEq(pixelAdvanceShiftedSummary.presentWidth, 2U, "VIRenderer pixel-advance shifted width mismatch");
+	expectEq(pixelAdvanceShiftedSummary.presentHeight, 2U, "VIRenderer pixel-advance shifted height mismatch");
+	expectTrue(
+		pixelAdvanceBaseSummary.presentHash != pixelAdvanceShiftedSummary.presentHash,
+		"VIRenderer pixel-advance should alter present hash");
+	expectEq(
+		pixelAdvanceShiftedPixels[0],
+		pixelAdvanceBasePixels[1],
+		"VIRenderer pixel-advance first sample mismatch");
+
+	pixelAdvanceInput.registers.status = (3U | (3U << 8U)) | (12U << 12U);
+	std::vector<u32> pixelAdvanceOverflowPixels;
+	const rvk2::VIFrameSummary pixelAdvanceOverflowSummary =
+		rendererSquare.present(pixelAdvanceInput, &pixelAdvanceOverflowPixels);
+	expectEq(
+		pixelAdvanceOverflowSummary.presentWidth,
+		2U,
+		"VIRenderer pixel-advance overflow width mismatch");
+	expectEq(
+		pixelAdvanceOverflowSummary.presentHeight,
+		2U,
+		"VIRenderer pixel-advance overflow height mismatch");
+	expectEq(
+		pixelAdvanceOverflowPixels[0],
+		pixelAdvanceSource[3],
+		"VIRenderer pixel-advance overflow first sample mismatch");
+	expectEq(
+		pixelAdvanceOverflowPixels[1],
+		0x00000000U,
+		"VIRenderer pixel-advance overflow second sample mismatch");
+
 	std::vector<u32> viTypeSource{
 		0x12345678U, 0x89ABCDEFU,
 		0x0A1B2C3DU, 0x44556677U
