@@ -5,8 +5,7 @@
 namespace rvk2 {
 
 enum class RuntimePath {
-	kLegacy = 0,
-	kRealityVK2
+	kRealityVK2 = 0
 };
 
 RuntimePath getRequestedRuntimePath();

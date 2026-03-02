@@ -1,28 +1,27 @@
-# ADR 0002: RealityVK2 Runtime Switch Policy
+# ADR 0002: RealityVK2 Runtime Cutover Policy
 
 - Status: Accepted
 - Date: 2026-03-02
 
 ## Context
 
-RealityVK2 is being built in parallel with the current Vulkan path.
-We need a predictable policy for selecting runtime behavior during development without destabilizing default execution.
+RealityVK2 migration is now at the hard-cutover stage.
+Runtime fallback to legacy execution paths is no longer desired.
 
 ## Decision
 
-1. Runtime selection remains explicit and opt-in:
-   - `REALITYVK_RENDER_PATH=rvk2`
-   - `REALITYVK2_RENDER_PATH=rvk2`
-2. If rvk2 execution path is requested but not fully implemented, runtime must warn and safely fall back to current Vulkan path.
-3. Trace capture controls stay usable independent of default render path:
-   - `REALITYVK2_CAPTURE_RDP_TRACE`
+1. Runtime path is fixed to `rvk2` only; runtime-switch fallback is removed.
+2. Context creation always instantiates `rvk2::ContextImpl`.
+3. Legacy draw pass-through fallback in `rvk2::ContextImpl` is removed.
+4. If no rvk2 present frame is produced, presentation clears to deterministic black instead of using legacy draw output.
+5. Trace output controls remain available:
    - `REALITYVK2_TRACE_FILE`
    - `REALITYVK2_PACKET_TRACE_FILE`
-4. Local gate smoke mode emits and replay-validates rvk2 packet traces by default.
-5. Visual parity metrics are treated as signal during rebuild and may be non-blocking while core semantics are still under active replacement.
+6. Local gate smoke mode emits and replay-validates rvk2 packet traces by default.
+7. Visual parity metrics remain non-final until post-cutover parity closure.
 
 ## Consequences
 
-1. Development can move quickly without falsely presenting rvk2 as production-ready.
-2. Capture/replay tooling remains available in both fallback and migration phases.
-3. Runtime-path behavior remains explicit and testable.
+1. Only one runtime execution path remains, reducing ambiguity and fallback masking.
+2. Regressions in rvk2 are immediately visible instead of silently hidden by legacy rendering.
+3. Capture/replay tooling remains available during cutover hardening and parity closure.

@@ -6,7 +6,6 @@
 
 #include <Log.h>
 #include <Graphics/Parameters.h>
-#include <GraphicsDrawer.h>
 #include <N64.h>
 
 #include "rvk2_Runtime.h"
@@ -118,17 +117,18 @@ void ContextImpl::destroy()
 
 void ContextImpl::drawTriangles(const graphics::Context::DrawTriangleParameters & _params)
 {
-	vulkan::ContextImpl::drawTriangles(_params);
+	(void)_params;
 }
 
 void ContextImpl::drawRects(const graphics::Context::DrawRectParameters & _params)
 {
-	vulkan::ContextImpl::drawRects(_params);
+	(void)_params;
 }
 
 void ContextImpl::drawLine(f32 _width, SPVertex * _vertices)
 {
-	vulkan::ContextImpl::drawLine(_width, _vertices);
+	(void)_width;
+	(void)_vertices;
 }
 
 void ContextImpl::convertToRgbaBytes(const std::vector<u32> & _srcPixels, std::vector<u8> & _dstBytes)
@@ -210,6 +210,13 @@ void ContextImpl::renderPresentedFrame(const ExecutorOutput & _output)
 	if (_output.presentFrame.width == 0U
 		|| _output.presentFrame.height == 0U
 		|| _output.presentFrame.pixels.empty()) {
+		const u32 viewportWidth = std::max<u32>(1U, m_windowInfo.width > 0U ? m_windowInfo.width : 1U);
+		const u32 viewportHeight = std::max<u32>(1U, m_windowInfo.height > 0U ? m_windowInfo.height : 1U);
+		vulkan::ContextImpl::bindFramebuffer(graphics::bufferTarget::DRAW_FRAMEBUFFER, graphics::ObjectHandle::defaultFramebuffer);
+		vulkan::ContextImpl::setViewport(0, 0, static_cast<s32>(viewportWidth), static_cast<s32>(viewportHeight));
+		vulkan::ContextImpl::setScissor(0, 0, static_cast<s32>(viewportWidth), static_cast<s32>(viewportHeight));
+		vulkan::ContextImpl::enable(graphics::enable::SCISSOR_TEST, false);
+		vulkan::ContextImpl::clearColorBuffer(0.0f, 0.0f, 0.0f, 1.0f);
 		return;
 	}
 
@@ -262,13 +269,6 @@ bool ContextImpl::present()
 			static_cast<unsigned long long>(output.summary.textureReplacementMissCount));
 	}
 	writeTextureReplacementSummaryFile(config, output.summary);
-	if (output.summary.executedWorkCount == 0ULL) {
-		static bool warnedNoRvk2Work = false;
-		if (!warnedNoRvk2Work) {
-			LOG(LOG_WARNING, "RealityVK2 present: no render-work packets yet, using legacy Vulkan draw output until rvk2 HLE ingest is wired.");
-			warnedNoRvk2Work = true;
-		}
-	}
 	renderPresentedFrame(output);
 	return vulkan::ContextImpl::present();
 }

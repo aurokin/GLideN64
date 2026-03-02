@@ -66,6 +66,7 @@ This is the single execution tracker for the rewrite.
 60. Copy/fill phase behavior now bypasses alpha-compare and coverage-gated write suppression semantics (cycle-pipeline-only), with dedicated conformance coverage.
 61. Texture replacement runtime control file support is now landed (`REALITYVK_RVK2_TX_CONTROL_FILE`) for live enable/disable, reload/invalidate token updates, and pack/cache path overrides without emulator restart.
 62. Replacement visibility now supports stable per-frame summary file output (`REALITYVK_RVK2_TX_SUMMARY_PATH`) and maintainer control tooling (`scripts/rvk2_tx_control.py`).
+63. Runtime cutover hardening started: context creation is now rvk2-only, runtime-switch fallback is removed, legacy draw pass-through in `rvk2::ContextImpl` is disabled, and no-work presents now clear to deterministic black.
 
 ## Phase Status
 
@@ -76,11 +77,11 @@ This is the single execution tracker for the rewrite.
 | C: Core Rendering Correctness | Done | Fill/copy/texrect/triangle/depth/coverage/blend hazard behavior is closed for the scoped synthetic contract and covered by conformance. |
 | D: VI and Presentation | Done | Register-driven source selection/scaling/filter/fail-safe behavior is implemented with unit + conformance + smoke coverage for current scoped contract. |
 | E: Texture Replacement | Done | Deterministic key/cache contracts, store APIs, `.htc` IO, pack-index ingest, lifecycle controls, bounded load policy, optional executor sampling, runtime control-file UX, summary visibility, and maintainer tooling are landed. |
-| F: Cutover and Deletion | Not started | `rvk2` is not default and legacy-derived paths still exist. |
+| F: Cutover and Deletion | In progress | Runtime/context fallback is removed; full legacy-path deletion and cleanup are still open. |
 
 ## Completion Estimate
 
-Estimated overall roadmap completion: **~95%**.
+Estimated overall roadmap completion: **~96%**.
 
 Heuristic phase weighting used for this estimate:
 - A: 20%
@@ -96,7 +97,7 @@ Estimated phase progress used:
 - C: 100%
 - D: 100%
 - E: 100%
-- F: 0%
+- F: 25%
 
 ## Completed Recently
 
@@ -320,35 +321,39 @@ Estimated phase progress used:
    - control file now supports live enable/disable, cache/pack path overrides, bounds, and reload/invalidate tokens
    - landed stable per-frame replacement summary file output (`REALITYVK_RVK2_TX_SUMMARY_PATH`)
    - added maintainer control utility (`scripts/rvk2_tx_control.py`) and unit coverage for control-file config + lifecycle behavior
+52. Started Phase F hard cutover:
+   - context creation now always instantiates `rvk2::ContextImpl` (runtime switch fallback removed)
+   - `rvk2_RuntimeSwitch` is now fixed to rvk2 path and trace capture always-on for active runtime ingestion
+   - `rvk2::ContextImpl` no longer forwards triangle/rect/line draws to legacy Vulkan draw submission
+   - no-work presentation now clears to black rather than showing legacy draw output
 
 ## Current Bottlenecks
 
 1. Visual parity threshold still fails on maintained Paper Mario metric (`rmse=0.259169` vs `0.25` gate target).
-2. `rvk2` is still not default; cutover and legacy-path deletion work has not started.
+2. Legacy-derived renderer code still exists in-tree and is still compiled; only runtime execution fallback is removed so far.
 3. Trace/replay still carries transitional compatibility paths that should be removed once cutover fixtures are refreshed.
 4. Texture replacement is functionally closed, but pack/caching behavior still needs wider parity burn-in across additional title coverage.
 
 ## Next Coding Priorities
 
-1. Start Phase F: make `rvk2` default-on, keep a short-lived escape hatch, and begin deleting legacy-derived render paths.
+1. Continue Phase F: delete legacy-derived render execution paths and related dead code now that fallback runtime is removed.
 2. Continue parity reduction on maintained Paper Mario comparison while preserving deterministic trace/replay contracts.
 3. Tighten trace/replay strictness by retiring legacy row compatibility once smoke/parity fixtures are regenerated.
 4. Expand parity burn-in coverage for texture replacement packs/caches now that Phase E runtime UX is closed.
 
 ## Remaining Work Split (Approx)
 
-1. Phase F cutover/deletion (`rvk2` default, legacy path removal): **55%** of remaining work.
+1. Phase F cutover/deletion (legacy path deletion/cleanup): **50%** of remaining work.
 2. Parity stabilization and metric closure: **25%**.
-3. Trace/replay strictness + schema tightening: **15%**.
+3. Trace/replay strictness + schema tightening: **20%**.
 4. Post-closure texture replacement burn-in/coverage expansion: **5%**.
 
 ## Remaining Work by Phase
 
-1. **Phase F (Cutover and Deletion, not started)**
-   - Flip default render path to `rvk2`.
-   - Add temporary fallback switch for controlled bring-up only.
-   - Remove legacy-derived Vulkan/GLideN64 render execution paths once gates are stable.
+1. **Phase F (Cutover and Deletion, in progress)**
+   - Delete legacy-derived Vulkan/GLideN64 render execution paths now that runtime fallback is removed.
    - Prune transitional test/docs paths that only exist for dual-runtime support.
+   - Remove stale runtime-switch policy/config surfaces that implied dual-path operation.
 2. **Cross-phase parity + strictness work**
    - Reduce maintained Paper Mario parity metric to target threshold.
    - Retire trace/replay compatibility handling for legacy semantic row widths after fixture refresh.
