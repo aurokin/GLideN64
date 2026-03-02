@@ -552,6 +552,18 @@ if(REALITYVK_BUILD_RVK2_TESTS)
 	set_target_properties(rvk2_unit_tests PROPERTIES
 		RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
 	)
+
+	add_executable(rvk2_conformance_tests
+		Graphics/RealityVK2/rvk2_ConformanceTests.cpp
+		Graphics/RealityVK2/rvk2_Executor.cpp
+		Graphics/RealityVK2/rvk2_RasterPipeline.cpp
+		Graphics/RealityVK2/rvk2_RenderPlan.cpp
+		Graphics/RealityVK2/rvk2_SubmissionPlan.cpp
+		Graphics/RealityVK2/rvk2_VIRenderer.cpp
+	)
+	set_target_properties(rvk2_conformance_tests PROPERTIES
+		RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+	)
 endif(REALITYVK_BUILD_RVK2_TESTS)
 
 if(REALITYVK_BUILD_TYPE STREQUAL "Debug")

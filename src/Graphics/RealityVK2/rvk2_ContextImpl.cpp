@@ -5,6 +5,7 @@
 #include <Log.h>
 #include <Graphics/Parameters.h>
 #include <GraphicsDrawer.h>
+#include <N64.h>
 
 #include "rvk2_Runtime.h"
 
@@ -16,6 +17,30 @@ void buildFullscreenRect(RectVertex (&_vertices)[4])
 	_vertices[1] = RectVertex{1.0f, -1.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
 	_vertices[2] = RectVertex{-1.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f};
 	_vertices[3] = RectVertex{1.0f, 1.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 1.0f};
+}
+
+u32 readRegValue(const u32 * _reg)
+{
+	return _reg != nullptr ? *_reg : 0U;
+}
+
+rvk2::ExecutorConfig buildExecutorConfigFromVIRegisters()
+{
+	rvk2::ExecutorConfig config = rvk2::loadExecutorConfigFromEnv();
+	if (REG.VI_STATUS == nullptr || REG.VI_ORIGIN == nullptr)
+		return config;
+
+	config.viRegistersValid = true;
+	config.viStatus = readRegValue(REG.VI_STATUS);
+	config.viOrigin = readRegValue(REG.VI_ORIGIN);
+	config.viWidth = readRegValue(REG.VI_WIDTH);
+	config.viVCurrentLine = readRegValue(REG.VI_V_CURRENT_LINE);
+	config.viVSync = readRegValue(REG.VI_V_SYNC);
+	config.viHStart = readRegValue(REG.VI_H_START);
+	config.viVStart = readRegValue(REG.VI_V_START);
+	config.viXScale = readRegValue(REG.VI_X_SCALE);
+	config.viYScale = readRegValue(REG.VI_Y_SCALE);
+	return config;
 }
 
 } // namespace
@@ -189,6 +214,7 @@ void ContextImpl::renderPresentedFrame(const ExecutorOutput & _output)
 
 bool ContextImpl::present()
 {
+	m_executor = Executor(buildExecutorConfigFromVIRegisters());
 	const ExecutorOutput output =
 		m_executor.executeWithOutput(runtime().renderPlan(), runtime().submissionPlan());
 	if (output.summary.executedWorkCount == 0ULL) {

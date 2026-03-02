@@ -6,6 +6,7 @@ namespace rvk2 {
 
 constexpr u32 kSchemaVersion = 1U;
 constexpr const char * kSchemaName = "rvk2_schema_v1";
+constexpr u32 kMaxCommandPayloadWords = 42U;
 
 using PacketId = u64;
 
@@ -29,7 +30,7 @@ struct CommandPacket {
 	u8 opcode = 0U;
 	u8 flags = 0U;
 	u8 extraWordCount = 0U;
-	u8 reserved = 0U;
+	u8 payloadWordCount = 0U;
 	u16 fullWordCount = 0U;
 	u32 w0 = 0U;
 	u32 w1 = 0U;
@@ -39,6 +40,7 @@ struct CommandPacket {
 	u32 w5 = 0U;
 	u32 w6 = 0U;
 	u32 w7 = 0U;
+	u32 payloadWords[kMaxCommandPayloadWords]{};
 	u64 tailHash = 1469598103934665603ULL;
 	CommandProvenance provenance{};
 };
@@ -255,6 +257,41 @@ struct DrawSemanticPacket {
 	s32 triangleDxLDY = 0;
 	s32 triangleDxHDY = 0;
 	s32 triangleDxMDY = 0;
+	bool triangleShadeEnable = false;
+	bool triangleTextureEnable = false;
+	bool triangleZBufferEnable = false;
+	s32 triangleShadeR = 0;
+	s32 triangleShadeG = 0;
+	s32 triangleShadeB = 0;
+	s32 triangleShadeA = 0;
+	s32 triangleShadeDRDX = 0;
+	s32 triangleShadeDGDX = 0;
+	s32 triangleShadeDBDX = 0;
+	s32 triangleShadeDADX = 0;
+	s32 triangleShadeDRDE = 0;
+	s32 triangleShadeDGDE = 0;
+	s32 triangleShadeDBDE = 0;
+	s32 triangleShadeDADE = 0;
+	s32 triangleShadeDRDY = 0;
+	s32 triangleShadeDGDY = 0;
+	s32 triangleShadeDBDY = 0;
+	s32 triangleShadeDADY = 0;
+	s32 triangleTexS = 0;
+	s32 triangleTexT = 0;
+	s32 triangleTexW = 0;
+	s32 triangleTexDSDX = 0;
+	s32 triangleTexDTDX = 0;
+	s32 triangleTexDWDX = 0;
+	s32 triangleTexDSDE = 0;
+	s32 triangleTexDTDE = 0;
+	s32 triangleTexDWDE = 0;
+	s32 triangleTexDSDY = 0;
+	s32 triangleTexDTDY = 0;
+	s32 triangleTexDWDY = 0;
+	s32 triangleZ = 0;
+	s32 triangleDZDX = 0;
+	s32 triangleDZDE = 0;
+	s32 triangleDZDY = 0;
 	bool textured = false;
 	bool depthTest = false;
 	u32 syncEpoch = 0U;

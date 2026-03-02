@@ -110,6 +110,183 @@ void testCommandHashStability()
 	expectTrue(streamD.commandHash() != streamE.commandHash(), "hash should change when full-word metadata changes");
 }
 
+void testExtendedPayloadCaptureAndHash()
+{
+	const u32 payloadWords[10] = {
+		0x10010001U,
+		0x10020002U,
+		0x10030003U,
+		0x10040004U,
+		0x10050005U,
+		0x10060006U,
+		0x10070007U,
+		0x10080008U,
+		0x10090009U,
+		0x100A000AU
+	};
+
+	rvk2::Runtime runtime;
+	runtime.beginFrame(23ULL);
+	rvk2::CommandProvenance provenance{};
+	provenance.taskId = 23U;
+	provenance.microcode = 20U;
+	runtime.submitRDPWord(
+		0x00200000U,
+		(0x0FU << 24) | (1U << 23) | (2U << 16) | 0x0123U,
+		(0x0234U << 16) | 0x0034U,
+		provenance,
+		6U,
+		0U,
+		0U,
+		0U,
+		0U,
+		0U,
+		0U,
+		12U,
+		0xA5A5A5A5A5A5A5A5ULL,
+		10U,
+		payloadWords);
+
+	const std::vector<rvk2::CommandPacket> & commands = runtime.commandStream().commands();
+	expectEq(commands.size(), static_cast<size_t>(1U), "extended payload command count mismatch");
+	const rvk2::CommandPacket & packet = commands[0];
+	expectEq(packet.payloadWordCount, static_cast<u8>(10U), "extended payload word count mismatch");
+	expectEq(packet.extraWordCount, static_cast<u8>(6U), "extended payload inline count mismatch");
+	expectEq(packet.w2, payloadWords[0], "extended payload w2 mismatch");
+	expectEq(packet.w3, payloadWords[1], "extended payload w3 mismatch");
+	expectEq(packet.w4, payloadWords[2], "extended payload w4 mismatch");
+	expectEq(packet.w5, payloadWords[3], "extended payload w5 mismatch");
+	expectEq(packet.w6, payloadWords[4], "extended payload w6 mismatch");
+	expectEq(packet.w7, payloadWords[5], "extended payload w7 mismatch");
+	expectEq(packet.payloadWords[9], payloadWords[9], "extended payload tail word mismatch");
+
+	const rvk2::FrameTraceRecord trace = runtime.buildFrameTrace();
+	expectEq(trace.truncatedPayloadCount, 0U, "extended payload should not be marked truncated");
+
+	rvk2::CommandStream streamA;
+	streamA.reset(1ULL);
+	streamA.push(packet);
+	rvk2::CommandPacket packetChanged = packet;
+	packetChanged.payloadWords[9] ^= 0x1U;
+	rvk2::CommandStream streamB;
+	streamB.reset(1ULL);
+	streamB.push(packetChanged);
+	expectTrue(
+		streamA.commandHash() != streamB.commandHash(),
+		"command hash must change when extended payload changes");
+}
+
+void testTriangleExtendedSemanticDecode()
+{
+	u32 payloadWords[42]{};
+	for (u32 i = 0U; i < 42U; ++i)
+		payloadWords[i] = 0x11000000U + (i * 0x00110011U);
+
+	rvk2::Runtime runtime;
+	runtime.beginFrame(31ULL);
+	rvk2::CommandProvenance provenance{};
+	provenance.taskId = 31U;
+	provenance.microcode = 20U;
+	runtime.submitRDPWord(
+		0x00310000U,
+		(0x0FU << 24) | (1U << 23) | (3U << 19) | (2U << 16) | 0x0145U,
+		(0x0236U << 16) | 0x0012U,
+		provenance,
+		6U,
+		0U,
+		0U,
+		0U,
+		0U,
+		0U,
+		0U,
+		44U,
+		0x5AA55AA55AA55AA5ULL,
+		42U,
+		payloadWords);
+
+	const std::vector<rvk2::DrawSemanticPacket> & semantics = runtime.drawSemantics();
+	expectEq(semantics.size(), static_cast<size_t>(1U), "extended semantic draw count mismatch");
+	const rvk2::DrawSemanticPacket & semantic = semantics[0];
+	expectTrue(semantic.triangleShadeEnable, "triangle shade enable decode mismatch");
+	expectTrue(semantic.triangleTextureEnable, "triangle texture enable decode mismatch");
+	expectTrue(semantic.triangleZBufferEnable, "triangle zbuffer enable decode mismatch");
+
+	auto decodePrimary = [](u32 _a, u32 _b) -> s32 {
+		return static_cast<s32>((_a & 0xFFFF0000U) | ((_b >> 16U) & 0xFFFFU));
+	};
+	auto decodeSecondary = [](u32 _a, u32 _b) -> s32 {
+		return static_cast<s32>(((_a << 16U) & 0xFFFF0000U) | (_b & 0xFFFFU));
+	};
+
+	// For 0x0F, expanded words [2..43] map directly from payload[0..41].
+	expectEq(
+		semantic.triangleShadeR,
+		decodePrimary(payloadWords[6], payloadWords[10]),
+		"triangle shade R decode mismatch");
+	expectEq(
+		semantic.triangleShadeG,
+		decodeSecondary(payloadWords[6], payloadWords[10]),
+		"triangle shade G decode mismatch");
+	expectEq(
+		semantic.triangleShadeDRDY,
+		decodePrimary(payloadWords[16], payloadWords[20]),
+		"triangle shade DRDY decode mismatch");
+	expectEq(
+		semantic.triangleShadeDADY,
+		decodeSecondary(payloadWords[17], payloadWords[21]),
+		"triangle shade DADY decode mismatch");
+
+	expectEq(
+		semantic.triangleTexS,
+		decodePrimary(payloadWords[22], payloadWords[26]),
+		"triangle texture S decode mismatch");
+	expectEq(
+		semantic.triangleTexT,
+		decodeSecondary(payloadWords[22], payloadWords[26]),
+		"triangle texture T decode mismatch");
+	expectEq(
+		semantic.triangleTexW,
+		decodePrimary(payloadWords[23], payloadWords[27]),
+		"triangle texture W decode mismatch");
+	expectEq(
+		semantic.triangleTexDSDY,
+		decodePrimary(payloadWords[32], payloadWords[36]),
+		"triangle texture DSDY decode mismatch");
+	expectEq(
+		semantic.triangleTexDWDY,
+		decodePrimary(payloadWords[33], payloadWords[37]),
+		"triangle texture DWDY decode mismatch");
+
+	expectEq(
+		semantic.triangleZ,
+		static_cast<s32>(payloadWords[38]),
+		"triangle Z decode mismatch");
+	expectEq(
+		semantic.triangleDZDX,
+		static_cast<s32>(payloadWords[39]),
+		"triangle DZDX decode mismatch");
+	expectEq(
+		semantic.triangleDZDE,
+		static_cast<s32>(payloadWords[40]),
+		"triangle DZDE decode mismatch");
+	expectEq(
+		semantic.triangleDZDY,
+		static_cast<s32>(payloadWords[41]),
+		"triangle DZDY decode mismatch");
+
+	const std::vector<rvk2::RasterOpPacket> & rasterOps = runtime.rasterOps();
+	expectEq(rasterOps.size(), static_cast<size_t>(1U), "extended semantic raster count mismatch");
+	expectEq(rasterOps[0].triangleShadeR, semantic.triangleShadeR, "raster triangle shade R mismatch");
+	expectEq(rasterOps[0].triangleTexS, semantic.triangleTexS, "raster triangle tex S mismatch");
+	expectEq(rasterOps[0].triangleZ, semantic.triangleZ, "raster triangle Z mismatch");
+
+	const std::vector<rvk2::RenderWorkPacket> & renderPlan = runtime.renderPlan();
+	expectEq(renderPlan.size(), static_cast<size_t>(1U), "extended semantic render count mismatch");
+	expectEq(renderPlan[0].triangleShadeDRDY, semantic.triangleShadeDRDY, "render triangle shade DRDY mismatch");
+	expectEq(renderPlan[0].triangleTexDWDY, semantic.triangleTexDWDY, "render triangle tex DWDY mismatch");
+	expectEq(renderPlan[0].triangleDZDE, semantic.triangleDZDE, "render triangle DZDE mismatch");
+}
+
 void testRDPStateTransitions()
 {
 	rvk2::RDPStateEngine engine;
@@ -982,6 +1159,324 @@ void testVIRendererAspectScaling()
 	expectEq(summaryCrop.contentY, 1U, "VIRenderer 16:9->4:3 contentY mismatch");
 	expectEq(summaryCrop.contentWidth, 8U, "VIRenderer 16:9->4:3 content width mismatch");
 	expectEq(summaryCrop.contentHeight, 4U, "VIRenderer 16:9->4:3 content height mismatch");
+
+	std::vector<u32> registerPixels{
+		0x000000FFU, 0x010101FFU, 0x020202FFU, 0x030303FFU,
+		0x101010FFU, 0x111111FFU, 0x121212FFU, 0x131313FFU,
+		0x202020FFU, 0x212121FFU, 0x222222FFU, 0x232323FFU,
+		0x303030FFU, 0x313131FFU, 0x323232FFU, 0x333333FFU
+	};
+
+	rvk2::VIRendererConfig configSquare{};
+	configSquare.aspectX = 1U;
+	configSquare.aspectY = 1U;
+	rvk2::VIRenderer rendererSquare(configSquare);
+	rvk2::VIFrameInput registerInput{};
+	registerInput.sourceWidth = 4U;
+	registerInput.sourceHeight = 4U;
+	registerInput.sourcePixels = &registerPixels;
+	registerInput.registers.valid = true;
+	registerInput.registers.status = 2U;
+	registerInput.registers.width = 4U;
+	registerInput.registers.vSync = 525U;
+	registerInput.registers.hStart = (0U << 16U) | 2U;
+	registerInput.registers.vStart = (0U << 16U) | 4U;
+	registerInput.registers.xScale = 2048U;
+	registerInput.registers.yScale = 2048U;
+	std::vector<u32> sampledPixels;
+	const rvk2::VIFrameSummary registerSummary =
+		rendererSquare.present(registerInput, &sampledPixels);
+	expectEq(registerSummary.presentWidth, 2U, "VIRenderer register width mismatch");
+	expectEq(registerSummary.presentHeight, 2U, "VIRenderer register height mismatch");
+	expectEq(registerSummary.contentWidth, 2U, "VIRenderer register content width mismatch");
+	expectEq(registerSummary.contentHeight, 2U, "VIRenderer register content height mismatch");
+	expectEq(sampledPixels.size(), static_cast<size_t>(4U), "VIRenderer register sampled pixel count mismatch");
+	expectEq(sampledPixels[0], registerPixels[0], "VIRenderer register sample (0,0) mismatch");
+	expectEq(sampledPixels[1], registerPixels[2], "VIRenderer register sample (1,0) mismatch");
+	expectEq(sampledPixels[2], registerPixels[8], "VIRenderer register sample (0,1) mismatch");
+	expectEq(sampledPixels[3], registerPixels[10], "VIRenderer register sample (1,1) mismatch");
+
+	registerInput.registers.status = 2U;
+	std::vector<u32> noGammaPixels;
+	const rvk2::VIFrameSummary noGammaSummary =
+		rendererSquare.present(registerInput, &noGammaPixels);
+	registerInput.registers.status = 2U | 0x000008U;
+	std::vector<u32> gammaPixels;
+	const rvk2::VIFrameSummary gammaSummary =
+		rendererSquare.present(registerInput, &gammaPixels);
+	expectTrue(
+		noGammaSummary.presentHash != gammaSummary.presentHash,
+		"VIRenderer gamma flag should alter present hash");
+	bool gammaPixelsDiffer = false;
+	if (noGammaPixels.size() == gammaPixels.size()) {
+		for (size_t i = 0; i < noGammaPixels.size(); ++i) {
+			if (noGammaPixels[i] != gammaPixels[i]) {
+				gammaPixelsDiffer = true;
+				break;
+			}
+		}
+	}
+	expectTrue(
+		gammaPixelsDiffer,
+		"VIRenderer gamma flag should alter sampled pixel values");
+
+	std::vector<u32> divotSource{
+		0x000000FFU, 0xFFFFFFFFU, 0x000000FFU, 0x000000FFU,
+		0x000000FFU, 0xFFFFFFFFU, 0x000000FFU, 0x000000FFU,
+		0x000000FFU, 0xFFFFFFFFU, 0x000000FFU, 0x000000FFU,
+		0x000000FFU, 0xFFFFFFFFU, 0x000000FFU, 0x000000FFU
+	};
+	rvk2::VIFrameInput divotInput{};
+	divotInput.sourceWidth = 4U;
+	divotInput.sourceHeight = 4U;
+	divotInput.sourcePixels = &divotSource;
+	divotInput.registers.valid = true;
+	divotInput.registers.status = 2U;
+	divotInput.registers.width = 4U;
+	divotInput.registers.vSync = 525U;
+	divotInput.registers.hStart = (0U << 16U) | 4U;
+	divotInput.registers.vStart = (0U << 16U) | 8U;
+	divotInput.registers.xScale = 1024U;
+	divotInput.registers.yScale = 1024U;
+	std::vector<u32> noDivotPixels;
+	const rvk2::VIFrameSummary noDivotSummary =
+		rendererSquare.present(divotInput, &noDivotPixels);
+	divotInput.registers.status = 2U | 0x000010U;
+	std::vector<u32> withDivotPixels;
+	const rvk2::VIFrameSummary withDivotSummary =
+		rendererSquare.present(divotInput, &withDivotPixels);
+	expectTrue(
+		noDivotSummary.presentHash != withDivotSummary.presentHash,
+		"VIRenderer divot flag should alter present hash");
+	expectEq(noDivotPixels[1], 0xFFFFFFFFU, "VIRenderer no-divot sample mismatch");
+	expectEq(withDivotPixels[1], 0x000000FFU, "VIRenderer divot median sample mismatch");
+
+	std::vector<u32> interlaceSource{
+		0x101010FFU, 0x111111FFU,
+		0x202020FFU, 0x212121FFU,
+		0x303030FFU, 0x313131FFU,
+		0x404040FFU, 0x414141FFU
+	};
+	rvk2::VIFrameInput interlaceInput{};
+	interlaceInput.sourceWidth = 2U;
+	interlaceInput.sourceHeight = 4U;
+	interlaceInput.sourcePixels = &interlaceSource;
+	interlaceInput.registers.valid = true;
+	interlaceInput.registers.status = 2U;
+	interlaceInput.registers.width = 2U;
+	interlaceInput.registers.vSync = 525U;
+	interlaceInput.registers.hStart = (0U << 16U) | 2U;
+	interlaceInput.registers.vStart = (0U << 16U) | 4U;
+	interlaceInput.registers.xScale = 1024U;
+	interlaceInput.registers.yScale = 1024U;
+	std::vector<u32> nonInterlacedPixels;
+	const rvk2::VIFrameSummary nonInterlacedSummary =
+		rendererSquare.present(interlaceInput, &nonInterlacedPixels);
+	interlaceInput.registers.status = 2U | 0x000040U;
+	interlaceInput.registers.vCurrentLine = 1U;
+	std::vector<u32> interlacedPixels;
+	const rvk2::VIFrameSummary interlacedSummary =
+		rendererSquare.present(interlaceInput, &interlacedPixels);
+	expectTrue(
+		nonInterlacedSummary.presentHash != interlacedSummary.presentHash,
+		"VIRenderer interlace flag should alter present hash");
+	expectEq(nonInterlacedPixels[0], 0x101010FFU, "VIRenderer non-interlaced sample mismatch");
+	expectEq(interlacedPixels[0], 0x202020FFU, "VIRenderer interlaced field sample mismatch");
+
+	registerInput.registers.status = 0U;
+	const rvk2::VIFrameSummary blankSummary = rendererSquare.present(registerInput);
+	expectEq(blankSummary.presentWidth, 0U, "VIRenderer blank width mismatch");
+	expectEq(blankSummary.presentHeight, 0U, "VIRenderer blank height mismatch");
+}
+
+void testExecutorVIOriginPresentationSelection()
+{
+	auto makeFillWork = [](
+		u64 _packetId,
+		u32 _colorAddress,
+		u32 _fillColor) -> rvk2::RenderWorkPacket {
+		rvk2::RenderWorkPacket work{};
+		work.sourcePacketId = _packetId;
+		work.sourceOpcode = 0x36U;
+		work.opKind = static_cast<u8>(rvk2::RasterOpKind::kFillRect);
+		work.phase = static_cast<u8>(rvk2::RenderPhase::kFill);
+		work.cycleType = 3U;
+		work.rectULX = 0U;
+		work.rectULY = 0U;
+		work.rectLRX = 1U;
+		work.rectLRY = 1U;
+		work.colorImageFormat = 0U;
+		work.colorImageSize = 3U;
+		work.colorImageWidth = 2U;
+		work.colorImageAddress = _colorAddress;
+		work.fillColor = _fillColor;
+		return work;
+	};
+
+	rvk2::RenderWorkPacket fillA = makeFillWork(1ULL, 0x00100000U, 0xFF0000FFU);
+	rvk2::RenderWorkPacket fillB = makeFillWork(2ULL, 0x00200000U, 0x00FF00FFU);
+	std::vector<rvk2::RenderWorkPacket> workPackets{fillA, fillB};
+	rvk2::SubmissionBatchPacket batch{};
+	batch.batchIndex = 0U;
+	batch.phase = static_cast<u8>(rvk2::RenderPhase::kFill);
+	batch.cycleType = 3U;
+	batch.firstWorkIndex = 0U;
+	batch.lastWorkIndex = 1U;
+	batch.workCount = 2U;
+	std::vector<rvk2::SubmissionBatchPacket> batches{batch};
+
+	rvk2::ExecutorConfig defaultConfig{};
+	defaultConfig.presentAspectX = 1U;
+	defaultConfig.presentAspectY = 1U;
+	rvk2::Executor defaultExecutor(defaultConfig);
+	const rvk2::ExecutorOutput defaultOut =
+		defaultExecutor.executeWithOutput(workPackets, batches);
+	expectTrue(
+		!defaultOut.presentFrame.pixels.empty(),
+		"Executor default output should produce present pixels");
+	expectEq(
+		defaultOut.presentFrame.pixels[0],
+		fillB.fillColor,
+		"Executor default should present last render target");
+
+	rvk2::ExecutorConfig viConfig = defaultConfig;
+	viConfig.viRegistersValid = true;
+	viConfig.viStatus = 2U;
+	viConfig.viOrigin = fillA.colorImageAddress;
+	viConfig.viWidth = 2U;
+	viConfig.viVSync = 525U;
+	viConfig.viHStart = (0U << 16U) | 2U;
+	viConfig.viVStart = (0U << 16U) | 4U;
+	viConfig.viXScale = 1024U;
+	viConfig.viYScale = 1024U;
+	rvk2::Executor viExecutor(viConfig);
+	const rvk2::ExecutorOutput viOut =
+		viExecutor.executeWithOutput(workPackets, batches);
+	expectTrue(
+		!viOut.presentFrame.pixels.empty(),
+		"Executor VI-origin output should produce present pixels");
+	expectEq(
+		viOut.presentFrame.pixels[0],
+		fillA.fillColor,
+		"Executor VI origin should select matching render target");
+	expectTrue(
+		viOut.summary.presentHash != defaultOut.summary.presentHash,
+		"Executor VI origin should alter present hash when selecting another surface");
+}
+
+void testExecutorTriangleCoefficientConsumption()
+{
+	auto makeTriangleWork = []() -> rvk2::RenderWorkPacket {
+		rvk2::RenderWorkPacket work{};
+		work.sourcePacketId = 1ULL;
+		work.sourceOpcode = 0x0FU;
+		work.opKind = static_cast<u8>(rvk2::RasterOpKind::kTriangle);
+		work.phase = static_cast<u8>(rvk2::RenderPhase::kCycle1);
+		work.cycleType = 0U;
+		work.tile = 0U;
+		work.textured = false;
+		work.depthTest = true;
+		work.rectULX = 0U;
+		work.rectULY = 0U;
+		work.rectLRX = 2U;
+		work.rectLRY = 2U;
+		work.triangleLMajor = true;
+		work.triangleYH = 0U;
+		work.triangleYM = 4U;
+		work.triangleYL = 8U;
+		work.triangleXH = 0x00000000U;
+		work.triangleXL = 0x00010000U;
+		work.triangleXM = 0x00000000U;
+		work.triangleDxHDY = 0x00000000U;
+		work.triangleDxLDY = static_cast<s32>(0xFFFFC000U);
+		work.triangleDxMDY = 0x00004000U;
+		work.colorImageFormat = 0U;
+		work.colorImageSize = 3U;
+		work.colorImageWidth = 8U;
+		work.colorImageAddress = 0x00100000U;
+		work.depthImageAddress = 0x00200000U;
+		work.triangleShadeEnable = true;
+		work.triangleTextureEnable = false;
+		work.triangleZBufferEnable = true;
+		work.triangleShadeR = 0x2000;
+		work.triangleShadeG = 0x4000;
+		work.triangleShadeB = 0x6000;
+		work.triangleShadeA = 0xFF00;
+		work.triangleZ = 100;
+		work.combineMux = 0x1122334455667788ULL;
+		return work;
+	};
+
+	auto makeSingleBatch = []() -> rvk2::SubmissionBatchPacket {
+		rvk2::SubmissionBatchPacket batch{};
+		batch.batchIndex = 0U;
+		batch.firstWorkIndex = 0U;
+		batch.lastWorkIndex = 0U;
+		batch.workCount = 1U;
+		return batch;
+	};
+
+	rvk2::Executor executor;
+
+	rvk2::RenderWorkPacket nearWork = makeTriangleWork();
+	std::vector<rvk2::RenderWorkPacket> nearOnly{nearWork};
+	std::vector<rvk2::SubmissionBatchPacket> nearBatch{makeSingleBatch()};
+	const rvk2::ExecutorOutput nearOut = executor.executeWithOutput(nearOnly, nearBatch);
+	expectTrue(nearOut.summary.colorWriteCount > 0ULL, "triangle near pass should write color");
+
+	rvk2::RenderWorkPacket shadeWork = nearWork;
+	shadeWork.triangleShadeR = 0xE000;
+	shadeWork.triangleShadeG = 0x1000;
+	shadeWork.triangleShadeB = 0x3000;
+	std::vector<rvk2::RenderWorkPacket> shadeOnly{shadeWork};
+	const rvk2::ExecutorOutput shadeOut = executor.executeWithOutput(shadeOnly, nearBatch);
+	expectTrue(
+		nearOut.summary.presentHash != shadeOut.summary.presentHash,
+		"triangle shade coefficients should affect present hash");
+
+	rvk2::RenderWorkPacket texWorkA = nearWork;
+	texWorkA.textured = true;
+	texWorkA.triangleTextureEnable = true;
+	texWorkA.triangleTexS = 0x01000000;
+	texWorkA.triangleTexT = 0x02000000;
+	texWorkA.triangleTexW = 0x00100000;
+	texWorkA.triangleTexDSDX = 0x00004000;
+	texWorkA.triangleTexDTDX = 0x00002000;
+	texWorkA.triangleTexDWDX = 0;
+	texWorkA.triangleTexDSDY = 0x00001000;
+	texWorkA.triangleTexDTDY = 0x00000800;
+	texWorkA.triangleTexDWDY = 0;
+	texWorkA.triangleTexDSDE = 0;
+	texWorkA.triangleTexDTDE = 0;
+	texWorkA.triangleTexDWDE = 0;
+	std::vector<rvk2::RenderWorkPacket> texOnlyA{texWorkA};
+	const rvk2::ExecutorOutput texOutA = executor.executeWithOutput(texOnlyA, nearBatch);
+
+	rvk2::RenderWorkPacket texWorkB = texWorkA;
+	texWorkB.triangleTexS += 0x00100000;
+	std::vector<rvk2::RenderWorkPacket> texOnlyB{texWorkB};
+	const rvk2::ExecutorOutput texOutB = executor.executeWithOutput(texOnlyB, nearBatch);
+	expectTrue(
+		texOutA.summary.presentHash != texOutB.summary.presentHash,
+		"triangle texture coefficients should affect present hash");
+
+	rvk2::RenderWorkPacket farWork = shadeWork;
+	farWork.triangleZ = 200;
+	farWork.sourcePacketId = 2ULL;
+	std::vector<rvk2::RenderWorkPacket> nearThenFar{nearWork, farWork};
+	rvk2::SubmissionBatchPacket combinedBatch = makeSingleBatch();
+	combinedBatch.lastWorkIndex = 1U;
+	combinedBatch.workCount = 2U;
+	std::vector<rvk2::SubmissionBatchPacket> combinedBatches{combinedBatch};
+	const rvk2::ExecutorOutput combinedOut = executor.executeWithOutput(nearThenFar, combinedBatches);
+	expectEq(
+		combinedOut.summary.colorWriteCount,
+		nearOut.summary.colorWriteCount,
+		"triangle depth test should reject farther triangle writes");
+	expectEq(
+		combinedOut.summary.presentHash,
+		nearOut.summary.presentHash,
+		"triangle depth test should preserve near-triangle present hash");
 }
 
 void testExecutorFrameOutput()
@@ -1027,6 +1522,8 @@ int main()
 	testSchemaVersion();
 	testOpcodeDecodeIdentity();
 	testCommandHashStability();
+	testExtendedPayloadCaptureAndHash();
+	testTriangleExtendedSemanticDecode();
 	testRDPStateTransitions();
 	testRDPExtendedStateFields();
 	testTMEMStateTransitions();
@@ -1034,6 +1531,8 @@ int main()
 	testSyntheticTrianglePacking();
 	testTexRectSemanticExtraction();
 	testVIRendererAspectScaling();
+	testExecutorVIOriginPresentationSelection();
+	testExecutorTriangleCoefficientConsumption();
 	testExecutorFrameOutput();
 
 	if (g_failures == 0) {

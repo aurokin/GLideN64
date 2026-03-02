@@ -13,10 +13,24 @@ struct VIRendererConfig {
 	u16 maxOutputHeight = 4096U;
 };
 
+struct VIRegisterState {
+	bool valid = false;
+	u32 status = 0U;
+	u32 origin = 0U;
+	u32 width = 0U;
+	u32 vCurrentLine = 0U;
+	u32 vSync = 0U;
+	u32 hStart = 0U;
+	u32 vStart = 0U;
+	u32 xScale = 0U;
+	u32 yScale = 0U;
+};
+
 struct VIFrameInput {
 	u16 sourceWidth = 0U;
 	u16 sourceHeight = 0U;
 	const std::vector<u32> * sourcePixels = nullptr;
+	VIRegisterState registers{};
 };
 
 struct VIFrameSummary {

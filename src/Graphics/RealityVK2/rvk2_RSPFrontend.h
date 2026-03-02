@@ -23,7 +23,9 @@ public:
 		u32 _w6 = 0U,
 		u32 _w7 = 0U,
 		u16 _fullWordCount = 0U,
-		u64 _tailHash = 1469598103934665603ULL);
+		u64 _tailHash = 1469598103934665603ULL,
+		u8 _payloadWordCount = 0U,
+		const u32 * _payloadWords = nullptr);
 	CommandPacket ingestRSPCommand(
 		u32 _dlistAddress,
 		u32 _w0,
@@ -37,7 +39,9 @@ public:
 		u32 _w6 = 0U,
 		u32 _w7 = 0U,
 		u16 _fullWordCount = 0U,
-		u64 _tailHash = 1469598103934665603ULL);
+		u64 _tailHash = 1469598103934665603ULL,
+		u8 _payloadWordCount = 0U,
+		const u32 * _payloadWords = nullptr);
 
 private:
 	PacketId m_nextPacketId;

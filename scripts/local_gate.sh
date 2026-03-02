@@ -16,6 +16,7 @@ RVK2_TRACE_REPLAY_JOBS="${REALITYVK_GATE_RVK2_TRACE_REPLAY_JOBS:-0}"
 RVK2_TRACE_FILE="${REALITYVK_GATE_RVK2_TRACE_FILE:-${BUILD_ROOT}/rvk2.packet.tsv}"
 RVK2_TRACE_REPORT_FILE="${REALITYVK_GATE_RVK2_TRACE_REPORT_FILE:-${BUILD_ROOT}/rvk2.packet.replay.json}"
 RUN_RVK2_UNIT_TESTS="${REALITYVK_GATE_RUN_RVK2_UNIT_TESTS:-1}"
+RUN_RVK2_CONFORMANCE_TESTS="${REALITYVK_GATE_RUN_RVK2_CONFORMANCE_TESTS:-1}"
 
 if ! command -v cmake >/dev/null 2>&1; then
   echo "ERROR: cmake is required but was not found in PATH." >&2
@@ -105,6 +106,23 @@ run_rvk2_unit_tests() {
   echo "==> [${name}] rvk2 unit tests OK"
 }
 
+run_rvk2_conformance_tests() {
+  local name="$1"
+  local build_dir="${BUILD_ROOT}/${name}"
+  local test_bin="${build_dir}/rvk2_conformance_tests"
+  if [[ ! -x "${test_bin}" ]]; then
+    test_bin="${build_dir}/rvk2_conformance_tests.exe"
+  fi
+  if [[ ! -x "${test_bin}" ]]; then
+    echo "ERROR: [${name}] rvk2_conformance_tests binary was not produced." >&2
+    exit 1
+  fi
+
+  echo "==> [${name}] Run rvk2 conformance tests"
+  "${test_bin}"
+  echo "==> [${name}] rvk2 conformance tests OK"
+}
+
 mkdir -p "${BUILD_ROOT}"
 validate_doc_links
 
@@ -113,6 +131,10 @@ configure_and_build "linux-debug-cli" "Debug" "OFF"
 if [[ "${RUN_RVK2_UNIT_TESTS}" == "1" ]]; then
   run_rvk2_unit_tests "linux-release-cli"
   run_rvk2_unit_tests "linux-debug-cli"
+fi
+if [[ "${RUN_RVK2_CONFORMANCE_TESTS}" == "1" ]]; then
+  run_rvk2_conformance_tests "linux-release-cli"
+  run_rvk2_conformance_tests "linux-debug-cli"
 fi
 
 if [[ "${WITH_QT}" == "1" ]]; then
@@ -124,6 +146,9 @@ if [[ "${WITH_SMOKE}" == "1" ]]; then
   configure_and_build "${smoke_name}" "Release" "OFF"
   if [[ "${RUN_RVK2_UNIT_TESTS}" == "1" ]]; then
     run_rvk2_unit_tests "${smoke_name}"
+  fi
+  if [[ "${RUN_RVK2_CONFORMANCE_TESTS}" == "1" ]]; then
+    run_rvk2_conformance_tests "${smoke_name}"
   fi
 
   smoke_build_dir="${BUILD_ROOT}/${smoke_name}"

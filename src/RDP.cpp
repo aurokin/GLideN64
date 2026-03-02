@@ -636,16 +636,23 @@ void RDP_ProcessRDPList()
 #ifdef DEBUG_DUMP
 		DebugMsg(DEBUG_LOW, "CMD=0x%02lX W0=0x%08lX W1=0x%08lX\n", cmd, RDP.w0, RDP.w1);
 #endif
-		if (captureRvk2Trace) {
-			rvk2::CommandProvenance provenance{};
-			provenance.taskId = static_cast<u32>(rvk2FrameId);
-			provenance.microcode = static_cast<u16>(GBI.getMicrocodeType());
-			const u32 commandWords = cmdLength / 4U;
-			u8 extraWordCount = 0U;
-			if (commandWords > 2U) {
-				const u32 commandExtraWords = commandWords - 2U;
-				extraWordCount =
-					static_cast<u8>(commandExtraWords < kRvk2MaxCapturedExtraWords ? commandExtraWords : kRvk2MaxCapturedExtraWords);
+			if (captureRvk2Trace) {
+				rvk2::CommandProvenance provenance{};
+				provenance.taskId = static_cast<u32>(rvk2FrameId);
+				provenance.microcode = static_cast<u16>(GBI.getMicrocodeType());
+				const u32 commandWords = cmdLength / 4U;
+				const u32 commandPayloadWords = commandWords > 2U ? commandWords - 2U : 0U;
+				const u8 payloadWordCount = static_cast<u8>(
+					commandPayloadWords <= rvk2::kMaxCommandPayloadWords
+						? commandPayloadWords
+						: rvk2::kMaxCommandPayloadWords);
+				const u32 * payloadWords =
+					payloadWordCount > 0U ? &RDP.cmd_data[RDP.cmd_cur + 2U] : nullptr;
+				u8 extraWordCount = 0U;
+				if (commandWords > 2U) {
+					const u32 commandExtraWords = commandWords - 2U;
+					extraWordCount =
+						static_cast<u8>(commandExtraWords < kRvk2MaxCapturedExtraWords ? commandExtraWords : kRvk2MaxCapturedExtraWords);
 			}
 
 			const u32 w2 = commandWords > 2U ? RDP.cmd_data[RDP.cmd_cur + 2U] : 0U;
@@ -669,11 +676,13 @@ void RDP_ProcessRDPList()
 				w3,
 				w4,
 				w5,
-				w6,
-				w7,
-				static_cast<u16>(commandWords),
-				tailHash);
-		}
+					w6,
+					w7,
+					static_cast<u16>(commandWords),
+					tailHash,
+					payloadWordCount,
+					payloadWords);
+			}
 		LLETriangle::get().flush(cmd);
 		LLEcmd[cmd](RDP.w0, RDP.w1);
 

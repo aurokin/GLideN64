@@ -11,6 +11,16 @@ struct ExecutorConfig {
 	u16 maxSurfaceHeight = 2048U;
 	u8 presentAspectX = 4U;
 	u8 presentAspectY = 3U;
+	bool viRegistersValid = false;
+	u32 viStatus = 0U;
+	u32 viOrigin = 0U;
+	u32 viWidth = 0U;
+	u32 viVCurrentLine = 0U;
+	u32 viVSync = 0U;
+	u32 viHStart = 0U;
+	u32 viVStart = 0U;
+	u32 viXScale = 0U;
+	u32 viYScale = 0U;
 };
 
 struct ExecutorSummary {

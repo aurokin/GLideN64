@@ -124,6 +124,8 @@ class PacketRecord:
     dlist_address: int
     microcode: int
     frame_microcode_type: int
+    payload_word_count: int
+    payload_words: List[int] = field(default_factory=list)
 
 
 @dataclass
@@ -345,6 +347,41 @@ class DrawSemanticRecord:
     triangle_dxldy: int
     triangle_dxhdy: int
     triangle_dxmdy: int
+    triangle_shade_enable: bool
+    triangle_texture_enable: bool
+    triangle_zbuffer_enable: bool
+    triangle_shade_r: int
+    triangle_shade_g: int
+    triangle_shade_b: int
+    triangle_shade_a: int
+    triangle_shade_drdx: int
+    triangle_shade_dgdx: int
+    triangle_shade_dbdx: int
+    triangle_shade_dadx: int
+    triangle_shade_drde: int
+    triangle_shade_dgde: int
+    triangle_shade_dbde: int
+    triangle_shade_dade: int
+    triangle_shade_drdy: int
+    triangle_shade_dgdy: int
+    triangle_shade_dbdy: int
+    triangle_shade_dady: int
+    triangle_tex_s: int
+    triangle_tex_t: int
+    triangle_tex_w: int
+    triangle_tex_dsdx: int
+    triangle_tex_dtdx: int
+    triangle_tex_dwdx: int
+    triangle_tex_dsde: int
+    triangle_tex_dtde: int
+    triangle_tex_dwde: int
+    triangle_tex_dsdy: int
+    triangle_tex_dtdy: int
+    triangle_tex_dwdy: int
+    triangle_z: int
+    triangle_dzdx: int
+    triangle_dzde: int
+    triangle_dzdy: int
     textured: bool
     depth_test: bool
     sync_epoch: int
@@ -383,6 +420,41 @@ class RasterOpRecord:
     triangle_dxldy: int
     triangle_dxhdy: int
     triangle_dxmdy: int
+    triangle_shade_enable: bool
+    triangle_texture_enable: bool
+    triangle_zbuffer_enable: bool
+    triangle_shade_r: int
+    triangle_shade_g: int
+    triangle_shade_b: int
+    triangle_shade_a: int
+    triangle_shade_drdx: int
+    triangle_shade_dgdx: int
+    triangle_shade_dbdx: int
+    triangle_shade_dadx: int
+    triangle_shade_drde: int
+    triangle_shade_dgde: int
+    triangle_shade_dbde: int
+    triangle_shade_dade: int
+    triangle_shade_drdy: int
+    triangle_shade_dgdy: int
+    triangle_shade_dbdy: int
+    triangle_shade_dady: int
+    triangle_tex_s: int
+    triangle_tex_t: int
+    triangle_tex_w: int
+    triangle_tex_dsdx: int
+    triangle_tex_dtdx: int
+    triangle_tex_dwdx: int
+    triangle_tex_dsde: int
+    triangle_tex_dtde: int
+    triangle_tex_dwde: int
+    triangle_tex_dsdy: int
+    triangle_tex_dtdy: int
+    triangle_tex_dwdy: int
+    triangle_z: int
+    triangle_dzdx: int
+    triangle_dzde: int
+    triangle_dzdy: int
     combine_mux: int
     blend_params: int
     fill_color: int
@@ -424,6 +496,41 @@ class RenderWorkRecord:
     triangle_dxldy: int
     triangle_dxhdy: int
     triangle_dxmdy: int
+    triangle_shade_enable: bool
+    triangle_texture_enable: bool
+    triangle_zbuffer_enable: bool
+    triangle_shade_r: int
+    triangle_shade_g: int
+    triangle_shade_b: int
+    triangle_shade_a: int
+    triangle_shade_drdx: int
+    triangle_shade_dgdx: int
+    triangle_shade_dbdx: int
+    triangle_shade_dadx: int
+    triangle_shade_drde: int
+    triangle_shade_dgde: int
+    triangle_shade_dbde: int
+    triangle_shade_dade: int
+    triangle_shade_drdy: int
+    triangle_shade_dgdy: int
+    triangle_shade_dbdy: int
+    triangle_shade_dady: int
+    triangle_tex_s: int
+    triangle_tex_t: int
+    triangle_tex_w: int
+    triangle_tex_dsdx: int
+    triangle_tex_dtdx: int
+    triangle_tex_dwdx: int
+    triangle_tex_dsde: int
+    triangle_tex_dtde: int
+    triangle_tex_dwde: int
+    triangle_tex_dsdy: int
+    triangle_tex_dtdy: int
+    triangle_tex_dwdy: int
+    triangle_z: int
+    triangle_dzdx: int
+    triangle_dzde: int
+    triangle_dzdy: int
     color_image_format: int
     color_image_size: int
     color_image_width: int
@@ -468,6 +575,19 @@ class RenderWorkRecord:
     pipe_sync_packet_id: int
     tile_sync_packet_id: int
     full_sync_packet_id: int
+    alpha_compare: int = 0
+    depth_compare_enable: bool = True
+    depth_update_enable: bool = True
+    other_modes: int = 0
+    prim_color: int = 0
+    env_color: int = 0
+    blend_color: int = 0
+    fog_color: int = 0
+    key_state: int = 0
+    convert_state: int = 0
+    depth_source: int = 0
+    prim_depth_z: int = 0
+    prim_depth_delta: int = 0
 
 
 @dataclass
@@ -967,15 +1087,33 @@ def parse_packet_trace(path: Path) -> List[FrameRecord]:
                 continue
 
             if row_type == "P":
-                if len(fields) not in (11, 14, 20):
+                if len(fields) not in (11, 14, 20) and len(fields) < 21:
                     raise TraceParseError(
-                        f"line {line_no}: packet row expected 11, 14, or 20 columns, got {len(fields)}"
+                        f"line {line_no}: packet row expected 11, 14, 20, or >=21 columns, got {len(fields)}"
                     )
                 if current_frame is None:
                     raise TraceParseError(
                         f"line {line_no}: packet row encountered before first frame row"
                     )
-                if len(fields) == 20:
+
+                if len(fields) >= 21:
+                    payload_word_count = _parse_uint(
+                        fields[20], "payload_word_count", line_no, 8
+                    )
+                    expected_count = 21 + payload_word_count
+                    if len(fields) != expected_count:
+                        raise TraceParseError(
+                            f"line {line_no}: packet row payload count mismatch, expected {expected_count} columns, got {len(fields)}"
+                        )
+                    payload_words = [
+                        _parse_uint(
+                            fields[21 + payload_index],
+                            f"payload_word_{payload_index}",
+                            line_no,
+                            32,
+                        )
+                        for payload_index in range(payload_word_count)
+                    ]
                     current_frame.packets.append(
                         PacketRecord(
                             line_no=line_no,
@@ -1000,9 +1138,23 @@ def parse_packet_trace(path: Path) -> List[FrameRecord]:
                             frame_microcode_type=_parse_uint(
                                 fields[19], "frame_microcode_type", line_no, 32
                             ),
+                            payload_word_count=payload_word_count,
+                            payload_words=payload_words,
                         )
                     )
-                elif len(fields) == 14:
+                elif len(fields) == 20:
+                    extra_word_count = _parse_uint(
+                        fields[10], "extra_word_count", line_no, 8
+                    )
+                    inline_words = [
+                        _parse_uint(fields[11], "w2", line_no, 32),
+                        _parse_uint(fields[12], "w3", line_no, 32),
+                        _parse_uint(fields[13], "w4", line_no, 32),
+                        _parse_uint(fields[14], "w5", line_no, 32),
+                        _parse_uint(fields[15], "w6", line_no, 32),
+                        _parse_uint(fields[16], "w7", line_no, 32),
+                    ]
+                    payload_word_count = min(extra_word_count, MAX_INLINE_EXTRA_WORDS)
                     current_frame.packets.append(
                         PacketRecord(
                             line_no=line_no,
@@ -1012,9 +1164,46 @@ def parse_packet_trace(path: Path) -> List[FrameRecord]:
                             flags=_parse_uint(fields[4], "flags", line_no, 8),
                             w0=_parse_uint(fields[5], "w0", line_no, 32),
                             w1=_parse_uint(fields[6], "w1", line_no, 32),
-                            extra_word_count=_parse_uint(fields[10], "extra_word_count", line_no, 8),
-                            w2=_parse_uint(fields[11], "w2", line_no, 32),
-                            w3=_parse_uint(fields[12], "w3", line_no, 32),
+                            extra_word_count=extra_word_count,
+                            w2=inline_words[0],
+                            w3=inline_words[1],
+                            w4=inline_words[2],
+                            w5=inline_words[3],
+                            w6=inline_words[4],
+                            w7=inline_words[5],
+                            full_word_count=_parse_uint(fields[17], "full_word_count", line_no, 16),
+                            tail_hash=_parse_uint(fields[18], "tail_hash", line_no, 64),
+                            task_id=_parse_uint(fields[7], "task_id", line_no, 32),
+                            dlist_address=_parse_uint(fields[8], "dlist_address", line_no, 32),
+                            microcode=_parse_uint(fields[9], "microcode", line_no, 32),
+                            frame_microcode_type=_parse_uint(
+                                fields[19], "frame_microcode_type", line_no, 32
+                            ),
+                            payload_word_count=payload_word_count,
+                            payload_words=inline_words[:payload_word_count],
+                        )
+                    )
+                elif len(fields) == 14:
+                    extra_word_count = _parse_uint(
+                        fields[10], "extra_word_count", line_no, 8
+                    )
+                    inline_words = [
+                        _parse_uint(fields[11], "w2", line_no, 32),
+                        _parse_uint(fields[12], "w3", line_no, 32),
+                    ]
+                    payload_word_count = min(extra_word_count, len(inline_words))
+                    current_frame.packets.append(
+                        PacketRecord(
+                            line_no=line_no,
+                            packet_id=_parse_uint(fields[1], "packet_id", line_no, 64),
+                            domain=_parse_uint(fields[2], "domain", line_no, 8),
+                            opcode=_parse_uint(fields[3], "opcode", line_no, 8),
+                            flags=_parse_uint(fields[4], "flags", line_no, 8),
+                            w0=_parse_uint(fields[5], "w0", line_no, 32),
+                            w1=_parse_uint(fields[6], "w1", line_no, 32),
+                            extra_word_count=extra_word_count,
+                            w2=inline_words[0],
+                            w3=inline_words[1],
                             w4=0,
                             w5=0,
                             w6=0,
@@ -1027,6 +1216,8 @@ def parse_packet_trace(path: Path) -> List[FrameRecord]:
                             frame_microcode_type=_parse_uint(
                                 fields[13], "frame_microcode_type", line_no, 32
                             ),
+                            payload_word_count=payload_word_count,
+                            payload_words=inline_words[:payload_word_count],
                         )
                     )
                 else:
@@ -1054,20 +1245,22 @@ def parse_packet_trace(path: Path) -> List[FrameRecord]:
                             frame_microcode_type=_parse_uint(
                                 fields[10], "frame_microcode_type", line_no, 32
                             ),
+                            payload_word_count=0,
+                            payload_words=[],
                         )
                     )
                 continue
 
             if row_type == "S":
-                if len(fields) not in (14, 26, 37):
+                if len(fields) not in (14, 26, 37, 72):
                     raise TraceParseError(
-                        f"line {line_no}: semantic row expected 14, 26, or 37 columns, got {len(fields)}"
+                        f"line {line_no}: semantic row expected 14, 26, 37, or 72 columns, got {len(fields)}"
                     )
                 if current_frame is None:
                     raise TraceParseError(
                         f"line {line_no}: semantic row encountered before first frame row"
                     )
-                if len(fields) == 37:
+                if len(fields) == 72:
                     current_frame.semantics.append(
                         DrawSemanticRecord(
                             source_packet_id=_parse_uint(fields[1], "source_packet_id", line_no, 64),
@@ -1111,6 +1304,138 @@ def parse_packet_trace(path: Path) -> List[FrameRecord]:
                             triangle_dxmdy=_sign_extend(
                                 _parse_uint(fields[29], "triangle_dxmdy_raw", line_no, 32), 32
                             ),
+                            triangle_shade_enable=_parse_uint(fields[30], "triangle_shade_enable", line_no, 1) != 0,
+                            triangle_texture_enable=_parse_uint(fields[31], "triangle_texture_enable", line_no, 1) != 0,
+                            triangle_zbuffer_enable=_parse_uint(fields[32], "triangle_zbuffer_enable", line_no, 1) != 0,
+                            triangle_shade_r=_sign_extend(_parse_uint(fields[33], "triangle_shade_r_raw", line_no, 32), 32),
+                            triangle_shade_g=_sign_extend(_parse_uint(fields[34], "triangle_shade_g_raw", line_no, 32), 32),
+                            triangle_shade_b=_sign_extend(_parse_uint(fields[35], "triangle_shade_b_raw", line_no, 32), 32),
+                            triangle_shade_a=_sign_extend(_parse_uint(fields[36], "triangle_shade_a_raw", line_no, 32), 32),
+                            triangle_shade_drdx=_sign_extend(_parse_uint(fields[37], "triangle_shade_drdx_raw", line_no, 32), 32),
+                            triangle_shade_dgdx=_sign_extend(_parse_uint(fields[38], "triangle_shade_dgdx_raw", line_no, 32), 32),
+                            triangle_shade_dbdx=_sign_extend(_parse_uint(fields[39], "triangle_shade_dbdx_raw", line_no, 32), 32),
+                            triangle_shade_dadx=_sign_extend(_parse_uint(fields[40], "triangle_shade_dadx_raw", line_no, 32), 32),
+                            triangle_shade_drde=_sign_extend(_parse_uint(fields[41], "triangle_shade_drde_raw", line_no, 32), 32),
+                            triangle_shade_dgde=_sign_extend(_parse_uint(fields[42], "triangle_shade_dgde_raw", line_no, 32), 32),
+                            triangle_shade_dbde=_sign_extend(_parse_uint(fields[43], "triangle_shade_dbde_raw", line_no, 32), 32),
+                            triangle_shade_dade=_sign_extend(_parse_uint(fields[44], "triangle_shade_dade_raw", line_no, 32), 32),
+                            triangle_shade_drdy=_sign_extend(_parse_uint(fields[45], "triangle_shade_drdy_raw", line_no, 32), 32),
+                            triangle_shade_dgdy=_sign_extend(_parse_uint(fields[46], "triangle_shade_dgdy_raw", line_no, 32), 32),
+                            triangle_shade_dbdy=_sign_extend(_parse_uint(fields[47], "triangle_shade_dbdy_raw", line_no, 32), 32),
+                            triangle_shade_dady=_sign_extend(_parse_uint(fields[48], "triangle_shade_dady_raw", line_no, 32), 32),
+                            triangle_tex_s=_sign_extend(_parse_uint(fields[49], "triangle_tex_s_raw", line_no, 32), 32),
+                            triangle_tex_t=_sign_extend(_parse_uint(fields[50], "triangle_tex_t_raw", line_no, 32), 32),
+                            triangle_tex_w=_sign_extend(_parse_uint(fields[51], "triangle_tex_w_raw", line_no, 32), 32),
+                            triangle_tex_dsdx=_sign_extend(_parse_uint(fields[52], "triangle_tex_dsdx_raw", line_no, 32), 32),
+                            triangle_tex_dtdx=_sign_extend(_parse_uint(fields[53], "triangle_tex_dtdx_raw", line_no, 32), 32),
+                            triangle_tex_dwdx=_sign_extend(_parse_uint(fields[54], "triangle_tex_dwdx_raw", line_no, 32), 32),
+                            triangle_tex_dsde=_sign_extend(_parse_uint(fields[55], "triangle_tex_dsde_raw", line_no, 32), 32),
+                            triangle_tex_dtde=_sign_extend(_parse_uint(fields[56], "triangle_tex_dtde_raw", line_no, 32), 32),
+                            triangle_tex_dwde=_sign_extend(_parse_uint(fields[57], "triangle_tex_dwde_raw", line_no, 32), 32),
+                            triangle_tex_dsdy=_sign_extend(_parse_uint(fields[58], "triangle_tex_dsdy_raw", line_no, 32), 32),
+                            triangle_tex_dtdy=_sign_extend(_parse_uint(fields[59], "triangle_tex_dtdy_raw", line_no, 32), 32),
+                            triangle_tex_dwdy=_sign_extend(_parse_uint(fields[60], "triangle_tex_dwdy_raw", line_no, 32), 32),
+                            triangle_z=_sign_extend(_parse_uint(fields[61], "triangle_z_raw", line_no, 32), 32),
+                            triangle_dzdx=_sign_extend(_parse_uint(fields[62], "triangle_dzdx_raw", line_no, 32), 32),
+                            triangle_dzde=_sign_extend(_parse_uint(fields[63], "triangle_dzde_raw", line_no, 32), 32),
+                            triangle_dzdy=_sign_extend(_parse_uint(fields[64], "triangle_dzdy_raw", line_no, 32), 32),
+                            textured=_parse_uint(fields[65], "textured", line_no, 1) != 0,
+                            depth_test=_parse_uint(fields[66], "depth_test", line_no, 1) != 0,
+                            sync_epoch=_parse_uint(fields[67], "sync_epoch", line_no, 32),
+                            load_sync_packet_id=_parse_uint(
+                                fields[68], "load_sync_packet_id", line_no, 64
+                            ),
+                            pipe_sync_packet_id=_parse_uint(
+                                fields[69], "pipe_sync_packet_id", line_no, 64
+                            ),
+                            tile_sync_packet_id=_parse_uint(
+                                fields[70], "tile_sync_packet_id", line_no, 64
+                            ),
+                            full_sync_packet_id=_parse_uint(
+                                fields[71], "full_sync_packet_id", line_no, 64
+                            ),
+                        )
+                    )
+                elif len(fields) == 37:
+                    current_frame.legacy_semantic_rows = True
+                    current_frame.semantics.append(
+                        DrawSemanticRecord(
+                            source_packet_id=_parse_uint(fields[1], "source_packet_id", line_no, 64),
+                            source_opcode=_parse_uint(fields[2], "source_opcode", line_no, 8),
+                            draw_type=_parse_uint(fields[3], "draw_type", line_no, 8),
+                            tile=_parse_uint(fields[4], "tile", line_no, 8),
+                            tex_rect_flip=_parse_uint(fields[5], "tex_rect_flip", line_no, 1) != 0,
+                            cycle_type=_parse_uint(fields[6], "cycle_type", line_no, 8),
+                            combine_mux=_parse_uint(fields[7], "combine_mux", line_no, 64),
+                            blend_mux1=_parse_uint(fields[8], "blend_mux1", line_no, 32),
+                            blend_mux2=_parse_uint(fields[9], "blend_mux2", line_no, 32),
+                            blend_params=_parse_uint(fields[10], "blend_params", line_no, 32),
+                            rect_ulx=_parse_uint(fields[11], "rect_ulx", line_no, 16),
+                            rect_uly=_parse_uint(fields[12], "rect_uly", line_no, 16),
+                            rect_lrx=_parse_uint(fields[13], "rect_lrx", line_no, 16),
+                            rect_lry=_parse_uint(fields[14], "rect_lry", line_no, 16),
+                            tex_s=_sign_extend(_parse_uint(fields[15], "tex_s_raw", line_no, 16), 16),
+                            tex_t=_sign_extend(_parse_uint(fields[16], "tex_t_raw", line_no, 16), 16),
+                            tex_dsdx=_sign_extend(_parse_uint(fields[17], "tex_dsdx_raw", line_no, 16), 16),
+                            tex_dtdy=_sign_extend(_parse_uint(fields[18], "tex_dtdy_raw", line_no, 16), 16),
+                            triangle_lmajor=_parse_uint(fields[19], "triangle_lmajor", line_no, 1) != 0,
+                            triangle_level=_parse_uint(fields[20], "triangle_level", line_no, 8),
+                            triangle_yl=_parse_uint(fields[21], "triangle_yl", line_no, 16),
+                            triangle_ym=_parse_uint(fields[22], "triangle_ym", line_no, 16),
+                            triangle_yh=_parse_uint(fields[23], "triangle_yh", line_no, 16),
+                            triangle_xl=_sign_extend(
+                                _parse_uint(fields[24], "triangle_xl_raw", line_no, 32), 32
+                            ),
+                            triangle_xh=_sign_extend(
+                                _parse_uint(fields[25], "triangle_xh_raw", line_no, 32), 32
+                            ),
+                            triangle_xm=_sign_extend(
+                                _parse_uint(fields[26], "triangle_xm_raw", line_no, 32), 32
+                            ),
+                            triangle_dxldy=_sign_extend(
+                                _parse_uint(fields[27], "triangle_dxldy_raw", line_no, 32), 32
+                            ),
+                            triangle_dxhdy=_sign_extend(
+                                _parse_uint(fields[28], "triangle_dxhdy_raw", line_no, 32), 32
+                            ),
+                            triangle_dxmdy=_sign_extend(
+                                _parse_uint(fields[29], "triangle_dxmdy_raw", line_no, 32), 32
+                            ),
+                            triangle_shade_enable=False,
+                            triangle_texture_enable=False,
+                            triangle_zbuffer_enable=False,
+                            triangle_shade_r=0,
+                            triangle_shade_g=0,
+                            triangle_shade_b=0,
+                            triangle_shade_a=0,
+                            triangle_shade_drdx=0,
+                            triangle_shade_dgdx=0,
+                            triangle_shade_dbdx=0,
+                            triangle_shade_dadx=0,
+                            triangle_shade_drde=0,
+                            triangle_shade_dgde=0,
+                            triangle_shade_dbde=0,
+                            triangle_shade_dade=0,
+                            triangle_shade_drdy=0,
+                            triangle_shade_dgdy=0,
+                            triangle_shade_dbdy=0,
+                            triangle_shade_dady=0,
+                            triangle_tex_s=0,
+                            triangle_tex_t=0,
+                            triangle_tex_w=0,
+                            triangle_tex_dsdx=0,
+                            triangle_tex_dtdx=0,
+                            triangle_tex_dwdx=0,
+                            triangle_tex_dsde=0,
+                            triangle_tex_dtde=0,
+                            triangle_tex_dwde=0,
+                            triangle_tex_dsdy=0,
+                            triangle_tex_dtdy=0,
+                            triangle_tex_dwdy=0,
+                            triangle_z=0,
+                            triangle_dzdx=0,
+                            triangle_dzde=0,
+                            triangle_dzdy=0,
                             textured=_parse_uint(fields[30], "textured", line_no, 1) != 0,
                             depth_test=_parse_uint(fields[31], "depth_test", line_no, 1) != 0,
                             sync_epoch=_parse_uint(fields[32], "sync_epoch", line_no, 32),
@@ -1129,6 +1454,7 @@ def parse_packet_trace(path: Path) -> List[FrameRecord]:
                         )
                     )
                 elif len(fields) == 26:
+                    current_frame.legacy_semantic_rows = True
                     current_frame.semantics.append(
                         DrawSemanticRecord(
                             source_packet_id=_parse_uint(fields[1], "source_packet_id", line_no, 64),
@@ -1160,6 +1486,41 @@ def parse_packet_trace(path: Path) -> List[FrameRecord]:
                             triangle_dxldy=0,
                             triangle_dxhdy=0,
                             triangle_dxmdy=0,
+                            triangle_shade_enable=False,
+                            triangle_texture_enable=False,
+                            triangle_zbuffer_enable=False,
+                            triangle_shade_r=0,
+                            triangle_shade_g=0,
+                            triangle_shade_b=0,
+                            triangle_shade_a=0,
+                            triangle_shade_drdx=0,
+                            triangle_shade_dgdx=0,
+                            triangle_shade_dbdx=0,
+                            triangle_shade_dadx=0,
+                            triangle_shade_drde=0,
+                            triangle_shade_dgde=0,
+                            triangle_shade_dbde=0,
+                            triangle_shade_dade=0,
+                            triangle_shade_drdy=0,
+                            triangle_shade_dgdy=0,
+                            triangle_shade_dbdy=0,
+                            triangle_shade_dady=0,
+                            triangle_tex_s=0,
+                            triangle_tex_t=0,
+                            triangle_tex_w=0,
+                            triangle_tex_dsdx=0,
+                            triangle_tex_dtdx=0,
+                            triangle_tex_dwdx=0,
+                            triangle_tex_dsde=0,
+                            triangle_tex_dtde=0,
+                            triangle_tex_dwde=0,
+                            triangle_tex_dsdy=0,
+                            triangle_tex_dtdy=0,
+                            triangle_tex_dwdy=0,
+                            triangle_z=0,
+                            triangle_dzdx=0,
+                            triangle_dzde=0,
+                            triangle_dzdy=0,
                             textured=_parse_uint(fields[19], "textured", line_no, 1) != 0,
                             depth_test=_parse_uint(fields[20], "depth_test", line_no, 1) != 0,
                             sync_epoch=_parse_uint(fields[21], "sync_epoch", line_no, 32),
@@ -1210,6 +1571,41 @@ def parse_packet_trace(path: Path) -> List[FrameRecord]:
                             triangle_dxldy=0,
                             triangle_dxhdy=0,
                             triangle_dxmdy=0,
+                            triangle_shade_enable=False,
+                            triangle_texture_enable=False,
+                            triangle_zbuffer_enable=False,
+                            triangle_shade_r=0,
+                            triangle_shade_g=0,
+                            triangle_shade_b=0,
+                            triangle_shade_a=0,
+                            triangle_shade_drdx=0,
+                            triangle_shade_dgdx=0,
+                            triangle_shade_dbdx=0,
+                            triangle_shade_dadx=0,
+                            triangle_shade_drde=0,
+                            triangle_shade_dgde=0,
+                            triangle_shade_dbde=0,
+                            triangle_shade_dade=0,
+                            triangle_shade_drdy=0,
+                            triangle_shade_dgdy=0,
+                            triangle_shade_dbdy=0,
+                            triangle_shade_dady=0,
+                            triangle_tex_s=0,
+                            triangle_tex_t=0,
+                            triangle_tex_w=0,
+                            triangle_tex_dsdx=0,
+                            triangle_tex_dtdx=0,
+                            triangle_tex_dwdx=0,
+                            triangle_tex_dsde=0,
+                            triangle_tex_dtde=0,
+                            triangle_tex_dwde=0,
+                            triangle_tex_dsdy=0,
+                            triangle_tex_dtdy=0,
+                            triangle_tex_dwdy=0,
+                            triangle_z=0,
+                            triangle_dzdx=0,
+                            triangle_dzde=0,
+                            triangle_dzdy=0,
                             textured=_parse_uint(fields[7], "textured", line_no, 1) != 0,
                             depth_test=_parse_uint(fields[8], "depth_test", line_no, 1) != 0,
                             sync_epoch=_parse_uint(fields[9], "sync_epoch", line_no, 32),
@@ -1230,65 +1626,178 @@ def parse_packet_trace(path: Path) -> List[FrameRecord]:
                 continue
 
             if row_type == "R":
-                if len(fields) != 36:
+                if len(fields) not in (36, 71):
                     raise TraceParseError(
-                        f"line {line_no}: raster row expected 36 columns, got {len(fields)}"
+                        f"line {line_no}: raster row expected 36 or 71 columns, got {len(fields)}"
                     )
                 if current_frame is None:
                     raise TraceParseError(
                         f"line {line_no}: raster row encountered before first frame row"
                     )
-                current_frame.raster_ops.append(
-                    RasterOpRecord(
-                        source_packet_id=_parse_uint(fields[1], "source_packet_id", line_no, 64),
-                        source_opcode=_parse_uint(fields[2], "source_opcode", line_no, 8),
-                        op_kind=_parse_uint(fields[3], "op_kind", line_no, 8),
-                        cycle_type=_parse_uint(fields[4], "cycle_type", line_no, 8),
-                        tile=_parse_uint(fields[5], "tile", line_no, 8),
-                        tex_rect_flip=_parse_uint(fields[6], "tex_rect_flip", line_no, 1) != 0,
-                        textured=_parse_uint(fields[7], "textured", line_no, 1) != 0,
-                        depth_test=_parse_uint(fields[8], "depth_test", line_no, 1) != 0,
-                        rect_ulx=_parse_uint(fields[9], "rect_ulx", line_no, 16),
-                        rect_uly=_parse_uint(fields[10], "rect_uly", line_no, 16),
-                        rect_lrx=_parse_uint(fields[11], "rect_lrx", line_no, 16),
-                        rect_lry=_parse_uint(fields[12], "rect_lry", line_no, 16),
-                        tex_s=_sign_extend(_parse_uint(fields[13], "tex_s_raw", line_no, 16), 16),
-                        tex_t=_sign_extend(_parse_uint(fields[14], "tex_t_raw", line_no, 16), 16),
-                        tex_dsdx=_sign_extend(_parse_uint(fields[15], "tex_dsdx_raw", line_no, 16), 16),
-                        tex_dtdy=_sign_extend(_parse_uint(fields[16], "tex_dtdy_raw", line_no, 16), 16),
-                        triangle_lmajor=_parse_uint(fields[17], "triangle_lmajor", line_no, 1) != 0,
-                        triangle_level=_parse_uint(fields[18], "triangle_level", line_no, 8),
-                        triangle_yl=_parse_uint(fields[19], "triangle_yl", line_no, 16),
-                        triangle_ym=_parse_uint(fields[20], "triangle_ym", line_no, 16),
-                        triangle_yh=_parse_uint(fields[21], "triangle_yh", line_no, 16),
-                        triangle_xl=_sign_extend(_parse_uint(fields[22], "triangle_xl_raw", line_no, 32), 32),
-                        triangle_xh=_sign_extend(_parse_uint(fields[23], "triangle_xh_raw", line_no, 32), 32),
-                        triangle_xm=_sign_extend(_parse_uint(fields[24], "triangle_xm_raw", line_no, 32), 32),
-                        triangle_dxldy=_sign_extend(_parse_uint(fields[25], "triangle_dxldy_raw", line_no, 32), 32),
-                        triangle_dxhdy=_sign_extend(_parse_uint(fields[26], "triangle_dxhdy_raw", line_no, 32), 32),
-                        triangle_dxmdy=_sign_extend(_parse_uint(fields[27], "triangle_dxmdy_raw", line_no, 32), 32),
-                        combine_mux=_parse_uint(fields[28], "combine_mux", line_no, 64),
-                        blend_params=_parse_uint(fields[29], "blend_params", line_no, 32),
-                        fill_color=_parse_uint(fields[30], "fill_color", line_no, 32),
-                        sync_epoch=_parse_uint(fields[31], "sync_epoch", line_no, 32),
-                        load_sync_packet_id=_parse_uint(fields[32], "load_sync_packet_id", line_no, 64),
-                        pipe_sync_packet_id=_parse_uint(fields[33], "pipe_sync_packet_id", line_no, 64),
-                        tile_sync_packet_id=_parse_uint(fields[34], "tile_sync_packet_id", line_no, 64),
-                        full_sync_packet_id=_parse_uint(fields[35], "full_sync_packet_id", line_no, 64),
+                if len(fields) == 71:
+                    current_frame.raster_ops.append(
+                        RasterOpRecord(
+                            source_packet_id=_parse_uint(fields[1], "source_packet_id", line_no, 64),
+                            source_opcode=_parse_uint(fields[2], "source_opcode", line_no, 8),
+                            op_kind=_parse_uint(fields[3], "op_kind", line_no, 8),
+                            cycle_type=_parse_uint(fields[4], "cycle_type", line_no, 8),
+                            tile=_parse_uint(fields[5], "tile", line_no, 8),
+                            tex_rect_flip=_parse_uint(fields[6], "tex_rect_flip", line_no, 1) != 0,
+                            textured=_parse_uint(fields[7], "textured", line_no, 1) != 0,
+                            depth_test=_parse_uint(fields[8], "depth_test", line_no, 1) != 0,
+                            rect_ulx=_parse_uint(fields[9], "rect_ulx", line_no, 16),
+                            rect_uly=_parse_uint(fields[10], "rect_uly", line_no, 16),
+                            rect_lrx=_parse_uint(fields[11], "rect_lrx", line_no, 16),
+                            rect_lry=_parse_uint(fields[12], "rect_lry", line_no, 16),
+                            tex_s=_sign_extend(_parse_uint(fields[13], "tex_s_raw", line_no, 16), 16),
+                            tex_t=_sign_extend(_parse_uint(fields[14], "tex_t_raw", line_no, 16), 16),
+                            tex_dsdx=_sign_extend(_parse_uint(fields[15], "tex_dsdx_raw", line_no, 16), 16),
+                            tex_dtdy=_sign_extend(_parse_uint(fields[16], "tex_dtdy_raw", line_no, 16), 16),
+                            triangle_lmajor=_parse_uint(fields[17], "triangle_lmajor", line_no, 1) != 0,
+                            triangle_level=_parse_uint(fields[18], "triangle_level", line_no, 8),
+                            triangle_yl=_parse_uint(fields[19], "triangle_yl", line_no, 16),
+                            triangle_ym=_parse_uint(fields[20], "triangle_ym", line_no, 16),
+                            triangle_yh=_parse_uint(fields[21], "triangle_yh", line_no, 16),
+                            triangle_xl=_sign_extend(_parse_uint(fields[22], "triangle_xl_raw", line_no, 32), 32),
+                            triangle_xh=_sign_extend(_parse_uint(fields[23], "triangle_xh_raw", line_no, 32), 32),
+                            triangle_xm=_sign_extend(_parse_uint(fields[24], "triangle_xm_raw", line_no, 32), 32),
+                            triangle_dxldy=_sign_extend(_parse_uint(fields[25], "triangle_dxldy_raw", line_no, 32), 32),
+                            triangle_dxhdy=_sign_extend(_parse_uint(fields[26], "triangle_dxhdy_raw", line_no, 32), 32),
+                            triangle_dxmdy=_sign_extend(_parse_uint(fields[27], "triangle_dxmdy_raw", line_no, 32), 32),
+                            triangle_shade_enable=_parse_uint(fields[28], "triangle_shade_enable", line_no, 1) != 0,
+                            triangle_texture_enable=_parse_uint(fields[29], "triangle_texture_enable", line_no, 1) != 0,
+                            triangle_zbuffer_enable=_parse_uint(fields[30], "triangle_zbuffer_enable", line_no, 1) != 0,
+                            triangle_shade_r=_sign_extend(_parse_uint(fields[31], "triangle_shade_r_raw", line_no, 32), 32),
+                            triangle_shade_g=_sign_extend(_parse_uint(fields[32], "triangle_shade_g_raw", line_no, 32), 32),
+                            triangle_shade_b=_sign_extend(_parse_uint(fields[33], "triangle_shade_b_raw", line_no, 32), 32),
+                            triangle_shade_a=_sign_extend(_parse_uint(fields[34], "triangle_shade_a_raw", line_no, 32), 32),
+                            triangle_shade_drdx=_sign_extend(_parse_uint(fields[35], "triangle_shade_drdx_raw", line_no, 32), 32),
+                            triangle_shade_dgdx=_sign_extend(_parse_uint(fields[36], "triangle_shade_dgdx_raw", line_no, 32), 32),
+                            triangle_shade_dbdx=_sign_extend(_parse_uint(fields[37], "triangle_shade_dbdx_raw", line_no, 32), 32),
+                            triangle_shade_dadx=_sign_extend(_parse_uint(fields[38], "triangle_shade_dadx_raw", line_no, 32), 32),
+                            triangle_shade_drde=_sign_extend(_parse_uint(fields[39], "triangle_shade_drde_raw", line_no, 32), 32),
+                            triangle_shade_dgde=_sign_extend(_parse_uint(fields[40], "triangle_shade_dgde_raw", line_no, 32), 32),
+                            triangle_shade_dbde=_sign_extend(_parse_uint(fields[41], "triangle_shade_dbde_raw", line_no, 32), 32),
+                            triangle_shade_dade=_sign_extend(_parse_uint(fields[42], "triangle_shade_dade_raw", line_no, 32), 32),
+                            triangle_shade_drdy=_sign_extend(_parse_uint(fields[43], "triangle_shade_drdy_raw", line_no, 32), 32),
+                            triangle_shade_dgdy=_sign_extend(_parse_uint(fields[44], "triangle_shade_dgdy_raw", line_no, 32), 32),
+                            triangle_shade_dbdy=_sign_extend(_parse_uint(fields[45], "triangle_shade_dbdy_raw", line_no, 32), 32),
+                            triangle_shade_dady=_sign_extend(_parse_uint(fields[46], "triangle_shade_dady_raw", line_no, 32), 32),
+                            triangle_tex_s=_sign_extend(_parse_uint(fields[47], "triangle_tex_s_raw", line_no, 32), 32),
+                            triangle_tex_t=_sign_extend(_parse_uint(fields[48], "triangle_tex_t_raw", line_no, 32), 32),
+                            triangle_tex_w=_sign_extend(_parse_uint(fields[49], "triangle_tex_w_raw", line_no, 32), 32),
+                            triangle_tex_dsdx=_sign_extend(_parse_uint(fields[50], "triangle_tex_dsdx_raw", line_no, 32), 32),
+                            triangle_tex_dtdx=_sign_extend(_parse_uint(fields[51], "triangle_tex_dtdx_raw", line_no, 32), 32),
+                            triangle_tex_dwdx=_sign_extend(_parse_uint(fields[52], "triangle_tex_dwdx_raw", line_no, 32), 32),
+                            triangle_tex_dsde=_sign_extend(_parse_uint(fields[53], "triangle_tex_dsde_raw", line_no, 32), 32),
+                            triangle_tex_dtde=_sign_extend(_parse_uint(fields[54], "triangle_tex_dtde_raw", line_no, 32), 32),
+                            triangle_tex_dwde=_sign_extend(_parse_uint(fields[55], "triangle_tex_dwde_raw", line_no, 32), 32),
+                            triangle_tex_dsdy=_sign_extend(_parse_uint(fields[56], "triangle_tex_dsdy_raw", line_no, 32), 32),
+                            triangle_tex_dtdy=_sign_extend(_parse_uint(fields[57], "triangle_tex_dtdy_raw", line_no, 32), 32),
+                            triangle_tex_dwdy=_sign_extend(_parse_uint(fields[58], "triangle_tex_dwdy_raw", line_no, 32), 32),
+                            triangle_z=_sign_extend(_parse_uint(fields[59], "triangle_z_raw", line_no, 32), 32),
+                            triangle_dzdx=_sign_extend(_parse_uint(fields[60], "triangle_dzdx_raw", line_no, 32), 32),
+                            triangle_dzde=_sign_extend(_parse_uint(fields[61], "triangle_dzde_raw", line_no, 32), 32),
+                            triangle_dzdy=_sign_extend(_parse_uint(fields[62], "triangle_dzdy_raw", line_no, 32), 32),
+                            combine_mux=_parse_uint(fields[63], "combine_mux", line_no, 64),
+                            blend_params=_parse_uint(fields[64], "blend_params", line_no, 32),
+                            fill_color=_parse_uint(fields[65], "fill_color", line_no, 32),
+                            sync_epoch=_parse_uint(fields[66], "sync_epoch", line_no, 32),
+                            load_sync_packet_id=_parse_uint(fields[67], "load_sync_packet_id", line_no, 64),
+                            pipe_sync_packet_id=_parse_uint(fields[68], "pipe_sync_packet_id", line_no, 64),
+                            tile_sync_packet_id=_parse_uint(fields[69], "tile_sync_packet_id", line_no, 64),
+                            full_sync_packet_id=_parse_uint(fields[70], "full_sync_packet_id", line_no, 64),
+                        )
                     )
-                )
+                else:
+                    current_frame.legacy_raster_rows = True
+                    current_frame.raster_ops.append(
+                        RasterOpRecord(
+                            source_packet_id=_parse_uint(fields[1], "source_packet_id", line_no, 64),
+                            source_opcode=_parse_uint(fields[2], "source_opcode", line_no, 8),
+                            op_kind=_parse_uint(fields[3], "op_kind", line_no, 8),
+                            cycle_type=_parse_uint(fields[4], "cycle_type", line_no, 8),
+                            tile=_parse_uint(fields[5], "tile", line_no, 8),
+                            tex_rect_flip=_parse_uint(fields[6], "tex_rect_flip", line_no, 1) != 0,
+                            textured=_parse_uint(fields[7], "textured", line_no, 1) != 0,
+                            depth_test=_parse_uint(fields[8], "depth_test", line_no, 1) != 0,
+                            rect_ulx=_parse_uint(fields[9], "rect_ulx", line_no, 16),
+                            rect_uly=_parse_uint(fields[10], "rect_uly", line_no, 16),
+                            rect_lrx=_parse_uint(fields[11], "rect_lrx", line_no, 16),
+                            rect_lry=_parse_uint(fields[12], "rect_lry", line_no, 16),
+                            tex_s=_sign_extend(_parse_uint(fields[13], "tex_s_raw", line_no, 16), 16),
+                            tex_t=_sign_extend(_parse_uint(fields[14], "tex_t_raw", line_no, 16), 16),
+                            tex_dsdx=_sign_extend(_parse_uint(fields[15], "tex_dsdx_raw", line_no, 16), 16),
+                            tex_dtdy=_sign_extend(_parse_uint(fields[16], "tex_dtdy_raw", line_no, 16), 16),
+                            triangle_lmajor=_parse_uint(fields[17], "triangle_lmajor", line_no, 1) != 0,
+                            triangle_level=_parse_uint(fields[18], "triangle_level", line_no, 8),
+                            triangle_yl=_parse_uint(fields[19], "triangle_yl", line_no, 16),
+                            triangle_ym=_parse_uint(fields[20], "triangle_ym", line_no, 16),
+                            triangle_yh=_parse_uint(fields[21], "triangle_yh", line_no, 16),
+                            triangle_xl=_sign_extend(_parse_uint(fields[22], "triangle_xl_raw", line_no, 32), 32),
+                            triangle_xh=_sign_extend(_parse_uint(fields[23], "triangle_xh_raw", line_no, 32), 32),
+                            triangle_xm=_sign_extend(_parse_uint(fields[24], "triangle_xm_raw", line_no, 32), 32),
+                            triangle_dxldy=_sign_extend(_parse_uint(fields[25], "triangle_dxldy_raw", line_no, 32), 32),
+                            triangle_dxhdy=_sign_extend(_parse_uint(fields[26], "triangle_dxhdy_raw", line_no, 32), 32),
+                            triangle_dxmdy=_sign_extend(_parse_uint(fields[27], "triangle_dxmdy_raw", line_no, 32), 32),
+                            triangle_shade_enable=False,
+                            triangle_texture_enable=False,
+                            triangle_zbuffer_enable=False,
+                            triangle_shade_r=0,
+                            triangle_shade_g=0,
+                            triangle_shade_b=0,
+                            triangle_shade_a=0,
+                            triangle_shade_drdx=0,
+                            triangle_shade_dgdx=0,
+                            triangle_shade_dbdx=0,
+                            triangle_shade_dadx=0,
+                            triangle_shade_drde=0,
+                            triangle_shade_dgde=0,
+                            triangle_shade_dbde=0,
+                            triangle_shade_dade=0,
+                            triangle_shade_drdy=0,
+                            triangle_shade_dgdy=0,
+                            triangle_shade_dbdy=0,
+                            triangle_shade_dady=0,
+                            triangle_tex_s=0,
+                            triangle_tex_t=0,
+                            triangle_tex_w=0,
+                            triangle_tex_dsdx=0,
+                            triangle_tex_dtdx=0,
+                            triangle_tex_dwdx=0,
+                            triangle_tex_dsde=0,
+                            triangle_tex_dtde=0,
+                            triangle_tex_dwde=0,
+                            triangle_tex_dsdy=0,
+                            triangle_tex_dtdy=0,
+                            triangle_tex_dwdy=0,
+                            triangle_z=0,
+                            triangle_dzdx=0,
+                            triangle_dzde=0,
+                            triangle_dzdy=0,
+                            combine_mux=_parse_uint(fields[28], "combine_mux", line_no, 64),
+                            blend_params=_parse_uint(fields[29], "blend_params", line_no, 32),
+                            fill_color=_parse_uint(fields[30], "fill_color", line_no, 32),
+                            sync_epoch=_parse_uint(fields[31], "sync_epoch", line_no, 32),
+                            load_sync_packet_id=_parse_uint(fields[32], "load_sync_packet_id", line_no, 64),
+                            pipe_sync_packet_id=_parse_uint(fields[33], "pipe_sync_packet_id", line_no, 64),
+                            tile_sync_packet_id=_parse_uint(fields[34], "tile_sync_packet_id", line_no, 64),
+                            full_sync_packet_id=_parse_uint(fields[35], "full_sync_packet_id", line_no, 64),
+                        )
+                    )
                 continue
 
             if row_type == "W":
-                if len(fields) not in (55, 63, 74):
+                if len(fields) not in (55, 63, 74, 109):
                     raise TraceParseError(
-                        f"line {line_no}: render-work row expected 55, 63, or 74 columns, got {len(fields)}"
+                        f"line {line_no}: render-work row expected 55, 63, 74, or 109 columns, got {len(fields)}"
                     )
                 if current_frame is None:
                     raise TraceParseError(
                         f"line {line_no}: render-work row encountered before first frame row"
                     )
-                if len(fields) == 74:
+                if len(fields) == 109:
+                    current_frame.legacy_render_work_rows = True
                     current_frame.render_work.append(
                         RenderWorkRecord(
                             source_packet_id=_parse_uint(fields[1], "source_packet_id", line_no, 64),
@@ -1320,6 +1829,155 @@ def parse_packet_trace(path: Path) -> List[FrameRecord]:
                             triangle_dxldy=_sign_extend(_parse_uint(fields[27], "triangle_dxldy_raw", line_no, 32), 32),
                             triangle_dxhdy=_sign_extend(_parse_uint(fields[28], "triangle_dxhdy_raw", line_no, 32), 32),
                             triangle_dxmdy=_sign_extend(_parse_uint(fields[29], "triangle_dxmdy_raw", line_no, 32), 32),
+                            triangle_shade_enable=_parse_uint(fields[30], "triangle_shade_enable", line_no, 1) != 0,
+                            triangle_texture_enable=_parse_uint(fields[31], "triangle_texture_enable", line_no, 1) != 0,
+                            triangle_zbuffer_enable=_parse_uint(fields[32], "triangle_zbuffer_enable", line_no, 1) != 0,
+                            triangle_shade_r=_sign_extend(_parse_uint(fields[33], "triangle_shade_r_raw", line_no, 32), 32),
+                            triangle_shade_g=_sign_extend(_parse_uint(fields[34], "triangle_shade_g_raw", line_no, 32), 32),
+                            triangle_shade_b=_sign_extend(_parse_uint(fields[35], "triangle_shade_b_raw", line_no, 32), 32),
+                            triangle_shade_a=_sign_extend(_parse_uint(fields[36], "triangle_shade_a_raw", line_no, 32), 32),
+                            triangle_shade_drdx=_sign_extend(_parse_uint(fields[37], "triangle_shade_drdx_raw", line_no, 32), 32),
+                            triangle_shade_dgdx=_sign_extend(_parse_uint(fields[38], "triangle_shade_dgdx_raw", line_no, 32), 32),
+                            triangle_shade_dbdx=_sign_extend(_parse_uint(fields[39], "triangle_shade_dbdx_raw", line_no, 32), 32),
+                            triangle_shade_dadx=_sign_extend(_parse_uint(fields[40], "triangle_shade_dadx_raw", line_no, 32), 32),
+                            triangle_shade_drde=_sign_extend(_parse_uint(fields[41], "triangle_shade_drde_raw", line_no, 32), 32),
+                            triangle_shade_dgde=_sign_extend(_parse_uint(fields[42], "triangle_shade_dgde_raw", line_no, 32), 32),
+                            triangle_shade_dbde=_sign_extend(_parse_uint(fields[43], "triangle_shade_dbde_raw", line_no, 32), 32),
+                            triangle_shade_dade=_sign_extend(_parse_uint(fields[44], "triangle_shade_dade_raw", line_no, 32), 32),
+                            triangle_shade_drdy=_sign_extend(_parse_uint(fields[45], "triangle_shade_drdy_raw", line_no, 32), 32),
+                            triangle_shade_dgdy=_sign_extend(_parse_uint(fields[46], "triangle_shade_dgdy_raw", line_no, 32), 32),
+                            triangle_shade_dbdy=_sign_extend(_parse_uint(fields[47], "triangle_shade_dbdy_raw", line_no, 32), 32),
+                            triangle_shade_dady=_sign_extend(_parse_uint(fields[48], "triangle_shade_dady_raw", line_no, 32), 32),
+                            triangle_tex_s=_sign_extend(_parse_uint(fields[49], "triangle_tex_s_raw", line_no, 32), 32),
+                            triangle_tex_t=_sign_extend(_parse_uint(fields[50], "triangle_tex_t_raw", line_no, 32), 32),
+                            triangle_tex_w=_sign_extend(_parse_uint(fields[51], "triangle_tex_w_raw", line_no, 32), 32),
+                            triangle_tex_dsdx=_sign_extend(_parse_uint(fields[52], "triangle_tex_dsdx_raw", line_no, 32), 32),
+                            triangle_tex_dtdx=_sign_extend(_parse_uint(fields[53], "triangle_tex_dtdx_raw", line_no, 32), 32),
+                            triangle_tex_dwdx=_sign_extend(_parse_uint(fields[54], "triangle_tex_dwdx_raw", line_no, 32), 32),
+                            triangle_tex_dsde=_sign_extend(_parse_uint(fields[55], "triangle_tex_dsde_raw", line_no, 32), 32),
+                            triangle_tex_dtde=_sign_extend(_parse_uint(fields[56], "triangle_tex_dtde_raw", line_no, 32), 32),
+                            triangle_tex_dwde=_sign_extend(_parse_uint(fields[57], "triangle_tex_dwde_raw", line_no, 32), 32),
+                            triangle_tex_dsdy=_sign_extend(_parse_uint(fields[58], "triangle_tex_dsdy_raw", line_no, 32), 32),
+                            triangle_tex_dtdy=_sign_extend(_parse_uint(fields[59], "triangle_tex_dtdy_raw", line_no, 32), 32),
+                            triangle_tex_dwdy=_sign_extend(_parse_uint(fields[60], "triangle_tex_dwdy_raw", line_no, 32), 32),
+                            triangle_z=_sign_extend(_parse_uint(fields[61], "triangle_z_raw", line_no, 32), 32),
+                            triangle_dzdx=_sign_extend(_parse_uint(fields[62], "triangle_dzdx_raw", line_no, 32), 32),
+                            triangle_dzde=_sign_extend(_parse_uint(fields[63], "triangle_dzde_raw", line_no, 32), 32),
+                            triangle_dzdy=_sign_extend(_parse_uint(fields[64], "triangle_dzdy_raw", line_no, 32), 32),
+                            color_image_format=_parse_uint(fields[65], "color_image_format", line_no, 8),
+                            color_image_size=_parse_uint(fields[66], "color_image_size", line_no, 8),
+                            color_image_width=_parse_uint(fields[67], "color_image_width", line_no, 16),
+                            color_image_address=_parse_uint(fields[68], "color_image_address", line_no, 32),
+                            depth_image_address=_parse_uint(fields[69], "depth_image_address", line_no, 32),
+                            scissor_mode=_parse_uint(fields[70], "scissor_mode", line_no, 8),
+                            scissor_xh=_parse_uint(fields[71], "scissor_xh", line_no, 16),
+                            scissor_yh=_parse_uint(fields[72], "scissor_yh", line_no, 16),
+                            scissor_xl=_parse_uint(fields[73], "scissor_xl", line_no, 16),
+                            scissor_yl=_parse_uint(fields[74], "scissor_yl", line_no, 16),
+                            texture_image_format=_parse_uint(fields[75], "texture_image_format", line_no, 8),
+                            texture_image_size=_parse_uint(fields[76], "texture_image_size", line_no, 8),
+                            texture_image_width=_parse_uint(fields[77], "texture_image_width", line_no, 16),
+                            texture_image_address=_parse_uint(fields[78], "texture_image_address", line_no, 32),
+                            tile_format=_parse_uint(fields[79], "tile_format", line_no, 8),
+                            tile_size=_parse_uint(fields[80], "tile_size", line_no, 8),
+                            tile_line=_parse_uint(fields[81], "tile_line", line_no, 16),
+                            tile_tmem=_parse_uint(fields[82], "tile_tmem", line_no, 16),
+                            tile_palette=_parse_uint(fields[83], "tile_palette", line_no, 8),
+                            tile_cmt=_parse_uint(fields[84], "tile_cmt", line_no, 8),
+                            tile_cms=_parse_uint(fields[85], "tile_cms", line_no, 8),
+                            tile_maskt=_parse_uint(fields[86], "tile_maskt", line_no, 8),
+                            tile_masks=_parse_uint(fields[87], "tile_masks", line_no, 8),
+                            tile_shiftt=_parse_uint(fields[88], "tile_shiftt", line_no, 8),
+                            tile_shifts=_parse_uint(fields[89], "tile_shifts", line_no, 8),
+                            tile_uls=_parse_uint(fields[90], "tile_uls", line_no, 16),
+                            tile_ult=_parse_uint(fields[91], "tile_ult", line_no, 16),
+                            tile_lrs=_parse_uint(fields[92], "tile_lrs", line_no, 16),
+                            tile_lrt=_parse_uint(fields[93], "tile_lrt", line_no, 16),
+                            tmem_load_kind=_parse_uint(fields[94], "tmem_load_kind", line_no, 8),
+                            tmem_load_tile=_parse_uint(fields[95], "tmem_load_tile", line_no, 8),
+                            tmem_load_uls=_parse_uint(fields[96], "tmem_load_uls", line_no, 16),
+                            tmem_load_ult=_parse_uint(fields[97], "tmem_load_ult", line_no, 16),
+                            tmem_load_lrs=_parse_uint(fields[98], "tmem_load_lrs", line_no, 16),
+                            tmem_load_lrt=_parse_uint(fields[99], "tmem_load_lrt", line_no, 16),
+                            tmem_load_dxt=_parse_uint(fields[100], "tmem_load_dxt", line_no, 16),
+                            combine_mux=_parse_uint(fields[101], "combine_mux", line_no, 64),
+                            blend_params=_parse_uint(fields[102], "blend_params", line_no, 32),
+                            fill_color=_parse_uint(fields[103], "fill_color", line_no, 32),
+                            sync_epoch=_parse_uint(fields[104], "sync_epoch", line_no, 32),
+                            load_sync_packet_id=_parse_uint(fields[105], "load_sync_packet_id", line_no, 64),
+                            pipe_sync_packet_id=_parse_uint(fields[106], "pipe_sync_packet_id", line_no, 64),
+                            tile_sync_packet_id=_parse_uint(fields[107], "tile_sync_packet_id", line_no, 64),
+                            full_sync_packet_id=_parse_uint(fields[108], "full_sync_packet_id", line_no, 64),
+                        )
+                    )
+                elif len(fields) == 74:
+                    current_frame.legacy_render_work_rows = True
+                    current_frame.render_work.append(
+                        RenderWorkRecord(
+                            source_packet_id=_parse_uint(fields[1], "source_packet_id", line_no, 64),
+                            source_opcode=_parse_uint(fields[2], "source_opcode", line_no, 8),
+                            op_kind=_parse_uint(fields[3], "op_kind", line_no, 8),
+                            phase=_parse_uint(fields[4], "phase", line_no, 8),
+                            cycle_type=_parse_uint(fields[5], "cycle_type", line_no, 8),
+                            barrier_mask=_parse_uint(fields[6], "barrier_mask", line_no, 8),
+                            tile=_parse_uint(fields[7], "tile", line_no, 8),
+                            tex_rect_flip=_parse_uint(fields[8], "tex_rect_flip", line_no, 1) != 0,
+                            textured=_parse_uint(fields[9], "textured", line_no, 1) != 0,
+                            depth_test=_parse_uint(fields[10], "depth_test", line_no, 1) != 0,
+                            rect_ulx=_parse_uint(fields[11], "rect_ulx", line_no, 16),
+                            rect_uly=_parse_uint(fields[12], "rect_uly", line_no, 16),
+                            rect_lrx=_parse_uint(fields[13], "rect_lrx", line_no, 16),
+                            rect_lry=_parse_uint(fields[14], "rect_lry", line_no, 16),
+                            tex_s=_sign_extend(_parse_uint(fields[15], "tex_s_raw", line_no, 16), 16),
+                            tex_t=_sign_extend(_parse_uint(fields[16], "tex_t_raw", line_no, 16), 16),
+                            tex_dsdx=_sign_extend(_parse_uint(fields[17], "tex_dsdx_raw", line_no, 16), 16),
+                            tex_dtdy=_sign_extend(_parse_uint(fields[18], "tex_dtdy_raw", line_no, 16), 16),
+                            triangle_lmajor=_parse_uint(fields[19], "triangle_lmajor", line_no, 1) != 0,
+                            triangle_level=_parse_uint(fields[20], "triangle_level", line_no, 8),
+                            triangle_yl=_parse_uint(fields[21], "triangle_yl", line_no, 16),
+                            triangle_ym=_parse_uint(fields[22], "triangle_ym", line_no, 16),
+                            triangle_yh=_parse_uint(fields[23], "triangle_yh", line_no, 16),
+                            triangle_xl=_sign_extend(_parse_uint(fields[24], "triangle_xl_raw", line_no, 32), 32),
+                            triangle_xh=_sign_extend(_parse_uint(fields[25], "triangle_xh_raw", line_no, 32), 32),
+                            triangle_xm=_sign_extend(_parse_uint(fields[26], "triangle_xm_raw", line_no, 32), 32),
+                            triangle_dxldy=_sign_extend(_parse_uint(fields[27], "triangle_dxldy_raw", line_no, 32), 32),
+                            triangle_dxhdy=_sign_extend(_parse_uint(fields[28], "triangle_dxhdy_raw", line_no, 32), 32),
+                            triangle_dxmdy=_sign_extend(_parse_uint(fields[29], "triangle_dxmdy_raw", line_no, 32), 32),
+                            triangle_shade_enable=False,
+                            triangle_texture_enable=False,
+                            triangle_zbuffer_enable=False,
+                            triangle_shade_r=0,
+                            triangle_shade_g=0,
+                            triangle_shade_b=0,
+                            triangle_shade_a=0,
+                            triangle_shade_drdx=0,
+                            triangle_shade_dgdx=0,
+                            triangle_shade_dbdx=0,
+                            triangle_shade_dadx=0,
+                            triangle_shade_drde=0,
+                            triangle_shade_dgde=0,
+                            triangle_shade_dbde=0,
+                            triangle_shade_dade=0,
+                            triangle_shade_drdy=0,
+                            triangle_shade_dgdy=0,
+                            triangle_shade_dbdy=0,
+                            triangle_shade_dady=0,
+                            triangle_tex_s=0,
+                            triangle_tex_t=0,
+                            triangle_tex_w=0,
+                            triangle_tex_dsdx=0,
+                            triangle_tex_dtdx=0,
+                            triangle_tex_dwdx=0,
+                            triangle_tex_dsde=0,
+                            triangle_tex_dtde=0,
+                            triangle_tex_dwde=0,
+                            triangle_tex_dsdy=0,
+                            triangle_tex_dtdy=0,
+                            triangle_tex_dwdy=0,
+                            triangle_z=0,
+                            triangle_dzdx=0,
+                            triangle_dzde=0,
+                            triangle_dzdy=0,
                             color_image_format=_parse_uint(fields[30], "color_image_format", line_no, 8),
                             color_image_size=_parse_uint(fields[31], "color_image_size", line_no, 8),
                             color_image_width=_parse_uint(fields[32], "color_image_width", line_no, 16),
@@ -1367,6 +2025,7 @@ def parse_packet_trace(path: Path) -> List[FrameRecord]:
                         )
                     )
                 elif len(fields) == 63:
+                    current_frame.legacy_render_work_rows = True
                     current_frame.render_work.append(
                         RenderWorkRecord(
                             source_packet_id=_parse_uint(fields[1], "source_packet_id", line_no, 64),
@@ -1398,6 +2057,41 @@ def parse_packet_trace(path: Path) -> List[FrameRecord]:
                             triangle_dxldy=0,
                             triangle_dxhdy=0,
                             triangle_dxmdy=0,
+                            triangle_shade_enable=False,
+                            triangle_texture_enable=False,
+                            triangle_zbuffer_enable=False,
+                            triangle_shade_r=0,
+                            triangle_shade_g=0,
+                            triangle_shade_b=0,
+                            triangle_shade_a=0,
+                            triangle_shade_drdx=0,
+                            triangle_shade_dgdx=0,
+                            triangle_shade_dbdx=0,
+                            triangle_shade_dadx=0,
+                            triangle_shade_drde=0,
+                            triangle_shade_dgde=0,
+                            triangle_shade_dbde=0,
+                            triangle_shade_dade=0,
+                            triangle_shade_drdy=0,
+                            triangle_shade_dgdy=0,
+                            triangle_shade_dbdy=0,
+                            triangle_shade_dady=0,
+                            triangle_tex_s=0,
+                            triangle_tex_t=0,
+                            triangle_tex_w=0,
+                            triangle_tex_dsdx=0,
+                            triangle_tex_dtdx=0,
+                            triangle_tex_dwdx=0,
+                            triangle_tex_dsde=0,
+                            triangle_tex_dtde=0,
+                            triangle_tex_dwde=0,
+                            triangle_tex_dsdy=0,
+                            triangle_tex_dtdy=0,
+                            triangle_tex_dwdy=0,
+                            triangle_z=0,
+                            triangle_dzdx=0,
+                            triangle_dzde=0,
+                            triangle_dzdy=0,
                             color_image_format=_parse_uint(fields[19], "color_image_format", line_no, 8),
                             color_image_size=_parse_uint(fields[20], "color_image_size", line_no, 8),
                             color_image_width=_parse_uint(fields[21], "color_image_width", line_no, 16),
@@ -1477,6 +2171,41 @@ def parse_packet_trace(path: Path) -> List[FrameRecord]:
                             triangle_dxldy=0,
                             triangle_dxhdy=0,
                             triangle_dxmdy=0,
+                            triangle_shade_enable=False,
+                            triangle_texture_enable=False,
+                            triangle_zbuffer_enable=False,
+                            triangle_shade_r=0,
+                            triangle_shade_g=0,
+                            triangle_shade_b=0,
+                            triangle_shade_a=0,
+                            triangle_shade_drdx=0,
+                            triangle_shade_dgdx=0,
+                            triangle_shade_dbdx=0,
+                            triangle_shade_dadx=0,
+                            triangle_shade_drde=0,
+                            triangle_shade_dgde=0,
+                            triangle_shade_dbde=0,
+                            triangle_shade_dade=0,
+                            triangle_shade_drdy=0,
+                            triangle_shade_dgdy=0,
+                            triangle_shade_dbdy=0,
+                            triangle_shade_dady=0,
+                            triangle_tex_s=0,
+                            triangle_tex_t=0,
+                            triangle_tex_w=0,
+                            triangle_tex_dsdx=0,
+                            triangle_tex_dtdx=0,
+                            triangle_tex_dwdx=0,
+                            triangle_tex_dsde=0,
+                            triangle_tex_dtde=0,
+                            triangle_tex_dwde=0,
+                            triangle_tex_dsdy=0,
+                            triangle_tex_dtdy=0,
+                            triangle_tex_dwdy=0,
+                            triangle_z=0,
+                            triangle_dzdx=0,
+                            triangle_dzde=0,
+                            triangle_dzdy=0,
                             color_image_format=_parse_uint(fields[11], "color_image_format", line_no, 8),
                             color_image_size=_parse_uint(fields[12], "color_image_size", line_no, 8),
                             color_image_width=_parse_uint(fields[13], "color_image_width", line_no, 16),
@@ -1595,7 +2324,11 @@ def _hash_command_stream(packets: Iterable[PacketRecord]) -> int:
         hash_value = _fnv_update_int(hash_value, packet.flags, 1)
         hash_value = _fnv_update_int(hash_value, packet.w0, 4)
         hash_value = _fnv_update_int(hash_value, packet.w1, 4)
-        if packet.extra_word_count > 0:
+        if packet.payload_word_count > 0:
+            hash_value = _fnv_update_int(hash_value, packet.payload_word_count, 1)
+            for payload_word in packet.payload_words[: packet.payload_word_count]:
+                hash_value = _fnv_update_int(hash_value, payload_word, 4)
+        elif packet.extra_word_count > 0:
             hash_value = _fnv_update_int(hash_value, packet.extra_word_count, 1)
             inline_words = [packet.w2, packet.w3, packet.w4, packet.w5, packet.w6, packet.w7]
             for idx in range(min(packet.extra_word_count, MAX_INLINE_EXTRA_WORDS)):
@@ -2065,6 +2798,81 @@ def _is_depth_opcode(opcode: int) -> bool:
     return opcode in (0x09, 0x0B, 0x0D, 0x0F)
 
 
+def _is_triangle_shade_opcode(opcode: int) -> bool:
+    return opcode in (0x0C, 0x0D, 0x0E, 0x0F)
+
+
+def _is_triangle_texture_opcode(opcode: int) -> bool:
+    return opcode in (0x0A, 0x0B, 0x0E, 0x0F)
+
+
+def _is_triangle_zbuffer_opcode(opcode: int) -> bool:
+    return opcode in (0x09, 0x0B, 0x0D, 0x0F)
+
+
+def _packet_payload_count(packet: PacketRecord) -> int:
+    if packet.payload_word_count > 0:
+        return packet.payload_word_count
+    return packet.extra_word_count
+
+
+def _packet_payload_word(packet: PacketRecord, index: int) -> int:
+    if index < len(packet.payload_words):
+        return packet.payload_words[index]
+    inline_words = [packet.w2, packet.w3, packet.w4, packet.w5, packet.w6, packet.w7]
+    if index < len(inline_words):
+        return inline_words[index]
+    return 0
+
+
+def _triangle_copy_payload_range(
+    packet: PacketRecord, expanded_words: List[int], payload_offset: int, count: int, expanded_offset: int
+) -> None:
+    payload_count = _packet_payload_count(packet)
+    for i in range(count):
+        src = payload_offset + i
+        dst = expanded_offset + i
+        if src >= payload_count or dst >= len(expanded_words):
+            break
+        expanded_words[dst] = _packet_payload_word(packet, src)
+
+
+def _build_triangle_expanded_words(packet: PacketRecord) -> List[int]:
+    expanded_words = [0] * 44
+    expanded_words[0] = packet.w0
+    expanded_words[1] = packet.w1
+    if packet.opcode == 0x08:
+        _triangle_copy_payload_range(packet, expanded_words, 0, 6, 2)
+    elif packet.opcode == 0x09:
+        _triangle_copy_payload_range(packet, expanded_words, 0, 6, 2)
+        _triangle_copy_payload_range(packet, expanded_words, 6, 4, 40)
+    elif packet.opcode == 0x0A:
+        _triangle_copy_payload_range(packet, expanded_words, 0, 6, 2)
+        _triangle_copy_payload_range(packet, expanded_words, 6, 16, 24)
+    elif packet.opcode == 0x0B:
+        _triangle_copy_payload_range(packet, expanded_words, 0, 6, 2)
+        _triangle_copy_payload_range(packet, expanded_words, 6, 16, 24)
+        _triangle_copy_payload_range(packet, expanded_words, 22, 4, 40)
+    elif packet.opcode == 0x0C:
+        _triangle_copy_payload_range(packet, expanded_words, 0, 22, 2)
+    elif packet.opcode == 0x0D:
+        _triangle_copy_payload_range(packet, expanded_words, 0, 22, 2)
+        _triangle_copy_payload_range(packet, expanded_words, 22, 4, 40)
+    elif packet.opcode == 0x0E:
+        _triangle_copy_payload_range(packet, expanded_words, 0, 38, 2)
+    elif packet.opcode == 0x0F:
+        _triangle_copy_payload_range(packet, expanded_words, 0, 42, 2)
+    return expanded_words
+
+
+def _decode_pair_primary(a: int, b: int) -> int:
+    return _sign_extend((a & 0xFFFF0000) | ((b >> 16) & 0xFFFF), 32)
+
+
+def _decode_pair_secondary(a: int, b: int) -> int:
+    return _sign_extend(((a << 16) & 0xFFFF0000) | (b & 0xFFFF), 32)
+
+
 def _build_draw_semantic(
     packet: PacketRecord, rdp_snapshot: RDPStateSnapshot, tmem_snapshot: TMEMSnapshot
 ) -> DrawSemanticRecord:
@@ -2103,6 +2911,41 @@ def _build_draw_semantic(
     triangle_dxldy = 0
     triangle_dxhdy = 0
     triangle_dxmdy = 0
+    triangle_shade_enable = False
+    triangle_texture_enable = False
+    triangle_zbuffer_enable = False
+    triangle_shade_r = 0
+    triangle_shade_g = 0
+    triangle_shade_b = 0
+    triangle_shade_a = 0
+    triangle_shade_drdx = 0
+    triangle_shade_dgdx = 0
+    triangle_shade_dbdx = 0
+    triangle_shade_dadx = 0
+    triangle_shade_drde = 0
+    triangle_shade_dgde = 0
+    triangle_shade_dbde = 0
+    triangle_shade_dade = 0
+    triangle_shade_drdy = 0
+    triangle_shade_dgdy = 0
+    triangle_shade_dbdy = 0
+    triangle_shade_dady = 0
+    triangle_tex_s = 0
+    triangle_tex_t = 0
+    triangle_tex_w = 0
+    triangle_tex_dsdx = 0
+    triangle_tex_dtdx = 0
+    triangle_tex_dwdx = 0
+    triangle_tex_dsde = 0
+    triangle_tex_dtde = 0
+    triangle_tex_dwde = 0
+    triangle_tex_dsdy = 0
+    triangle_tex_dtdy = 0
+    triangle_tex_dwdy = 0
+    triangle_z = 0
+    triangle_dzdx = 0
+    triangle_dzde = 0
+    triangle_dzdy = 0
 
     if _is_triangle_opcode(packet.opcode):
         draw_type = 1
@@ -2117,14 +2960,18 @@ def _build_draw_semantic(
         rect_lrx = _bit_range(packet.w0, 12, 12)
         rect_lry = _bit_range(packet.w0, 0, 12)
 
+    payload_count = _packet_payload_count(packet)
+
     if draw_type == 2:
         tile = _bit_range(packet.w1, 24, 3)
         tex_rect_flip = packet.opcode == 0x25
-        if packet.extra_word_count > 1:
-            tex_s = _sign_extend(_bit_range(packet.w2, 16, 16), 16)
-            tex_t = _sign_extend(_bit_range(packet.w2, 0, 16), 16)
-            tex_dsdx = _sign_extend(_bit_range(packet.w3, 16, 16), 16)
-            tex_dtdy = _sign_extend(_bit_range(packet.w3, 0, 16), 16)
+        if payload_count > 1:
+            w2 = _packet_payload_word(packet, 0)
+            w3 = _packet_payload_word(packet, 1)
+            tex_s = _sign_extend(_bit_range(w2, 16, 16), 16)
+            tex_t = _sign_extend(_bit_range(w2, 0, 16), 16)
+            tex_dsdx = _sign_extend(_bit_range(w3, 16, 16), 16)
+            tex_dtdy = _sign_extend(_bit_range(w3, 0, 16), 16)
     elif draw_type == 1:
         triangle_lmajor = _bit_range(packet.w0, 23, 1) != 0
         triangle_level = _bit_range(packet.w0, 19, 3)
@@ -2132,15 +2979,64 @@ def _build_draw_semantic(
         triangle_yl = _bit_range(packet.w0, 0, 14)
         triangle_ym = _bit_range(packet.w1, 16, 14)
         triangle_yh = _bit_range(packet.w1, 0, 14)
-        if packet.extra_word_count > 1:
-            triangle_xl = _decode_signed_fixed(_bit_range(packet.w2, 16, 12), 12, _bit_range(packet.w2, 0, 16))
-            triangle_dxldy = _decode_signed_fixed(_bit_range(packet.w3, 16, 14), 14, _bit_range(packet.w3, 0, 16))
-        if packet.extra_word_count > 3:
-            triangle_xh = _decode_signed_fixed(_bit_range(packet.w4, 16, 12), 12, _bit_range(packet.w4, 0, 16))
-            triangle_dxhdy = _decode_signed_fixed(_bit_range(packet.w5, 16, 14), 14, _bit_range(packet.w5, 0, 16))
-        if packet.extra_word_count > 5:
-            triangle_xm = _decode_signed_fixed(_bit_range(packet.w6, 16, 12), 12, _bit_range(packet.w6, 0, 16))
-            triangle_dxmdy = _decode_signed_fixed(_bit_range(packet.w7, 16, 14), 14, _bit_range(packet.w7, 0, 16))
+        if payload_count > 1:
+            w2 = _packet_payload_word(packet, 0)
+            w3 = _packet_payload_word(packet, 1)
+            triangle_xl = _decode_signed_fixed(_bit_range(w2, 16, 12), 12, _bit_range(w2, 0, 16))
+            triangle_dxldy = _decode_signed_fixed(_bit_range(w3, 16, 14), 14, _bit_range(w3, 0, 16))
+        if payload_count > 3:
+            w4 = _packet_payload_word(packet, 2)
+            w5 = _packet_payload_word(packet, 3)
+            triangle_xh = _decode_signed_fixed(_bit_range(w4, 16, 12), 12, _bit_range(w4, 0, 16))
+            triangle_dxhdy = _decode_signed_fixed(_bit_range(w5, 16, 14), 14, _bit_range(w5, 0, 16))
+        if payload_count > 5:
+            w6 = _packet_payload_word(packet, 4)
+            w7 = _packet_payload_word(packet, 5)
+            triangle_xm = _decode_signed_fixed(_bit_range(w6, 16, 12), 12, _bit_range(w6, 0, 16))
+            triangle_dxmdy = _decode_signed_fixed(_bit_range(w7, 16, 14), 14, _bit_range(w7, 0, 16))
+
+        triangle_shade_enable = _is_triangle_shade_opcode(packet.opcode)
+        triangle_texture_enable = _is_triangle_texture_opcode(packet.opcode)
+        triangle_zbuffer_enable = _is_triangle_zbuffer_opcode(packet.opcode)
+        expanded_words = _build_triangle_expanded_words(packet)
+
+        if triangle_shade_enable:
+            triangle_shade_r = _decode_pair_primary(expanded_words[8], expanded_words[12])
+            triangle_shade_g = _decode_pair_secondary(expanded_words[8], expanded_words[12])
+            triangle_shade_b = _decode_pair_primary(expanded_words[9], expanded_words[13])
+            triangle_shade_a = _decode_pair_secondary(expanded_words[9], expanded_words[13])
+            triangle_shade_drdx = _decode_pair_primary(expanded_words[10], expanded_words[14])
+            triangle_shade_dgdx = _decode_pair_secondary(expanded_words[10], expanded_words[14])
+            triangle_shade_dbdx = _decode_pair_primary(expanded_words[11], expanded_words[15])
+            triangle_shade_dadx = _decode_pair_secondary(expanded_words[11], expanded_words[15])
+            triangle_shade_drde = _decode_pair_primary(expanded_words[16], expanded_words[20])
+            triangle_shade_dgde = _decode_pair_secondary(expanded_words[16], expanded_words[20])
+            triangle_shade_dbde = _decode_pair_primary(expanded_words[17], expanded_words[21])
+            triangle_shade_dade = _decode_pair_secondary(expanded_words[17], expanded_words[21])
+            triangle_shade_drdy = _decode_pair_primary(expanded_words[18], expanded_words[22])
+            triangle_shade_dgdy = _decode_pair_secondary(expanded_words[18], expanded_words[22])
+            triangle_shade_dbdy = _decode_pair_primary(expanded_words[19], expanded_words[23])
+            triangle_shade_dady = _decode_pair_secondary(expanded_words[19], expanded_words[23])
+
+        if triangle_texture_enable:
+            triangle_tex_s = _decode_pair_primary(expanded_words[24], expanded_words[28])
+            triangle_tex_t = _decode_pair_secondary(expanded_words[24], expanded_words[28])
+            triangle_tex_w = _decode_pair_primary(expanded_words[25], expanded_words[29])
+            triangle_tex_dsdx = _decode_pair_primary(expanded_words[26], expanded_words[30])
+            triangle_tex_dtdx = _decode_pair_secondary(expanded_words[26], expanded_words[30])
+            triangle_tex_dwdx = _decode_pair_primary(expanded_words[27], expanded_words[31])
+            triangle_tex_dsde = _decode_pair_primary(expanded_words[32], expanded_words[36])
+            triangle_tex_dtde = _decode_pair_secondary(expanded_words[32], expanded_words[36])
+            triangle_tex_dwde = _decode_pair_primary(expanded_words[33], expanded_words[37])
+            triangle_tex_dsdy = _decode_pair_primary(expanded_words[34], expanded_words[38])
+            triangle_tex_dtdy = _decode_pair_secondary(expanded_words[34], expanded_words[38])
+            triangle_tex_dwdy = _decode_pair_primary(expanded_words[35], expanded_words[39])
+
+        if triangle_zbuffer_enable:
+            triangle_z = _sign_extend(expanded_words[40], 32)
+            triangle_dzdx = _sign_extend(expanded_words[41], 32)
+            triangle_dzde = _sign_extend(expanded_words[42], 32)
+            triangle_dzdy = _sign_extend(expanded_words[43], 32)
     elif textured:
         tile = _bit_range(packet.w0, 16, 3)
 
@@ -2185,6 +3081,41 @@ def _build_draw_semantic(
         triangle_dxldy=triangle_dxldy,
         triangle_dxhdy=triangle_dxhdy,
         triangle_dxmdy=triangle_dxmdy,
+        triangle_shade_enable=triangle_shade_enable,
+        triangle_texture_enable=triangle_texture_enable,
+        triangle_zbuffer_enable=triangle_zbuffer_enable,
+        triangle_shade_r=triangle_shade_r,
+        triangle_shade_g=triangle_shade_g,
+        triangle_shade_b=triangle_shade_b,
+        triangle_shade_a=triangle_shade_a,
+        triangle_shade_drdx=triangle_shade_drdx,
+        triangle_shade_dgdx=triangle_shade_dgdx,
+        triangle_shade_dbdx=triangle_shade_dbdx,
+        triangle_shade_dadx=triangle_shade_dadx,
+        triangle_shade_drde=triangle_shade_drde,
+        triangle_shade_dgde=triangle_shade_dgde,
+        triangle_shade_dbde=triangle_shade_dbde,
+        triangle_shade_dade=triangle_shade_dade,
+        triangle_shade_drdy=triangle_shade_drdy,
+        triangle_shade_dgdy=triangle_shade_dgdy,
+        triangle_shade_dbdy=triangle_shade_dbdy,
+        triangle_shade_dady=triangle_shade_dady,
+        triangle_tex_s=triangle_tex_s,
+        triangle_tex_t=triangle_tex_t,
+        triangle_tex_w=triangle_tex_w,
+        triangle_tex_dsdx=triangle_tex_dsdx,
+        triangle_tex_dtdx=triangle_tex_dtdx,
+        triangle_tex_dwdx=triangle_tex_dwdx,
+        triangle_tex_dsde=triangle_tex_dsde,
+        triangle_tex_dtde=triangle_tex_dtde,
+        triangle_tex_dwde=triangle_tex_dwde,
+        triangle_tex_dsdy=triangle_tex_dsdy,
+        triangle_tex_dtdy=triangle_tex_dtdy,
+        triangle_tex_dwdy=triangle_tex_dwdy,
+        triangle_z=triangle_z,
+        triangle_dzdx=triangle_dzdx,
+        triangle_dzde=triangle_dzde,
+        triangle_dzdy=triangle_dzdy,
         textured=textured,
         depth_test=rdp_snapshot.other_modes_decoded.depth_compare and _is_depth_opcode(packet.opcode),
         sync_epoch=rdp_snapshot.sync_epoch,
@@ -2226,6 +3157,41 @@ def _hash_draw_semantic(semantic: DrawSemanticRecord) -> int:
     hash_value = _fnv_update_int(hash_value, semantic.triangle_dxldy & 0xFFFFFFFF, 4)
     hash_value = _fnv_update_int(hash_value, semantic.triangle_dxhdy & 0xFFFFFFFF, 4)
     hash_value = _fnv_update_int(hash_value, semantic.triangle_dxmdy & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, 1 if semantic.triangle_shade_enable else 0, 1)
+    hash_value = _fnv_update_int(hash_value, 1 if semantic.triangle_texture_enable else 0, 1)
+    hash_value = _fnv_update_int(hash_value, 1 if semantic.triangle_zbuffer_enable else 0, 1)
+    hash_value = _fnv_update_int(hash_value, semantic.triangle_shade_r & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, semantic.triangle_shade_g & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, semantic.triangle_shade_b & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, semantic.triangle_shade_a & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, semantic.triangle_shade_drdx & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, semantic.triangle_shade_dgdx & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, semantic.triangle_shade_dbdx & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, semantic.triangle_shade_dadx & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, semantic.triangle_shade_drde & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, semantic.triangle_shade_dgde & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, semantic.triangle_shade_dbde & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, semantic.triangle_shade_dade & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, semantic.triangle_shade_drdy & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, semantic.triangle_shade_dgdy & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, semantic.triangle_shade_dbdy & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, semantic.triangle_shade_dady & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, semantic.triangle_tex_s & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, semantic.triangle_tex_t & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, semantic.triangle_tex_w & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, semantic.triangle_tex_dsdx & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, semantic.triangle_tex_dtdx & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, semantic.triangle_tex_dwdx & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, semantic.triangle_tex_dsde & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, semantic.triangle_tex_dtde & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, semantic.triangle_tex_dwde & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, semantic.triangle_tex_dsdy & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, semantic.triangle_tex_dtdy & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, semantic.triangle_tex_dwdy & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, semantic.triangle_z & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, semantic.triangle_dzdx & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, semantic.triangle_dzde & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, semantic.triangle_dzdy & 0xFFFFFFFF, 4)
     hash_value = _fnv_update_int(hash_value, 1 if semantic.textured else 0, 1)
     hash_value = _fnv_update_int(hash_value, 1 if semantic.depth_test else 0, 1)
     hash_value = _fnv_update_int(hash_value, semantic.sync_epoch, 4)
@@ -2279,6 +3245,41 @@ def _build_raster_op(semantic: DrawSemanticRecord, rdp_snapshot: RDPStateSnapsho
         triangle_dxldy=semantic.triangle_dxldy,
         triangle_dxhdy=semantic.triangle_dxhdy,
         triangle_dxmdy=semantic.triangle_dxmdy,
+        triangle_shade_enable=semantic.triangle_shade_enable,
+        triangle_texture_enable=semantic.triangle_texture_enable,
+        triangle_zbuffer_enable=semantic.triangle_zbuffer_enable,
+        triangle_shade_r=semantic.triangle_shade_r,
+        triangle_shade_g=semantic.triangle_shade_g,
+        triangle_shade_b=semantic.triangle_shade_b,
+        triangle_shade_a=semantic.triangle_shade_a,
+        triangle_shade_drdx=semantic.triangle_shade_drdx,
+        triangle_shade_dgdx=semantic.triangle_shade_dgdx,
+        triangle_shade_dbdx=semantic.triangle_shade_dbdx,
+        triangle_shade_dadx=semantic.triangle_shade_dadx,
+        triangle_shade_drde=semantic.triangle_shade_drde,
+        triangle_shade_dgde=semantic.triangle_shade_dgde,
+        triangle_shade_dbde=semantic.triangle_shade_dbde,
+        triangle_shade_dade=semantic.triangle_shade_dade,
+        triangle_shade_drdy=semantic.triangle_shade_drdy,
+        triangle_shade_dgdy=semantic.triangle_shade_dgdy,
+        triangle_shade_dbdy=semantic.triangle_shade_dbdy,
+        triangle_shade_dady=semantic.triangle_shade_dady,
+        triangle_tex_s=semantic.triangle_tex_s,
+        triangle_tex_t=semantic.triangle_tex_t,
+        triangle_tex_w=semantic.triangle_tex_w,
+        triangle_tex_dsdx=semantic.triangle_tex_dsdx,
+        triangle_tex_dtdx=semantic.triangle_tex_dtdx,
+        triangle_tex_dwdx=semantic.triangle_tex_dwdx,
+        triangle_tex_dsde=semantic.triangle_tex_dsde,
+        triangle_tex_dtde=semantic.triangle_tex_dtde,
+        triangle_tex_dwde=semantic.triangle_tex_dwde,
+        triangle_tex_dsdy=semantic.triangle_tex_dsdy,
+        triangle_tex_dtdy=semantic.triangle_tex_dtdy,
+        triangle_tex_dwdy=semantic.triangle_tex_dwdy,
+        triangle_z=semantic.triangle_z,
+        triangle_dzdx=semantic.triangle_dzdx,
+        triangle_dzde=semantic.triangle_dzde,
+        triangle_dzdy=semantic.triangle_dzdy,
         combine_mux=semantic.combine_mux,
         blend_params=semantic.blend_params,
         fill_color=rdp_snapshot.fill_color,
@@ -2319,6 +3320,41 @@ def _hash_raster_op(op: RasterOpRecord) -> int:
     hash_value = _fnv_update_int(hash_value, op.triangle_dxldy & 0xFFFFFFFF, 4)
     hash_value = _fnv_update_int(hash_value, op.triangle_dxhdy & 0xFFFFFFFF, 4)
     hash_value = _fnv_update_int(hash_value, op.triangle_dxmdy & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, 1 if op.triangle_shade_enable else 0, 1)
+    hash_value = _fnv_update_int(hash_value, 1 if op.triangle_texture_enable else 0, 1)
+    hash_value = _fnv_update_int(hash_value, 1 if op.triangle_zbuffer_enable else 0, 1)
+    hash_value = _fnv_update_int(hash_value, op.triangle_shade_r & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, op.triangle_shade_g & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, op.triangle_shade_b & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, op.triangle_shade_a & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, op.triangle_shade_drdx & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, op.triangle_shade_dgdx & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, op.triangle_shade_dbdx & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, op.triangle_shade_dadx & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, op.triangle_shade_drde & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, op.triangle_shade_dgde & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, op.triangle_shade_dbde & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, op.triangle_shade_dade & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, op.triangle_shade_drdy & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, op.triangle_shade_dgdy & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, op.triangle_shade_dbdy & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, op.triangle_shade_dady & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, op.triangle_tex_s & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, op.triangle_tex_t & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, op.triangle_tex_w & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, op.triangle_tex_dsdx & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, op.triangle_tex_dtdx & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, op.triangle_tex_dwdx & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, op.triangle_tex_dsde & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, op.triangle_tex_dtde & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, op.triangle_tex_dwde & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, op.triangle_tex_dsdy & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, op.triangle_tex_dtdy & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, op.triangle_tex_dwdy & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, op.triangle_z & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, op.triangle_dzdx & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, op.triangle_dzde & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, op.triangle_dzdy & 0xFFFFFFFF, 4)
     hash_value = _fnv_update_int(hash_value, op.combine_mux, 8)
     hash_value = _fnv_update_int(hash_value, op.blend_params, 4)
     hash_value = _fnv_update_int(hash_value, op.fill_color, 4)
@@ -2406,6 +3442,43 @@ def _derive_triangle_rect_bounds(op: RasterOpRecord) -> tuple[int, int, int, int
     return ulx, uly, lrx, lry
 
 
+def _pack_rgba8(r: int, g: int, b: int, a: int) -> int:
+    return ((r & 0xFF) << 24) | ((g & 0xFF) << 16) | ((b & 0xFF) << 8) | (a & 0xFF)
+
+
+def _mix_digest(state: int, value: int) -> int:
+    s = state & U64_MASK
+    v = value & U64_MASK
+    return (s ^ ((v + 0x9E3779B97F4A7C15 + ((s << 6) & U64_MASK) + (s >> 2)) & U64_MASK)) & U64_MASK
+
+
+def _build_key_state_digest(rdp_snapshot: RDPStateSnapshot) -> int:
+    digest = FNV_OFFSET
+    digest = _mix_digest(digest, rdp_snapshot.key_center_r)
+    digest = _mix_digest(digest, rdp_snapshot.key_scale_r)
+    digest = _mix_digest(digest, rdp_snapshot.key_center_g)
+    digest = _mix_digest(digest, rdp_snapshot.key_scale_g)
+    digest = _mix_digest(digest, rdp_snapshot.key_center_b)
+    digest = _mix_digest(digest, rdp_snapshot.key_scale_b)
+    digest = _mix_digest(digest, rdp_snapshot.key_width_r)
+    digest = _mix_digest(digest, rdp_snapshot.key_width_g)
+    digest = _mix_digest(digest, rdp_snapshot.key_width_b)
+    return digest
+
+
+def _build_convert_state_digest(rdp_snapshot: RDPStateSnapshot) -> int:
+    digest = FNV_OFFSET
+    digest = _mix_digest(digest, rdp_snapshot.convert_k0 & 0xFFFF)
+    digest = _mix_digest(digest, rdp_snapshot.convert_k1 & 0xFFFF)
+    digest = _mix_digest(digest, rdp_snapshot.convert_k2 & 0xFFFF)
+    digest = _mix_digest(digest, rdp_snapshot.convert_k3 & 0xFFFF)
+    digest = _mix_digest(digest, rdp_snapshot.convert_k4 & 0xFFFF)
+    digest = _mix_digest(digest, rdp_snapshot.convert_k5 & 0xFFFF)
+    digest = _mix_digest(digest, rdp_snapshot.prim_color_min_level)
+    digest = _mix_digest(digest, rdp_snapshot.prim_color_lod_frac)
+    return digest
+
+
 def _build_render_work(
     op: RasterOpRecord,
     rdp_snapshot: RDPStateSnapshot,
@@ -2458,6 +3531,8 @@ def _build_render_work(
         tex_rect_flip=op.tex_rect_flip,
         textured=op.textured,
         depth_test=op.depth_test,
+        depth_compare_enable=rdp_snapshot.other_modes_decoded.depth_compare,
+        depth_update_enable=rdp_snapshot.other_modes_decoded.depth_update,
         rect_ulx=rect_ulx,
         rect_uly=rect_uly,
         rect_lrx=rect_lrx,
@@ -2477,11 +3552,77 @@ def _build_render_work(
         triangle_dxldy=op.triangle_dxldy,
         triangle_dxhdy=op.triangle_dxhdy,
         triangle_dxmdy=op.triangle_dxmdy,
+        triangle_shade_enable=op.triangle_shade_enable,
+        triangle_texture_enable=op.triangle_texture_enable,
+        triangle_zbuffer_enable=op.triangle_zbuffer_enable,
+        triangle_shade_r=op.triangle_shade_r,
+        triangle_shade_g=op.triangle_shade_g,
+        triangle_shade_b=op.triangle_shade_b,
+        triangle_shade_a=op.triangle_shade_a,
+        triangle_shade_drdx=op.triangle_shade_drdx,
+        triangle_shade_dgdx=op.triangle_shade_dgdx,
+        triangle_shade_dbdx=op.triangle_shade_dbdx,
+        triangle_shade_dadx=op.triangle_shade_dadx,
+        triangle_shade_drde=op.triangle_shade_drde,
+        triangle_shade_dgde=op.triangle_shade_dgde,
+        triangle_shade_dbde=op.triangle_shade_dbde,
+        triangle_shade_dade=op.triangle_shade_dade,
+        triangle_shade_drdy=op.triangle_shade_drdy,
+        triangle_shade_dgdy=op.triangle_shade_dgdy,
+        triangle_shade_dbdy=op.triangle_shade_dbdy,
+        triangle_shade_dady=op.triangle_shade_dady,
+        triangle_tex_s=op.triangle_tex_s,
+        triangle_tex_t=op.triangle_tex_t,
+        triangle_tex_w=op.triangle_tex_w,
+        triangle_tex_dsdx=op.triangle_tex_dsdx,
+        triangle_tex_dtdx=op.triangle_tex_dtdx,
+        triangle_tex_dwdx=op.triangle_tex_dwdx,
+        triangle_tex_dsde=op.triangle_tex_dsde,
+        triangle_tex_dtde=op.triangle_tex_dtde,
+        triangle_tex_dwde=op.triangle_tex_dwde,
+        triangle_tex_dsdy=op.triangle_tex_dsdy,
+        triangle_tex_dtdy=op.triangle_tex_dtdy,
+        triangle_tex_dwdy=op.triangle_tex_dwdy,
+        triangle_z=op.triangle_z,
+        triangle_dzdx=op.triangle_dzdx,
+        triangle_dzde=op.triangle_dzde,
+        triangle_dzdy=op.triangle_dzdy,
         color_image_format=rdp_snapshot.color_image_format,
         color_image_size=rdp_snapshot.color_image_size,
         color_image_width=rdp_snapshot.color_image_width,
         color_image_address=rdp_snapshot.color_image_address,
         depth_image_address=rdp_snapshot.depth_image_address,
+        alpha_compare=rdp_snapshot.other_modes_decoded.alpha_compare,
+        depth_source=rdp_snapshot.other_modes_decoded.depth_source,
+        prim_depth_z=rdp_snapshot.prim_depth_z,
+        prim_depth_delta=rdp_snapshot.prim_depth_delta,
+        other_modes=rdp_snapshot.other_modes,
+        prim_color=_pack_rgba8(
+            rdp_snapshot.prim_color.r,
+            rdp_snapshot.prim_color.g,
+            rdp_snapshot.prim_color.b,
+            rdp_snapshot.prim_color.a,
+        ),
+        env_color=_pack_rgba8(
+            rdp_snapshot.env_color.r,
+            rdp_snapshot.env_color.g,
+            rdp_snapshot.env_color.b,
+            rdp_snapshot.env_color.a,
+        ),
+        blend_color=_pack_rgba8(
+            rdp_snapshot.blend_color.r,
+            rdp_snapshot.blend_color.g,
+            rdp_snapshot.blend_color.b,
+            rdp_snapshot.blend_color.a,
+        ),
+        fog_color=_pack_rgba8(
+            rdp_snapshot.fog_color.r,
+            rdp_snapshot.fog_color.g,
+            rdp_snapshot.fog_color.b,
+            rdp_snapshot.fog_color.a,
+        ),
+        key_state=_build_key_state_digest(rdp_snapshot),
+        convert_state=_build_convert_state_digest(rdp_snapshot),
         scissor_mode=rdp_snapshot.scissor_mode,
         scissor_xh=rdp_snapshot.scissor_xh,
         scissor_yh=rdp_snapshot.scissor_yh,
@@ -2536,6 +3677,8 @@ def _hash_render_work(work: RenderWorkRecord) -> int:
     hash_value = _fnv_update_int(hash_value, 1 if work.tex_rect_flip else 0, 1)
     hash_value = _fnv_update_int(hash_value, 1 if work.textured else 0, 1)
     hash_value = _fnv_update_int(hash_value, 1 if work.depth_test else 0, 1)
+    hash_value = _fnv_update_int(hash_value, 1 if work.depth_compare_enable else 0, 1)
+    hash_value = _fnv_update_int(hash_value, 1 if work.depth_update_enable else 0, 1)
     hash_value = _fnv_update_int(hash_value, work.rect_ulx, 2)
     hash_value = _fnv_update_int(hash_value, work.rect_uly, 2)
     hash_value = _fnv_update_int(hash_value, work.rect_lrx, 2)
@@ -2555,11 +3698,57 @@ def _hash_render_work(work: RenderWorkRecord) -> int:
     hash_value = _fnv_update_int(hash_value, work.triangle_dxldy & 0xFFFFFFFF, 4)
     hash_value = _fnv_update_int(hash_value, work.triangle_dxhdy & 0xFFFFFFFF, 4)
     hash_value = _fnv_update_int(hash_value, work.triangle_dxmdy & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, 1 if work.triangle_shade_enable else 0, 1)
+    hash_value = _fnv_update_int(hash_value, 1 if work.triangle_texture_enable else 0, 1)
+    hash_value = _fnv_update_int(hash_value, 1 if work.triangle_zbuffer_enable else 0, 1)
+    hash_value = _fnv_update_int(hash_value, work.triangle_shade_r & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, work.triangle_shade_g & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, work.triangle_shade_b & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, work.triangle_shade_a & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, work.triangle_shade_drdx & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, work.triangle_shade_dgdx & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, work.triangle_shade_dbdx & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, work.triangle_shade_dadx & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, work.triangle_shade_drde & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, work.triangle_shade_dgde & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, work.triangle_shade_dbde & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, work.triangle_shade_dade & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, work.triangle_shade_drdy & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, work.triangle_shade_dgdy & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, work.triangle_shade_dbdy & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, work.triangle_shade_dady & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, work.triangle_tex_s & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, work.triangle_tex_t & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, work.triangle_tex_w & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, work.triangle_tex_dsdx & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, work.triangle_tex_dtdx & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, work.triangle_tex_dwdx & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, work.triangle_tex_dsde & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, work.triangle_tex_dtde & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, work.triangle_tex_dwde & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, work.triangle_tex_dsdy & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, work.triangle_tex_dtdy & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, work.triangle_tex_dwdy & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, work.triangle_z & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, work.triangle_dzdx & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, work.triangle_dzde & 0xFFFFFFFF, 4)
+    hash_value = _fnv_update_int(hash_value, work.triangle_dzdy & 0xFFFFFFFF, 4)
     hash_value = _fnv_update_int(hash_value, work.color_image_format, 1)
     hash_value = _fnv_update_int(hash_value, work.color_image_size, 1)
     hash_value = _fnv_update_int(hash_value, work.color_image_width, 2)
     hash_value = _fnv_update_int(hash_value, work.color_image_address, 4)
     hash_value = _fnv_update_int(hash_value, work.depth_image_address, 4)
+    hash_value = _fnv_update_int(hash_value, work.alpha_compare, 1)
+    hash_value = _fnv_update_int(hash_value, work.depth_source, 1)
+    hash_value = _fnv_update_int(hash_value, work.prim_depth_z, 2)
+    hash_value = _fnv_update_int(hash_value, work.prim_depth_delta, 2)
+    hash_value = _fnv_update_int(hash_value, work.other_modes, 8)
+    hash_value = _fnv_update_int(hash_value, work.prim_color, 4)
+    hash_value = _fnv_update_int(hash_value, work.env_color, 4)
+    hash_value = _fnv_update_int(hash_value, work.blend_color, 4)
+    hash_value = _fnv_update_int(hash_value, work.fog_color, 4)
+    hash_value = _fnv_update_int(hash_value, work.key_state, 8)
+    hash_value = _fnv_update_int(hash_value, work.convert_state, 8)
     hash_value = _fnv_update_int(hash_value, work.scissor_mode, 1)
     hash_value = _fnv_update_int(hash_value, work.scissor_xh, 2)
     hash_value = _fnv_update_int(hash_value, work.scissor_yh, 2)
@@ -2768,6 +3957,13 @@ class _ReplayColorSurface:
 
 
 @dataclass
+class _ReplayDepthSurface:
+    width: int
+    height: int
+    values: List[int]
+
+
+@dataclass
 class ExecutorReplaySummary:
     work_count: int
     batch_count: int
@@ -2795,6 +3991,133 @@ def _decode_fill_color(fill_color: int, color_size: int) -> int:
     return ((r & 0xFF) << 24) | ((g & 0xFF) << 16) | ((b & 0xFF) << 8) | (a & 0xFF)
 
 
+def _wrap_coord_positive(value: int, period: int) -> int:
+    if period <= 0:
+        return 0
+    wrapped = value % period
+    if wrapped < 0:
+        wrapped += period
+    return wrapped
+
+
+def _apply_tile_axis_transform(coord5: int, shift: int, mask: int, cm: int, lo: int, hi: int) -> int:
+    texel = int(coord5) >> 5
+    effective_shift = min(max(int(shift), 0), 15)
+    if effective_shift != 0:
+        if effective_shift <= 10:
+            texel >>= effective_shift
+        else:
+            texel <<= 16 - effective_shift
+
+    mirror = (cm & 0x1) != 0
+    clamp = (cm & 0x2) != 0
+    if mask != 0:
+        period = 1 << min(max(int(mask), 0), 15)
+        if clamp:
+            texel = max(0, min(period - 1, texel))
+        elif mirror:
+            mirror_period = period << 1
+            wrapped = _wrap_coord_positive(texel, mirror_period)
+            if wrapped >= period:
+                wrapped = (mirror_period - 1) - wrapped
+            texel = wrapped
+        else:
+            texel = _wrap_coord_positive(texel, period)
+
+    lo_texel = int(lo) >> 2
+    hi_texel = int(hi) >> 2
+    if lo_texel != 0 or hi_texel != 0 or clamp:
+        low = min(lo_texel, hi_texel)
+        high = max(lo_texel, hi_texel)
+        if texel < low:
+            texel = low
+        if texel > high:
+            texel = high
+    return texel
+
+
+def _mix_texture_seed(seed: int, value: int) -> int:
+    s = seed & U64_MASK
+    v = value & U64_MASK
+    mixed = s ^ ((v + 0x9E3779B97F4A7C15 + ((s << 6) & U64_MASK) + (s >> 2)) & U64_MASK)
+    return mixed & U64_MASK
+
+
+def _build_texture_seed_base(work: RenderWorkRecord) -> int:
+    seed = FNV_OFFSET
+    seed = _mix_texture_seed(seed, work.texture_image_address)
+    seed = _mix_texture_seed(seed, work.texture_image_format)
+    seed = _mix_texture_seed(seed, work.texture_image_size)
+    seed = _mix_texture_seed(seed, work.texture_image_width)
+    seed = _mix_texture_seed(seed, work.tile_format)
+    seed = _mix_texture_seed(seed, work.tile_size)
+    seed = _mix_texture_seed(seed, work.tile_line)
+    seed = _mix_texture_seed(seed, work.tile_tmem)
+    seed = _mix_texture_seed(seed, work.tile_palette)
+    seed = _mix_texture_seed(seed, work.tile_cmt)
+    seed = _mix_texture_seed(seed, work.tile_cms)
+    seed = _mix_texture_seed(seed, work.tile_maskt)
+    seed = _mix_texture_seed(seed, work.tile_masks)
+    seed = _mix_texture_seed(seed, work.tile_shiftt)
+    seed = _mix_texture_seed(seed, work.tile_shifts)
+    seed = _mix_texture_seed(seed, work.tile_uls)
+    seed = _mix_texture_seed(seed, work.tile_ult)
+    seed = _mix_texture_seed(seed, work.tile_lrs)
+    seed = _mix_texture_seed(seed, work.tile_lrt)
+    seed = _mix_texture_seed(seed, work.tmem_load_kind)
+    seed = _mix_texture_seed(seed, work.tmem_load_tile)
+    seed = _mix_texture_seed(seed, work.tmem_load_uls)
+    seed = _mix_texture_seed(seed, work.tmem_load_ult)
+    seed = _mix_texture_seed(seed, work.tmem_load_lrs)
+    seed = _mix_texture_seed(seed, work.tmem_load_lrt)
+    seed = _mix_texture_seed(seed, work.tmem_load_dxt)
+    return seed & U64_MASK
+
+
+def _pseudo_texel(work: RenderWorkRecord, x: int, y: int) -> int:
+    dx = x - work.rect_ulx
+    dy = y - work.rect_uly
+    if work.tex_rect_flip:
+        s_raw = work.tex_s + ((dy * work.tex_dsdx) >> 5)
+        t_raw = work.tex_t + ((dx * work.tex_dtdy) >> 5)
+    else:
+        s_raw = work.tex_s + ((dx * work.tex_dsdx) >> 5)
+        t_raw = work.tex_t + ((dy * work.tex_dtdy) >> 5)
+    s = _apply_tile_axis_transform(
+        s_raw, work.tile_shifts, work.tile_masks, work.tile_cms, work.tile_uls, work.tile_lrs
+    )
+    t = _apply_tile_axis_transform(
+        t_raw, work.tile_shiftt, work.tile_maskt, work.tile_cmt, work.tile_ult, work.tile_lrt
+    )
+
+    seed = _build_texture_seed_base(work)
+    seed = _mix_texture_seed(seed, s & 0xFFFFFFFF)
+    seed = _mix_texture_seed(seed, t & 0xFFFFFFFF)
+    seed = _mix_texture_seed(seed, x & 0xFFFFFFFF)
+    seed = _mix_texture_seed(seed, y & 0xFFFFFFFF)
+    seed = _mix_texture_seed(seed, work.combine_mux & U64_MASK)
+    seed = _mix_texture_seed(seed, work.sync_epoch & 0xFFFFFFFF)
+    seed = (seed * 0x9E3779B97F4A7C15) & U64_MASK
+    r = (seed >> 8) & 0xFF
+    g = (seed >> 24) & 0xFF
+    b = (seed >> 40) & 0xFF
+    return ((r & 0xFF) << 24) | ((g & 0xFF) << 16) | ((b & 0xFF) << 8) | 0xFF
+
+
+def _pseudo_triangle_color(work: RenderWorkRecord, x: int, y: int) -> int:
+    seed = work.combine_mux & U64_MASK
+    seed ^= (work.blend_params & 0xFFFFFFFF) << 29
+    seed ^= (work.source_packet_id & U64_MASK) << 7
+    seed ^= (x & 0xFFFFFFFF) << 33
+    seed ^= (y & 0xFFFFFFFF) << 45
+    seed ^= work.sync_epoch & 0xFFFFFFFF
+    seed = (seed * 0x9E3779B97F4A7C15) & U64_MASK
+    r = (seed >> 9) & 0xFF
+    g = (seed >> 27) & 0xFF
+    b = (seed >> 41) & 0xFF
+    return ((r & 0xFF) << 24) | ((g & 0xFF) << 16) | ((b & 0xFF) << 8) | 0xFF
+
+
 def _surface_index(width: int, x: int, y: int) -> int:
     return y * width + x
 
@@ -2814,6 +4137,25 @@ def _ensure_surface_size(surface: _ReplayColorSurface, req_width: int, req_heigh
     surface.width = target_width
     surface.height = target_height
     surface.pixels = resized
+
+
+def _ensure_depth_surface_size(
+    surface: _ReplayDepthSurface, req_width: int, req_height: int, max_width: int, max_height: int
+) -> None:
+    new_width = max(1, min(req_width, max_width))
+    new_height = max(1, min(req_height, max_height))
+    if new_width <= surface.width and new_height <= surface.height:
+        return
+    target_width = max(surface.width, new_width)
+    target_height = max(surface.height, new_height)
+    resized = [0x7FFFFFFF for _ in range(target_width * target_height)]
+    for y in range(surface.height):
+        row_src = y * surface.width
+        row_dst = y * target_width
+        resized[row_dst : row_dst + surface.width] = surface.values[row_src : row_src + surface.width]
+    surface.width = target_width
+    surface.height = target_height
+    surface.values = resized
 
 
 def _write_render_work_rect(
@@ -2862,50 +4204,478 @@ def _write_render_work_rect(
     if is_fill:
         for y in range(write_y0, write_y1 + 1):
             row_index = y * width + write_x0
-            for _ in range(write_x0, write_x1 + 1):
-                pixels[row_index] = fill_rgba
+            for x in range(write_x0, write_x1 + 1):
+                if _passes_synthetic_alpha_compare(work, fill_rgba, x, y):
+                    pixels[row_index] = fill_rgba
+                    color_write_count += 1
                 row_index += 1
-                color_write_count += 1
         summary.color_write_count += color_write_count
         return
 
-    rect_ulx = work.rect_ulx
-    rect_uly = work.rect_uly
-    tex_s = work.tex_s
-    tex_t = work.tex_t
-    tex_dsdx = work.tex_dsdx
-    tex_dtdy = work.tex_dtdy
-    base_seed = work.texture_image_address & U64_MASK
-    base_seed ^= (work.tile_tmem & 0xFFFF) << 12
-    base_seed ^= (work.tile_line & 0xFFFF) << 20
-    base_seed ^= work.combine_mux & U64_MASK
-
     for y in range(write_y0, write_y1 + 1):
-        dy = y - rect_uly
-        t = tex_t + ((dy * tex_dtdy) >> 5)
-        y_seed = (y & 0xFFFFFFFF) << 45
         row_index = y * width + write_x0
         for x in range(write_x0, write_x1 + 1):
-            dx = x - rect_ulx
-            s = tex_s + ((dx * tex_dsdx) >> 5)
-            seed = base_seed
-            seed ^= (s & 0xFFFF) << 1
-            seed ^= (t & 0xFFFF) << 17
-            seed ^= (x & 0xFFFFFFFF) << 33
-            seed ^= y_seed
-            seed = (seed * 0x9E3779B97F4A7C15) & U64_MASK
-            r = (seed >> 8) & 0xFF
-            g = (seed >> 24) & 0xFF
-            b = (seed >> 40) & 0xFF
-            pixels[row_index] = ((r << 24) | (g << 16) | (b << 8) | 0xFF) & 0xFFFFFFFF
+            dst_color = pixels[row_index] & 0xFFFFFFFF
+            texel_color = _pseudo_texel(work, x, y)
+            rgba = _run_synthetic_phase_pipeline(
+                work,
+                texel_color,
+                0xFFFFFFFF,
+                texel_color,
+                dst_color,
+                x,
+                y,
+            ) & 0xFFFFFFFF
+            if _passes_synthetic_alpha_compare(work, rgba, x, y):
+                pixels[row_index] = rgba
+                color_write_count += 1
             row_index += 1
-            color_write_count += 1
 
     summary.color_write_count += color_write_count
 
 
+def _combine_dy_derivative(dy: int, de: int, lmajor: bool) -> int:
+    return (dy + de) if lmajor else (dy - de)
+
+
+def _eval_coefficient_at_pixel(base: int, dx: int, dy: int, x: int, y: int) -> int:
+    value = int(base) + int(dx) * int(x) + int(dy) * int(y)
+    if value < -0x80000000:
+        return -0x80000000
+    if value > 0x7FFFFFFF:
+        return 0x7FFFFFFF
+    return value
+
+
+def _coefficient_component_byte(value: int) -> int:
+    return (value >> 8) & 0xFF
+
+
+def _evaluate_triangle_shade_color(work: RenderWorkRecord, x: int, y: int) -> int:
+    drdy = _combine_dy_derivative(work.triangle_shade_drdy, work.triangle_shade_drde, work.triangle_lmajor)
+    dgdy = _combine_dy_derivative(work.triangle_shade_dgdy, work.triangle_shade_dgde, work.triangle_lmajor)
+    dbdy = _combine_dy_derivative(work.triangle_shade_dbdy, work.triangle_shade_dbde, work.triangle_lmajor)
+    dady = _combine_dy_derivative(work.triangle_shade_dady, work.triangle_shade_dade, work.triangle_lmajor)
+    r = _coefficient_component_byte(_eval_coefficient_at_pixel(work.triangle_shade_r, work.triangle_shade_drdx, drdy, x, y))
+    g = _coefficient_component_byte(_eval_coefficient_at_pixel(work.triangle_shade_g, work.triangle_shade_dgdx, dgdy, x, y))
+    b = _coefficient_component_byte(_eval_coefficient_at_pixel(work.triangle_shade_b, work.triangle_shade_dbdx, dbdy, x, y))
+    a = _coefficient_component_byte(_eval_coefficient_at_pixel(work.triangle_shade_a, work.triangle_shade_dadx, dady, x, y))
+    return ((r & 0xFF) << 24) | ((g & 0xFF) << 16) | ((b & 0xFF) << 8) | (a & 0xFF)
+
+
+def _evaluate_triangle_texture_color(work: RenderWorkRecord, x: int, y: int) -> int:
+    dsdy = _combine_dy_derivative(work.triangle_tex_dsdy, work.triangle_tex_dsde, work.triangle_lmajor)
+    dtdy = _combine_dy_derivative(work.triangle_tex_dtdy, work.triangle_tex_dtde, work.triangle_lmajor)
+    dwdy = _combine_dy_derivative(work.triangle_tex_dwdy, work.triangle_tex_dwde, work.triangle_lmajor)
+    s_raw = _eval_coefficient_at_pixel(work.triangle_tex_s, work.triangle_tex_dsdx, dsdy, x, y)
+    t_raw = _eval_coefficient_at_pixel(work.triangle_tex_t, work.triangle_tex_dtdx, dtdy, x, y)
+    w = _eval_coefficient_at_pixel(work.triangle_tex_w, work.triangle_tex_dwdx, dwdy, x, y)
+    s = _apply_tile_axis_transform(
+        s_raw, work.tile_shifts, work.tile_masks, work.tile_cms, work.tile_uls, work.tile_lrs
+    )
+    t = _apply_tile_axis_transform(
+        t_raw, work.tile_shiftt, work.tile_maskt, work.tile_cmt, work.tile_ult, work.tile_lrt
+    )
+
+    seed = _build_texture_seed_base(work)
+    seed = _mix_texture_seed(seed, s & 0xFFFFFFFF)
+    seed = _mix_texture_seed(seed, t & 0xFFFFFFFF)
+    seed = _mix_texture_seed(seed, w & 0xFFFFFFFF)
+    seed = _mix_texture_seed(seed, x & 0xFFFFFFFF)
+    seed = _mix_texture_seed(seed, y & 0xFFFFFFFF)
+    seed = _mix_texture_seed(seed, work.combine_mux & U64_MASK)
+    seed = _mix_texture_seed(seed, work.sync_epoch & 0xFFFFFFFF)
+    seed = (seed * 0x9E3779B97F4A7C15) & U64_MASK
+    r = (seed >> 8) & 0xFF
+    g = (seed >> 24) & 0xFF
+    b = (seed >> 40) & 0xFF
+    return ((r & 0xFF) << 24) | ((g & 0xFF) << 16) | ((b & 0xFF) << 8) | 0xFF
+
+
+def _modulate_rgba(base: int, shade: int) -> int:
+    br = (base >> 24) & 0xFF
+    bg = (base >> 16) & 0xFF
+    bb = (base >> 8) & 0xFF
+    ba = base & 0xFF
+    sr = (shade >> 24) & 0xFF
+    sg = (shade >> 16) & 0xFF
+    sb = (shade >> 8) & 0xFF
+    sa = shade & 0xFF
+    r = (br * sr + 127) // 255
+    g = (bg * sg + 127) // 255
+    b = (bb * sb + 127) // 255
+    a = (ba * sa + 127) // 255
+    return ((r & 0xFF) << 24) | ((g & 0xFF) << 16) | ((b & 0xFF) << 8) | (a & 0xFF)
+
+
+def _unpack_rgba(color: int) -> tuple[int, int, int, int]:
+    return (
+        (color >> 24) & 0xFF,
+        (color >> 16) & 0xFF,
+        (color >> 8) & 0xFF,
+        color & 0xFF,
+    )
+
+
+def _pack_rgba(r: int, g: int, b: int, a: int) -> int:
+    return ((r & 0xFF) << 24) | ((g & 0xFF) << 16) | ((b & 0xFF) << 8) | (a & 0xFF)
+
+
+def _clamp_u8_from_s32(value: int) -> int:
+    if value < 0:
+        return 0
+    if value > 255:
+        return 255
+    return value
+
+
+def _div_trunc(value: int, divisor: int) -> int:
+    return int(value / divisor)
+
+
+def _select_combiner_input(selector: int, tex: int, shade: int, base: int, const: int, noise: int, dst: int) -> int:
+    sel = selector & 0x7
+    if sel == 0:
+        return tex
+    if sel == 1:
+        return shade
+    if sel == 2:
+        return base
+    if sel == 3:
+        return const
+    if sel == 4:
+        return 255 - tex
+    if sel == 5:
+        return 255 - shade
+    if sel == 6:
+        return dst
+    return noise
+
+
+def _eval_synthetic_combiner_channel(
+    combine_mux: int,
+    selector_shift: int,
+    tex: int,
+    shade: int,
+    base: int,
+    const: int,
+    noise: int,
+    dst: int,
+) -> int:
+    a_sel = (combine_mux >> selector_shift) & 0x7
+    b_sel = (combine_mux >> (selector_shift + 3)) & 0x7
+    c_sel = (combine_mux >> (selector_shift + 6)) & 0x7
+    d_sel = (combine_mux >> (selector_shift + 9)) & 0x7
+    a = _select_combiner_input(a_sel, tex, shade, base, const, noise, dst)
+    b = _select_combiner_input(b_sel, tex, shade, base, const, noise, dst)
+    c = _select_combiner_input(c_sel, tex, shade, base, const, noise, dst)
+    d = _select_combiner_input(d_sel, tex, shade, base, const, noise, dst)
+    value = _div_trunc(((a - b) * c + 127), 255) + d
+    return _clamp_u8_from_s32(value)
+
+
+def _apply_synthetic_combiner(
+    work: RenderWorkRecord,
+    texture_color: int,
+    shade_color: int,
+    base_color: int,
+    dst_color: int,
+    x: int,
+    y: int,
+    combine_mux: Optional[int] = None,
+    source_packet_id: Optional[int] = None,
+    sync_epoch: Optional[int] = None,
+) -> int:
+    active_combine_mux = (work.combine_mux if combine_mux is None else combine_mux) & U64_MASK
+    active_source_packet_id = (work.source_packet_id if source_packet_id is None else source_packet_id) & U64_MASK
+    active_sync_epoch = (work.sync_epoch if sync_epoch is None else sync_epoch) & 0xFFFFFFFF
+
+    tex_r, tex_g, tex_b, tex_a = _unpack_rgba(texture_color)
+    shade_r, shade_g, shade_b, shade_a = _unpack_rgba(shade_color)
+    base_r, base_g, base_b, base_a = _unpack_rgba(base_color)
+    dst_r, dst_g, dst_b, dst_a = _unpack_rgba(dst_color)
+    prim_r, prim_g, prim_b, prim_a = _unpack_rgba(work.prim_color)
+    env_r, env_g, env_b, env_a = _unpack_rgba(work.env_color)
+    blend_r, blend_g, blend_b, blend_a = _unpack_rgba(work.blend_color)
+    fog_r, fog_g, fog_b, fog_a = _unpack_rgba(work.fog_color)
+
+    noise_seed = active_combine_mux
+    noise_seed ^= active_source_packet_id << 9
+    noise_seed ^= (x & 0xFFFFFFFF) << 33
+    noise_seed ^= (y & 0xFFFFFFFF) << 45
+    noise_seed ^= active_sync_epoch << 17
+    noise_seed ^= work.other_modes & U64_MASK
+    noise_seed ^= work.key_state & U64_MASK
+    noise_seed ^= work.convert_state & U64_MASK
+    noise_seed ^= (work.prim_color & 0xFFFFFFFF) << 5
+    noise_seed ^= (work.env_color & 0xFFFFFFFF) << 11
+    noise_seed ^= (work.blend_color & 0xFFFFFFFF) << 19
+    noise_seed ^= (work.fog_color & 0xFFFFFFFF) << 27
+    noise_seed = (noise_seed * 0xD6E8FEB86659FD93) & U64_MASK
+
+    mux_const_r = (active_combine_mux >> 56) & 0xFF
+    mux_const_g = (active_combine_mux >> 48) & 0xFF
+    mux_const_b = (active_combine_mux >> 40) & 0xFF
+    mux_const_a = (active_combine_mux >> 32) & 0xFF
+
+    def select_state_color(selector: int, channel: int) -> int:
+        s = selector & 0x3
+        if s == 0:
+            table = (prim_r, prim_g, prim_b, prim_a)
+        elif s == 1:
+            table = (env_r, env_g, env_b, env_a)
+        elif s == 2:
+            table = (blend_r, blend_g, blend_b, blend_a)
+        else:
+            table = (fog_r, fog_g, fog_b, fog_a)
+        return table[channel & 0x3]
+
+    mode_selector_word = (work.other_modes ^ work.key_state ^ ((work.convert_state << 7) & U64_MASK)) & U64_MASK
+    mode_r = (mode_selector_word >> 0) & 0x3
+    mode_g = (mode_selector_word >> 2) & 0x3
+    mode_b = (mode_selector_word >> 4) & 0x3
+    mode_a = (mode_selector_word >> 6) & 0x3
+    mix_r = (work.convert_state >> 0) & 0xFF
+    mix_g = (work.convert_state >> 8) & 0xFF
+    mix_b = (work.convert_state >> 16) & 0xFF
+    mix_a = (work.convert_state >> 24) & 0xFF
+
+    def blend_const(base: int, state: int, mix: int) -> int:
+        inv_mix = 255 - (mix & 0xFF)
+        value = base * inv_mix + state * (mix & 0xFF)
+        return (value + 127) // 255
+
+    const_r = blend_const(mux_const_r, select_state_color(mode_r, 0), mix_r)
+    const_g = blend_const(mux_const_g, select_state_color(mode_g, 1), mix_g)
+    const_b = blend_const(mux_const_b, select_state_color(mode_b, 2), mix_b)
+    const_a = blend_const(mux_const_a, select_state_color(mode_a, 3), mix_a)
+    noise_r = (noise_seed >> 8) & 0xFF
+    noise_g = (noise_seed >> 24) & 0xFF
+    noise_b = (noise_seed >> 40) & 0xFF
+    noise_a = 0xFF
+
+    out_r = _eval_synthetic_combiner_channel(
+        active_combine_mux, 0, tex_r, shade_r, base_r, const_r, noise_r, dst_r
+    )
+    out_g = _eval_synthetic_combiner_channel(
+        active_combine_mux, 12, tex_g, shade_g, base_g, const_g, noise_g, dst_g
+    )
+    out_b = _eval_synthetic_combiner_channel(
+        active_combine_mux, 24, tex_b, shade_b, base_b, const_b, noise_b, dst_b
+    )
+    out_a = _eval_synthetic_combiner_channel(
+        active_combine_mux, 36, tex_a, shade_a, base_a, const_a, noise_a, dst_a
+    )
+    return _pack_rgba(out_r, out_g, out_b, out_a)
+
+
+def _blend_channel(src: int, dst: int, src_weight: int, dst_weight: int) -> int:
+    total = src_weight + dst_weight
+    if total == 0:
+        return src
+    blended = src * src_weight + dst * dst_weight
+    return (blended + (total // 2)) // total
+
+
+def _apply_synthetic_blender(
+    work: RenderWorkRecord,
+    src_color: int,
+    dst_color: int,
+    x: int,
+    y: int,
+    blend_params: Optional[int] = None,
+) -> int:
+    active_blend_params = (work.blend_params if blend_params is None else blend_params) & 0xFFFFFFFF
+    src_r, src_g, src_b, src_a = _unpack_rgba(src_color)
+    dst_r, dst_g, dst_b, dst_a = _unpack_rgba(dst_color)
+    blend_r, blend_g, blend_b, blend_a = _unpack_rgba(work.blend_color)
+    fog_r, fog_g, fog_b, fog_a = _unpack_rgba(work.fog_color)
+    prim_r, prim_g, prim_b, prim_a = _unpack_rgba(work.prim_color)
+
+    src_weight = active_blend_params & 0xFF
+    dst_weight = (active_blend_params >> 8) & 0xFF
+    alpha_scale = ((active_blend_params >> 16) & 0xFF) + 1
+    coverage_bias = (active_blend_params >> 24) & 0xFF
+    mode_lo = work.other_modes & 0xFFFFFFFF
+    src_weight += mode_lo & 0xF
+    dst_weight += (mode_lo >> 4) & 0xF
+    mode_alpha_scale = ((mode_lo >> 8) & 0x1F) + 1
+    modulated_alpha_scale = min(alpha_scale * mode_alpha_scale, 1024)
+    dynamic_coverage_bias = coverage_bias ^ (work.key_state & 0xFF)
+
+    tint_mix = (work.convert_state >> 16) & 0xFF
+    fog_mix = (work.convert_state >> 24) & 0x7F
+
+    def mix_channel(base: int, target: int, mix: int) -> int:
+        inv_mix = 255 - (mix & 0xFF)
+        value = base * inv_mix + target * (mix & 0xFF)
+        return (value + 127) // 255
+
+    src_r = mix_channel(src_r, blend_r, tint_mix)
+    src_g = mix_channel(src_g, blend_g, tint_mix)
+    src_b = mix_channel(src_b, blend_b, tint_mix)
+    src_a = mix_channel(src_a, prim_a, tint_mix)
+    src_r = mix_channel(src_r, fog_r, fog_mix)
+    src_g = mix_channel(src_g, fog_g, fog_mix)
+    src_b = mix_channel(src_b, fog_b, fog_mix)
+
+    if src_weight == 0 and dst_weight == 0:
+        src_weight = 255
+
+    src_alpha = src_a + 1
+    src_weight = (src_weight * src_alpha * modulated_alpha_scale + 32767) // (256 * 256)
+    dst_weight = (dst_weight * (256 - src_alpha) + 127) // 256
+
+    if (active_blend_params & 0x80000000) != 0:
+        coverage = ((x * 29) + (y * 17) + dynamic_coverage_bias) & 0xFF
+        src_weight += coverage >> 4
+        dst_weight += (255 - coverage) >> 4
+
+    if src_weight == 0 and dst_weight == 0:
+        src_weight = 1
+
+    out_r = _blend_channel(src_r, dst_r, src_weight, dst_weight)
+    out_g = _blend_channel(src_g, dst_g, src_weight, dst_weight)
+    out_b = _blend_channel(src_b, dst_b, src_weight, dst_weight)
+    out_a = _blend_channel(src_a, dst_a, src_weight, dst_weight)
+    return _pack_rgba(out_r, out_g, out_b, out_a)
+
+
+def _rotate_left_u64(value: int, shift: int) -> int:
+    s = shift & 63
+    if s == 0:
+        return value & U64_MASK
+    v = value & U64_MASK
+    return ((v << s) | (v >> (64 - s))) & U64_MASK
+
+
+def _rotate_left_u32(value: int, shift: int) -> int:
+    s = shift & 31
+    if s == 0:
+        return value & 0xFFFFFFFF
+    v = value & 0xFFFFFFFF
+    return ((v << s) | (v >> (32 - s))) & 0xFFFFFFFF
+
+
+def _evaluate_triangle_depth(work: RenderWorkRecord, x: int, y: int) -> int:
+    if work.depth_source != 0:
+        depth = (work.prim_depth_z << 8) + work.prim_depth_delta * (x + y)
+        if depth < -0x80000000:
+            return -0x80000000
+        if depth > 0x7FFFFFFF:
+            return 0x7FFFFFFF
+        return depth
+    dzdy = _combine_dy_derivative(work.triangle_dzdy, work.triangle_dzde, work.triangle_lmajor)
+    return _eval_coefficient_at_pixel(work.triangle_z, work.triangle_dzdx, dzdy, x, y)
+
+
+def _choose_triangle_texture_source_color(work: RenderWorkRecord, x: int, y: int) -> int:
+    use_triangle_texture = work.textured and work.triangle_texture_enable
+    if use_triangle_texture:
+        return _evaluate_triangle_texture_color(work, x, y)
+    if work.textured:
+        return _pseudo_texel(work, x, y)
+    return _pseudo_triangle_color(work, x, y)
+
+
+def _choose_triangle_shade_source_color(work: RenderWorkRecord, x: int, y: int) -> int:
+    return _evaluate_triangle_shade_color(work, x, y) if work.triangle_shade_enable else 0xFFFFFFFF
+
+
+def _choose_triangle_base_color(work: RenderWorkRecord, x: int, y: int) -> int:
+    use_triangle_shade = work.triangle_shade_enable
+    textured_color = _choose_triangle_texture_source_color(work, x, y)
+    if (not work.textured) and use_triangle_shade:
+        return _evaluate_triangle_shade_color(work, x, y)
+    if not use_triangle_shade:
+        return textured_color
+    return _modulate_rgba(textured_color, _evaluate_triangle_shade_color(work, x, y))
+
+
+def _run_synthetic_cycle1_pipeline(
+    work: RenderWorkRecord,
+    texture_color: int,
+    shade_color: int,
+    base_color: int,
+    dst_color: int,
+    x: int,
+    y: int,
+) -> int:
+    combined_color = _apply_synthetic_combiner(
+        work, texture_color, shade_color, base_color, dst_color, x, y
+    )
+    return _apply_synthetic_blender(work, combined_color, dst_color, x, y)
+
+
+def _run_synthetic_phase_pipeline(
+    work: RenderWorkRecord,
+    texture_color: int,
+    shade_color: int,
+    base_color: int,
+    dst_color: int,
+    x: int,
+    y: int,
+) -> int:
+    if work.phase == RENDER_PHASE_COPY:
+        return texture_color if work.textured else base_color
+    if work.phase == RENDER_PHASE_FILL:
+        return base_color
+    if work.phase != RENDER_PHASE_CYCLE2:
+        return _run_synthetic_cycle1_pipeline(work, texture_color, shade_color, base_color, dst_color, x, y)
+
+    cycle1_color = _run_synthetic_cycle1_pipeline(work, texture_color, shade_color, base_color, dst_color, x, y)
+    stage2_combine_mux = _rotate_left_u64((work.combine_mux ^ 0xA5A5A5A55A5A5A5A) & U64_MASK, 11)
+    stage2_source_packet_id = (work.source_packet_id ^ 0x9E3779B97F4A7C15) & U64_MASK
+    stage2_sync_epoch = (work.sync_epoch ^ 0x00A5A5A5) & 0xFFFFFFFF
+    stage2_blend_params = _rotate_left_u32((work.blend_params ^ 0x5A5AA5A5) & 0xFFFFFFFF, 7)
+    stage2_combined_color = _apply_synthetic_combiner(
+        work,
+        cycle1_color,
+        shade_color,
+        cycle1_color,
+        cycle1_color,
+        x,
+        y,
+        combine_mux=stage2_combine_mux,
+        source_packet_id=stage2_source_packet_id,
+        sync_epoch=stage2_sync_epoch,
+    )
+    return _apply_synthetic_blender(
+        work,
+        stage2_combined_color,
+        cycle1_color,
+        x,
+        y,
+        blend_params=stage2_blend_params,
+    )
+
+
+def _phase_uses_depth(phase: int) -> bool:
+    return phase in (RENDER_PHASE_CYCLE1, RENDER_PHASE_CYCLE2)
+
+
+def _passes_synthetic_alpha_compare(work: RenderWorkRecord, pixel: int, x: int, y: int) -> bool:
+    if work.alpha_compare == 0:
+        return True
+
+    alpha = pixel & 0xFF
+    if work.alpha_compare == 1:
+        threshold = work.blend_color & 0xFF
+        return alpha >= threshold
+    if work.alpha_compare == 2:
+        threshold = (
+            x * 17
+            + y * 29
+            + (work.sync_epoch & 0xFF)
+            + (work.key_state & 0xFF)
+        ) & 0xFF
+        return alpha >= threshold
+    return alpha != 0
+
+
 def _write_render_work_triangle(
     surface: _ReplayColorSurface,
+    depth_surface: Optional[_ReplayDepthSurface],
     work: RenderWorkRecord,
     summary: ExecutorReplaySummary,
     max_width: int,
@@ -2919,6 +4689,8 @@ def _write_render_work_triangle(
         return
 
     _ensure_surface_size(surface, lrx + 1, lry + 1, max_width, max_height)
+    if depth_surface is not None:
+        _ensure_depth_surface_size(depth_surface, lrx + 1, lry + 1, max_width, max_height)
     scissor_x0 = min(work.scissor_xh, work.scissor_xl)
     scissor_y0 = min(work.scissor_yh, work.scissor_yl)
     scissor_x1 = max(work.scissor_xh, work.scissor_xl)
@@ -2973,26 +4745,8 @@ def _write_render_work_triangle(
     cax = ax - cx
     cay = ay - cy
 
-    textured = work.textured
-    rect_ulx = work.rect_ulx
-    rect_uly = work.rect_uly
-    tex_s = work.tex_s
-    tex_t = work.tex_t
-    tex_dsdx = work.tex_dsdx
-    tex_dtdy = work.tex_dtdy
-    tex_seed_base = work.texture_image_address & U64_MASK
-    tex_seed_base ^= (work.tile_tmem & 0xFFFF) << 12
-    tex_seed_base ^= (work.tile_line & 0xFFFF) << 20
-    tex_seed_base ^= work.combine_mux & U64_MASK
-
-    tri_seed_base = work.combine_mux & U64_MASK
-    tri_seed_base ^= (work.blend_params & 0xFFFFFFFF) << 29
-    tri_seed_base ^= (work.source_packet_id & U64_MASK) << 7
-    tri_seed_base ^= work.sync_epoch & 0xFFFFFFFF
-
     for y in range(write_y0, write_y1 + 1):
         py = float(y) + 0.5
-        y_term = (y & 0xFFFFFFFF) << 45
         row_index = y * width + write_x0
         for x in range(write_x0, write_x1 + 1):
             px = float(x) + 0.5
@@ -3007,32 +4761,43 @@ def _write_render_work_triangle(
                 row_index += 1
                 continue
 
-            if textured:
-                dx = x - rect_ulx
-                dy = y - rect_uly
-                s = tex_s + ((dx * tex_dsdx) >> 5)
-                t = tex_t + ((dy * tex_dtdy) >> 5)
-                seed = tex_seed_base
-                seed ^= (s & 0xFFFF) << 1
-                seed ^= (t & 0xFFFF) << 17
-                seed ^= (x & 0xFFFFFFFF) << 33
-                seed ^= y_term
-                seed = (seed * 0x9E3779B97F4A7C15) & U64_MASK
-                r = (seed >> 8) & 0xFF
-                g = (seed >> 24) & 0xFF
-                b = (seed >> 40) & 0xFF
-                rgba = (r << 24) | (g << 16) | (b << 8) | 0xFF
-            else:
-                seed = tri_seed_base
-                seed ^= (x & 0xFFFFFFFF) << 33
-                seed ^= y_term
-                seed = (seed * 0x9E3779B97F4A7C15) & U64_MASK
-                r = (seed >> 9) & 0xFF
-                g = (seed >> 27) & 0xFF
-                b = (seed >> 41) & 0xFF
-                rgba = (r << 24) | (g << 16) | (b << 8) | 0xFF
+            dst_color = pixels[row_index] & 0xFFFFFFFF
+            texture_color = _choose_triangle_texture_source_color(work, x, y)
+            shade_color = _choose_triangle_shade_source_color(work, x, y)
+            base_color = _choose_triangle_base_color(work, x, y)
+            rgba = _run_synthetic_phase_pipeline(
+                work,
+                texture_color,
+                shade_color,
+                base_color,
+                dst_color,
+                x,
+                y,
+            ) & 0xFFFFFFFF
+            if not _passes_synthetic_alpha_compare(work, rgba, x, y):
+                row_index += 1
+                continue
 
-            pixels[row_index] = rgba & 0xFFFFFFFF
+            if (
+                depth_surface is not None
+                and _phase_uses_depth(work.phase)
+                and work.depth_test
+                and work.triangle_zbuffer_enable
+                and (work.depth_compare_enable or work.depth_update_enable)
+            ):
+                z = _evaluate_triangle_depth(work, x, y)
+                depth_index = _surface_index(depth_surface.width, x, y)
+                if depth_index >= len(depth_surface.values):
+                    row_index += 1
+                    continue
+                depth_value = depth_surface.values[depth_index]
+                if work.depth_compare_enable and z > depth_value:
+                    row_index += 1
+                    continue
+                if work.depth_update_enable:
+                    depth_surface.values[depth_index] = z
+
+            pixels[row_index] = rgba
             row_index += 1
             color_write_count += 1
 
@@ -3115,6 +4880,7 @@ def _execute_submission_plan(
         present_aspect_y=aspect_y,
     )
     surfaces: dict[int, _ReplayColorSurface] = {}
+    depth_surfaces: dict[int, _ReplayDepthSurface] = {}
     last_surface_address = 0
 
     for batch in batches:
@@ -3142,7 +4908,19 @@ def _execute_submission_plan(
                 surface.format = work.color_image_format
                 surface.size = work.color_image_size
             if work.op_kind == 1:
-                _write_render_work_triangle(surface, work, summary, max_width, max_height)
+                depth_surface: Optional[_ReplayDepthSurface] = None
+                if _phase_uses_depth(work.phase) and work.depth_test and work.triangle_zbuffer_enable:
+                    depth_address = work.depth_image_address if work.depth_image_address != 0 else work.color_image_address
+                    depth_surface = depth_surfaces.get(depth_address)
+                    if depth_surface is None:
+                        width = max(1, min(work.color_image_width, max_width))
+                        depth_surface = _ReplayDepthSurface(
+                            width=width,
+                            height=1,
+                            values=[0x7FFFFFFF for _ in range(width)],
+                        )
+                        depth_surfaces[depth_address] = depth_surface
+                _write_render_work_triangle(surface, depth_surface, work, summary, max_width, max_height)
             else:
                 _write_render_work_rect(surface, work, summary, max_width, max_height)
             last_surface_address = work.color_image_address
@@ -3184,7 +4962,7 @@ def replay_frame(frame: FrameRecord) -> FrameCheck:
             if first_unknown_rdp_packet_id == 0:
                 first_unknown_rdp_packet_id = packet.packet_id
                 first_unknown_rdp_opcode = packet.opcode
-        if packet.full_word_count > (2 + packet.extra_word_count):
+        if packet.full_word_count > (2 + _packet_payload_count(packet)):
             truncated_payload_count += 1
             if first_truncated_payload_packet_id == 0:
                 first_truncated_payload_packet_id = packet.packet_id

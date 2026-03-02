@@ -210,6 +210,41 @@ u64 hashDrawSemanticPacket(const rvk2::DrawSemanticPacket & _semantic)
 	updateHash(hash, _semantic.triangleDxLDY);
 	updateHash(hash, _semantic.triangleDxHDY);
 	updateHash(hash, _semantic.triangleDxMDY);
+	updateHash(hash, _semantic.triangleShadeEnable);
+	updateHash(hash, _semantic.triangleTextureEnable);
+	updateHash(hash, _semantic.triangleZBufferEnable);
+	updateHash(hash, _semantic.triangleShadeR);
+	updateHash(hash, _semantic.triangleShadeG);
+	updateHash(hash, _semantic.triangleShadeB);
+	updateHash(hash, _semantic.triangleShadeA);
+	updateHash(hash, _semantic.triangleShadeDRDX);
+	updateHash(hash, _semantic.triangleShadeDGDX);
+	updateHash(hash, _semantic.triangleShadeDBDX);
+	updateHash(hash, _semantic.triangleShadeDADX);
+	updateHash(hash, _semantic.triangleShadeDRDE);
+	updateHash(hash, _semantic.triangleShadeDGDE);
+	updateHash(hash, _semantic.triangleShadeDBDE);
+	updateHash(hash, _semantic.triangleShadeDADE);
+	updateHash(hash, _semantic.triangleShadeDRDY);
+	updateHash(hash, _semantic.triangleShadeDGDY);
+	updateHash(hash, _semantic.triangleShadeDBDY);
+	updateHash(hash, _semantic.triangleShadeDADY);
+	updateHash(hash, _semantic.triangleTexS);
+	updateHash(hash, _semantic.triangleTexT);
+	updateHash(hash, _semantic.triangleTexW);
+	updateHash(hash, _semantic.triangleTexDSDX);
+	updateHash(hash, _semantic.triangleTexDTDX);
+	updateHash(hash, _semantic.triangleTexDWDX);
+	updateHash(hash, _semantic.triangleTexDSDE);
+	updateHash(hash, _semantic.triangleTexDTDE);
+	updateHash(hash, _semantic.triangleTexDWDE);
+	updateHash(hash, _semantic.triangleTexDSDY);
+	updateHash(hash, _semantic.triangleTexDTDY);
+	updateHash(hash, _semantic.triangleTexDWDY);
+	updateHash(hash, _semantic.triangleZ);
+	updateHash(hash, _semantic.triangleDZDX);
+	updateHash(hash, _semantic.triangleDZDE);
+	updateHash(hash, _semantic.triangleDZDY);
 	updateHash(hash, _semantic.textured);
 	updateHash(hash, _semantic.depthTest);
 	updateHash(hash, _semantic.syncEpoch);
@@ -258,6 +293,41 @@ u64 hashRasterOpPacket(const rvk2::RasterOpPacket & _op)
 	updateHash(hash, _op.triangleDxLDY);
 	updateHash(hash, _op.triangleDxHDY);
 	updateHash(hash, _op.triangleDxMDY);
+	updateHash(hash, _op.triangleShadeEnable);
+	updateHash(hash, _op.triangleTextureEnable);
+	updateHash(hash, _op.triangleZBufferEnable);
+	updateHash(hash, _op.triangleShadeR);
+	updateHash(hash, _op.triangleShadeG);
+	updateHash(hash, _op.triangleShadeB);
+	updateHash(hash, _op.triangleShadeA);
+	updateHash(hash, _op.triangleShadeDRDX);
+	updateHash(hash, _op.triangleShadeDGDX);
+	updateHash(hash, _op.triangleShadeDBDX);
+	updateHash(hash, _op.triangleShadeDADX);
+	updateHash(hash, _op.triangleShadeDRDE);
+	updateHash(hash, _op.triangleShadeDGDE);
+	updateHash(hash, _op.triangleShadeDBDE);
+	updateHash(hash, _op.triangleShadeDADE);
+	updateHash(hash, _op.triangleShadeDRDY);
+	updateHash(hash, _op.triangleShadeDGDY);
+	updateHash(hash, _op.triangleShadeDBDY);
+	updateHash(hash, _op.triangleShadeDADY);
+	updateHash(hash, _op.triangleTexS);
+	updateHash(hash, _op.triangleTexT);
+	updateHash(hash, _op.triangleTexW);
+	updateHash(hash, _op.triangleTexDSDX);
+	updateHash(hash, _op.triangleTexDTDX);
+	updateHash(hash, _op.triangleTexDWDX);
+	updateHash(hash, _op.triangleTexDSDE);
+	updateHash(hash, _op.triangleTexDTDE);
+	updateHash(hash, _op.triangleTexDWDE);
+	updateHash(hash, _op.triangleTexDSDY);
+	updateHash(hash, _op.triangleTexDTDY);
+	updateHash(hash, _op.triangleTexDWDY);
+	updateHash(hash, _op.triangleZ);
+	updateHash(hash, _op.triangleDZDX);
+	updateHash(hash, _op.triangleDZDE);
+	updateHash(hash, _op.triangleDZDY);
 	updateHash(hash, _op.combineMux);
 	updateHash(hash, _op.blendParams);
 	updateHash(hash, _op.fillColor);
@@ -290,6 +360,8 @@ u64 hashRenderWorkPacket(const rvk2::RenderWorkPacket & _work)
 	updateHash(hash, _work.texRectFlip);
 	updateHash(hash, _work.textured);
 	updateHash(hash, _work.depthTest);
+	updateHash(hash, _work.depthCompareEnable);
+	updateHash(hash, _work.depthUpdateEnable);
 	updateHash(hash, _work.rectULX);
 	updateHash(hash, _work.rectULY);
 	updateHash(hash, _work.rectLRX);
@@ -309,11 +381,57 @@ u64 hashRenderWorkPacket(const rvk2::RenderWorkPacket & _work)
 	updateHash(hash, _work.triangleDxLDY);
 	updateHash(hash, _work.triangleDxHDY);
 	updateHash(hash, _work.triangleDxMDY);
+	updateHash(hash, _work.triangleShadeEnable);
+	updateHash(hash, _work.triangleTextureEnable);
+	updateHash(hash, _work.triangleZBufferEnable);
+	updateHash(hash, _work.triangleShadeR);
+	updateHash(hash, _work.triangleShadeG);
+	updateHash(hash, _work.triangleShadeB);
+	updateHash(hash, _work.triangleShadeA);
+	updateHash(hash, _work.triangleShadeDRDX);
+	updateHash(hash, _work.triangleShadeDGDX);
+	updateHash(hash, _work.triangleShadeDBDX);
+	updateHash(hash, _work.triangleShadeDADX);
+	updateHash(hash, _work.triangleShadeDRDE);
+	updateHash(hash, _work.triangleShadeDGDE);
+	updateHash(hash, _work.triangleShadeDBDE);
+	updateHash(hash, _work.triangleShadeDADE);
+	updateHash(hash, _work.triangleShadeDRDY);
+	updateHash(hash, _work.triangleShadeDGDY);
+	updateHash(hash, _work.triangleShadeDBDY);
+	updateHash(hash, _work.triangleShadeDADY);
+	updateHash(hash, _work.triangleTexS);
+	updateHash(hash, _work.triangleTexT);
+	updateHash(hash, _work.triangleTexW);
+	updateHash(hash, _work.triangleTexDSDX);
+	updateHash(hash, _work.triangleTexDTDX);
+	updateHash(hash, _work.triangleTexDWDX);
+	updateHash(hash, _work.triangleTexDSDE);
+	updateHash(hash, _work.triangleTexDTDE);
+	updateHash(hash, _work.triangleTexDWDE);
+	updateHash(hash, _work.triangleTexDSDY);
+	updateHash(hash, _work.triangleTexDTDY);
+	updateHash(hash, _work.triangleTexDWDY);
+	updateHash(hash, _work.triangleZ);
+	updateHash(hash, _work.triangleDZDX);
+	updateHash(hash, _work.triangleDZDE);
+	updateHash(hash, _work.triangleDZDY);
 	updateHash(hash, _work.colorImageFormat);
 	updateHash(hash, _work.colorImageSize);
 	updateHash(hash, _work.colorImageWidth);
 	updateHash(hash, _work.colorImageAddress);
 	updateHash(hash, _work.depthImageAddress);
+	updateHash(hash, _work.alphaCompare);
+	updateHash(hash, _work.depthSource);
+	updateHash(hash, _work.primDepthZ);
+	updateHash(hash, _work.primDepthDelta);
+	updateHash(hash, _work.otherModes);
+	updateHash(hash, _work.primColor);
+	updateHash(hash, _work.envColor);
+	updateHash(hash, _work.blendColor);
+	updateHash(hash, _work.fogColor);
+	updateHash(hash, _work.keyState);
+	updateHash(hash, _work.convertState);
 	updateHash(hash, _work.scissorMode);
 	updateHash(hash, _work.scissorXH);
 	updateHash(hash, _work.scissorYH);
@@ -514,7 +632,9 @@ void Runtime::submitRDPWord(
 	u32 _w6,
 	u32 _w7,
 	u16 _fullWordCount,
-	u64 _tailHash)
+	u64 _tailHash,
+	u8 _payloadWordCount,
+	const u32 * _payloadWords)
 {
 	const CommandPacket packet =
 		m_rspFrontend.ingestRDPCommand(
@@ -530,7 +650,9 @@ void Runtime::submitRDPWord(
 			_w6,
 			_w7,
 			_fullWordCount,
-			_tailHash);
+			_tailHash,
+			_payloadWordCount,
+			_payloadWords);
 	m_commandStream.push(packet);
 	if (!isKnownRdpOpcode(packet.opcode)) {
 		++m_unknownRdpOpcodeCount;
@@ -539,7 +661,9 @@ void Runtime::submitRDPWord(
 			m_firstUnknownRdpOpcode = packet.opcode;
 		}
 	}
-	if (packet.fullWordCount > static_cast<u16>(2U + packet.extraWordCount)) {
+	const u16 capturedPayloadWords = static_cast<u16>(
+		packet.payloadWordCount > 0U ? packet.payloadWordCount : packet.extraWordCount);
+	if (packet.fullWordCount > static_cast<u16>(2U + capturedPayloadWords)) {
 		++m_truncatedPayloadCount;
 		if (m_firstTruncatedPayloadPacketId == 0ULL) {
 			m_firstTruncatedPayloadPacketId = packet.id;
@@ -581,7 +705,9 @@ void Runtime::submitRSPWord(
 	u32 _w6,
 	u32 _w7,
 	u16 _fullWordCount,
-	u64 _tailHash)
+	u64 _tailHash,
+	u8 _payloadWordCount,
+	const u32 * _payloadWords)
 {
 	const CommandPacket packet =
 		m_rspFrontend.ingestRSPCommand(
@@ -597,7 +723,9 @@ void Runtime::submitRSPWord(
 			_w6,
 			_w7,
 			_fullWordCount,
-			_tailHash);
+			_tailHash,
+			_payloadWordCount,
+			_payloadWords);
 	m_commandStream.push(packet);
 }
 

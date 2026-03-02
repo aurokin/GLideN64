@@ -26,6 +26,7 @@ By default, the gate runs:
 - Release CLI build (`MUPENPLUSAPI=ON`, `MUPENPLUSAPI_GLIDENUI=OFF`)
 - Debug CLI build (`MUPENPLUSAPI=ON`, `MUPENPLUSAPI_GLIDENUI=OFF`)
 - `rvk2_unit_tests` in both Release and Debug gate builds.
+- `rvk2_conformance_tests` in both Release and Debug gate builds.
 
 ## Optional knobs
 
@@ -48,6 +49,7 @@ By default, the gate runs:
     - Writes JSON report to `build/local-gate/rvk2.packet.replay.json` by default.
 - `REALITYVK_GATE_JOBS=<n>` sets build parallelism.
 - `REALITYVK_GATE_RUN_RVK2_UNIT_TESTS=0` skips `rvk2_unit_tests` execution (debug-only escape hatch).
+- `REALITYVK_GATE_RUN_RVK2_CONFORMANCE_TESTS=0` skips `rvk2_conformance_tests` execution (debug-only escape hatch).
 - `REALITYVK_PM_REFERENCE_PLUGIN=<path>` overrides reference plugin path used by parity checks.
 - `REALITYVK_PM_CANDIDATE_PLUGIN=<path>` overrides candidate plugin path used by parity checks.
 - `REALITYVK_GATE_SMOKE_REQUIRE_READBACK_MARKER=0` disables marker enforcement (debug-only escape hatch).

@@ -48,7 +48,16 @@ void CommandStream::push(const CommandPacket & _packet)
 	updateHash(m_commandHash, _packet.flags);
 	updateHash(m_commandHash, _packet.w0);
 	updateHash(m_commandHash, _packet.w1);
-	if (_packet.extraWordCount > 0U) {
+	if (_packet.payloadWordCount > 0U) {
+		updateHash(m_commandHash, _packet.payloadWordCount);
+		const u8 payloadCount =
+			_packet.payloadWordCount < static_cast<u8>(kMaxCommandPayloadWords)
+				? _packet.payloadWordCount
+				: static_cast<u8>(kMaxCommandPayloadWords);
+		for (u8 i = 0U; i < payloadCount; ++i)
+			updateHash(m_commandHash, _packet.payloadWords[i]);
+	}
+	else if (_packet.extraWordCount > 0U) {
 		updateHash(m_commandHash, _packet.extraWordCount);
 		updateHash(m_commandHash, _packet.w2);
 		if (_packet.extraWordCount > 1U) {

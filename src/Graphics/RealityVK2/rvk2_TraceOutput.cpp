@@ -97,9 +97,14 @@ void appendPacketTraceDump(
 
 	const auto & packets = _stream.commands();
 	for (const rvk2::CommandPacket & packet : packets) {
+		const u32 payloadWordCount =
+			static_cast<u32>(
+				packet.payloadWordCount <= static_cast<u8>(rvk2::kMaxCommandPayloadWords)
+					? packet.payloadWordCount
+					: static_cast<u8>(rvk2::kMaxCommandPayloadWords));
 		std::fprintf(
 			file,
-			"P\t%llu\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%llu\t%u\n",
+			"P\t%llu\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%llu\t%u\t%u",
 			static_cast<unsigned long long>(packet.id),
 			static_cast<u32>(packet.domain),
 			static_cast<u32>(packet.opcode),
@@ -118,90 +123,174 @@ void appendPacketTraceDump(
 			static_cast<u32>(packet.w7),
 			static_cast<u32>(packet.fullWordCount),
 			static_cast<unsigned long long>(packet.tailHash),
-			_microcodeType);
+			_microcodeType,
+			payloadWordCount);
+		for (u32 payloadIndex = 0U; payloadIndex < payloadWordCount; ++payloadIndex)
+			std::fprintf(file, "\t%u", static_cast<u32>(packet.payloadWords[payloadIndex]));
+		std::fprintf(file, "\n");
 		}
 
 	for (const rvk2::DrawSemanticPacket & semantic : _semantics) {
-		std::fprintf(
-			file,
-			"S\t%llu\t%u\t%u\t%u\t%u\t%u\t%llu\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%llu\t%llu\t%llu\t%llu\n",
-			static_cast<unsigned long long>(semantic.sourcePacketId),
-			static_cast<u32>(semantic.sourceOpcode),
-			static_cast<u32>(semantic.drawType),
-			static_cast<u32>(semantic.tile),
-			semantic.texRectFlip ? 1U : 0U,
-			static_cast<u32>(semantic.cycleType),
-			static_cast<unsigned long long>(semantic.combineMux),
-			static_cast<u32>(semantic.blendMux1),
-			static_cast<u32>(semantic.blendMux2),
-			static_cast<u32>(semantic.blendParams),
-			static_cast<u32>(semantic.rectULX),
-			static_cast<u32>(semantic.rectULY),
-			static_cast<u32>(semantic.rectLRX),
-			static_cast<u32>(semantic.rectLRY),
-			static_cast<u32>(static_cast<u16>(semantic.texS)),
-			static_cast<u32>(static_cast<u16>(semantic.texT)),
-			static_cast<u32>(static_cast<u16>(semantic.texDSDX)),
-			static_cast<u32>(static_cast<u16>(semantic.texDTDY)),
-			semantic.triangleLMajor ? 1U : 0U,
-			static_cast<u32>(semantic.triangleLevel),
-			static_cast<u32>(semantic.triangleYL),
-			static_cast<u32>(semantic.triangleYM),
-			static_cast<u32>(semantic.triangleYH),
-			static_cast<u32>(semantic.triangleXL),
-			static_cast<u32>(semantic.triangleXH),
-			static_cast<u32>(semantic.triangleXM),
-			static_cast<u32>(semantic.triangleDxLDY),
-			static_cast<u32>(semantic.triangleDxHDY),
-			static_cast<u32>(semantic.triangleDxMDY),
-			semantic.textured ? 1U : 0U,
-			semantic.depthTest ? 1U : 0U,
-			static_cast<u32>(semantic.syncEpoch),
-			static_cast<unsigned long long>(semantic.loadSyncPacketId),
-				static_cast<unsigned long long>(semantic.pipeSyncPacketId),
-				static_cast<unsigned long long>(semantic.tileSyncPacketId),
-				static_cast<unsigned long long>(semantic.fullSyncPacketId));
+		auto emitU64 = [&](u64 value) {
+			std::fprintf(file, "\t%llu", static_cast<unsigned long long>(value));
+		};
+		auto emitU32 = [&](u32 value) {
+			std::fprintf(file, "\t%u", value);
+		};
+		std::fprintf(file, "S");
+		emitU64(semantic.sourcePacketId);
+		emitU32(static_cast<u32>(semantic.sourceOpcode));
+		emitU32(static_cast<u32>(semantic.drawType));
+		emitU32(static_cast<u32>(semantic.tile));
+		emitU32(semantic.texRectFlip ? 1U : 0U);
+		emitU32(static_cast<u32>(semantic.cycleType));
+		emitU64(semantic.combineMux);
+		emitU32(static_cast<u32>(semantic.blendMux1));
+		emitU32(static_cast<u32>(semantic.blendMux2));
+		emitU32(static_cast<u32>(semantic.blendParams));
+		emitU32(static_cast<u32>(semantic.rectULX));
+		emitU32(static_cast<u32>(semantic.rectULY));
+		emitU32(static_cast<u32>(semantic.rectLRX));
+		emitU32(static_cast<u32>(semantic.rectLRY));
+		emitU32(static_cast<u32>(static_cast<u16>(semantic.texS)));
+		emitU32(static_cast<u32>(static_cast<u16>(semantic.texT)));
+		emitU32(static_cast<u32>(static_cast<u16>(semantic.texDSDX)));
+		emitU32(static_cast<u32>(static_cast<u16>(semantic.texDTDY)));
+		emitU32(semantic.triangleLMajor ? 1U : 0U);
+		emitU32(static_cast<u32>(semantic.triangleLevel));
+		emitU32(static_cast<u32>(semantic.triangleYL));
+		emitU32(static_cast<u32>(semantic.triangleYM));
+		emitU32(static_cast<u32>(semantic.triangleYH));
+		emitU32(static_cast<u32>(semantic.triangleXL));
+		emitU32(static_cast<u32>(semantic.triangleXH));
+		emitU32(static_cast<u32>(semantic.triangleXM));
+		emitU32(static_cast<u32>(semantic.triangleDxLDY));
+		emitU32(static_cast<u32>(semantic.triangleDxHDY));
+		emitU32(static_cast<u32>(semantic.triangleDxMDY));
+		emitU32(semantic.triangleShadeEnable ? 1U : 0U);
+		emitU32(semantic.triangleTextureEnable ? 1U : 0U);
+		emitU32(semantic.triangleZBufferEnable ? 1U : 0U);
+		emitU32(static_cast<u32>(semantic.triangleShadeR));
+		emitU32(static_cast<u32>(semantic.triangleShadeG));
+		emitU32(static_cast<u32>(semantic.triangleShadeB));
+		emitU32(static_cast<u32>(semantic.triangleShadeA));
+		emitU32(static_cast<u32>(semantic.triangleShadeDRDX));
+		emitU32(static_cast<u32>(semantic.triangleShadeDGDX));
+		emitU32(static_cast<u32>(semantic.triangleShadeDBDX));
+		emitU32(static_cast<u32>(semantic.triangleShadeDADX));
+		emitU32(static_cast<u32>(semantic.triangleShadeDRDE));
+		emitU32(static_cast<u32>(semantic.triangleShadeDGDE));
+		emitU32(static_cast<u32>(semantic.triangleShadeDBDE));
+		emitU32(static_cast<u32>(semantic.triangleShadeDADE));
+		emitU32(static_cast<u32>(semantic.triangleShadeDRDY));
+		emitU32(static_cast<u32>(semantic.triangleShadeDGDY));
+		emitU32(static_cast<u32>(semantic.triangleShadeDBDY));
+		emitU32(static_cast<u32>(semantic.triangleShadeDADY));
+		emitU32(static_cast<u32>(semantic.triangleTexS));
+		emitU32(static_cast<u32>(semantic.triangleTexT));
+		emitU32(static_cast<u32>(semantic.triangleTexW));
+		emitU32(static_cast<u32>(semantic.triangleTexDSDX));
+		emitU32(static_cast<u32>(semantic.triangleTexDTDX));
+		emitU32(static_cast<u32>(semantic.triangleTexDWDX));
+		emitU32(static_cast<u32>(semantic.triangleTexDSDE));
+		emitU32(static_cast<u32>(semantic.triangleTexDTDE));
+		emitU32(static_cast<u32>(semantic.triangleTexDWDE));
+		emitU32(static_cast<u32>(semantic.triangleTexDSDY));
+		emitU32(static_cast<u32>(semantic.triangleTexDTDY));
+		emitU32(static_cast<u32>(semantic.triangleTexDWDY));
+		emitU32(static_cast<u32>(semantic.triangleZ));
+		emitU32(static_cast<u32>(semantic.triangleDZDX));
+		emitU32(static_cast<u32>(semantic.triangleDZDE));
+		emitU32(static_cast<u32>(semantic.triangleDZDY));
+		emitU32(semantic.textured ? 1U : 0U);
+		emitU32(semantic.depthTest ? 1U : 0U);
+		emitU32(static_cast<u32>(semantic.syncEpoch));
+		emitU64(semantic.loadSyncPacketId);
+		emitU64(semantic.pipeSyncPacketId);
+		emitU64(semantic.tileSyncPacketId);
+		emitU64(semantic.fullSyncPacketId);
+		std::fprintf(file, "\n");
 		}
 
 	for (const rvk2::RasterOpPacket & op : _rasterOps) {
-		std::fprintf(
-			file,
-			"R\t%llu\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%llu\t%u\t%u\t%u\t%llu\t%llu\t%llu\t%llu\n",
-			static_cast<unsigned long long>(op.sourcePacketId),
-			static_cast<u32>(op.sourceOpcode),
-			static_cast<u32>(op.opKind),
-			static_cast<u32>(op.cycleType),
-			static_cast<u32>(op.tile),
-			op.texRectFlip ? 1U : 0U,
-			op.textured ? 1U : 0U,
-			op.depthTest ? 1U : 0U,
-			static_cast<u32>(op.rectULX),
-			static_cast<u32>(op.rectULY),
-			static_cast<u32>(op.rectLRX),
-			static_cast<u32>(op.rectLRY),
-			static_cast<u32>(static_cast<u16>(op.texS)),
-			static_cast<u32>(static_cast<u16>(op.texT)),
-			static_cast<u32>(static_cast<u16>(op.texDSDX)),
-			static_cast<u32>(static_cast<u16>(op.texDTDY)),
-			op.triangleLMajor ? 1U : 0U,
-			static_cast<u32>(op.triangleLevel),
-			static_cast<u32>(op.triangleYL),
-			static_cast<u32>(op.triangleYM),
-			static_cast<u32>(op.triangleYH),
-			static_cast<u32>(op.triangleXL),
-			static_cast<u32>(op.triangleXH),
-			static_cast<u32>(op.triangleXM),
-			static_cast<u32>(op.triangleDxLDY),
-			static_cast<u32>(op.triangleDxHDY),
-			static_cast<u32>(op.triangleDxMDY),
-			static_cast<unsigned long long>(op.combineMux),
-			static_cast<u32>(op.blendParams),
-			static_cast<u32>(op.fillColor),
-			static_cast<u32>(op.syncEpoch),
-			static_cast<unsigned long long>(op.loadSyncPacketId),
-			static_cast<unsigned long long>(op.pipeSyncPacketId),
-			static_cast<unsigned long long>(op.tileSyncPacketId),
-			static_cast<unsigned long long>(op.fullSyncPacketId));
+		auto emitU64 = [&](u64 value) {
+			std::fprintf(file, "\t%llu", static_cast<unsigned long long>(value));
+		};
+		auto emitU32 = [&](u32 value) {
+			std::fprintf(file, "\t%u", value);
+		};
+		std::fprintf(file, "R");
+		emitU64(op.sourcePacketId);
+		emitU32(static_cast<u32>(op.sourceOpcode));
+		emitU32(static_cast<u32>(op.opKind));
+		emitU32(static_cast<u32>(op.cycleType));
+		emitU32(static_cast<u32>(op.tile));
+		emitU32(op.texRectFlip ? 1U : 0U);
+		emitU32(op.textured ? 1U : 0U);
+		emitU32(op.depthTest ? 1U : 0U);
+		emitU32(static_cast<u32>(op.rectULX));
+		emitU32(static_cast<u32>(op.rectULY));
+		emitU32(static_cast<u32>(op.rectLRX));
+		emitU32(static_cast<u32>(op.rectLRY));
+		emitU32(static_cast<u32>(static_cast<u16>(op.texS)));
+		emitU32(static_cast<u32>(static_cast<u16>(op.texT)));
+		emitU32(static_cast<u32>(static_cast<u16>(op.texDSDX)));
+		emitU32(static_cast<u32>(static_cast<u16>(op.texDTDY)));
+		emitU32(op.triangleLMajor ? 1U : 0U);
+		emitU32(static_cast<u32>(op.triangleLevel));
+		emitU32(static_cast<u32>(op.triangleYL));
+		emitU32(static_cast<u32>(op.triangleYM));
+		emitU32(static_cast<u32>(op.triangleYH));
+		emitU32(static_cast<u32>(op.triangleXL));
+		emitU32(static_cast<u32>(op.triangleXH));
+		emitU32(static_cast<u32>(op.triangleXM));
+		emitU32(static_cast<u32>(op.triangleDxLDY));
+		emitU32(static_cast<u32>(op.triangleDxHDY));
+		emitU32(static_cast<u32>(op.triangleDxMDY));
+		emitU32(op.triangleShadeEnable ? 1U : 0U);
+		emitU32(op.triangleTextureEnable ? 1U : 0U);
+		emitU32(op.triangleZBufferEnable ? 1U : 0U);
+		emitU32(static_cast<u32>(op.triangleShadeR));
+		emitU32(static_cast<u32>(op.triangleShadeG));
+		emitU32(static_cast<u32>(op.triangleShadeB));
+		emitU32(static_cast<u32>(op.triangleShadeA));
+		emitU32(static_cast<u32>(op.triangleShadeDRDX));
+		emitU32(static_cast<u32>(op.triangleShadeDGDX));
+		emitU32(static_cast<u32>(op.triangleShadeDBDX));
+		emitU32(static_cast<u32>(op.triangleShadeDADX));
+		emitU32(static_cast<u32>(op.triangleShadeDRDE));
+		emitU32(static_cast<u32>(op.triangleShadeDGDE));
+		emitU32(static_cast<u32>(op.triangleShadeDBDE));
+		emitU32(static_cast<u32>(op.triangleShadeDADE));
+		emitU32(static_cast<u32>(op.triangleShadeDRDY));
+		emitU32(static_cast<u32>(op.triangleShadeDGDY));
+		emitU32(static_cast<u32>(op.triangleShadeDBDY));
+		emitU32(static_cast<u32>(op.triangleShadeDADY));
+		emitU32(static_cast<u32>(op.triangleTexS));
+		emitU32(static_cast<u32>(op.triangleTexT));
+		emitU32(static_cast<u32>(op.triangleTexW));
+		emitU32(static_cast<u32>(op.triangleTexDSDX));
+		emitU32(static_cast<u32>(op.triangleTexDTDX));
+		emitU32(static_cast<u32>(op.triangleTexDWDX));
+		emitU32(static_cast<u32>(op.triangleTexDSDE));
+		emitU32(static_cast<u32>(op.triangleTexDTDE));
+		emitU32(static_cast<u32>(op.triangleTexDWDE));
+		emitU32(static_cast<u32>(op.triangleTexDSDY));
+		emitU32(static_cast<u32>(op.triangleTexDTDY));
+		emitU32(static_cast<u32>(op.triangleTexDWDY));
+		emitU32(static_cast<u32>(op.triangleZ));
+		emitU32(static_cast<u32>(op.triangleDZDX));
+		emitU32(static_cast<u32>(op.triangleDZDE));
+		emitU32(static_cast<u32>(op.triangleDZDY));
+		emitU64(op.combineMux);
+		emitU32(static_cast<u32>(op.blendParams));
+		emitU32(static_cast<u32>(op.fillColor));
+		emitU32(static_cast<u32>(op.syncEpoch));
+		emitU64(op.loadSyncPacketId);
+		emitU64(op.pipeSyncPacketId);
+		emitU64(op.tileSyncPacketId);
+		emitU64(op.fullSyncPacketId);
+		std::fprintf(file, "\n");
 	}
 
 	for (const rvk2::RenderWorkPacket & work : _renderWork) {
@@ -241,6 +330,41 @@ void appendPacketTraceDump(
 		emitU32(static_cast<u32>(work.triangleDxLDY));
 		emitU32(static_cast<u32>(work.triangleDxHDY));
 		emitU32(static_cast<u32>(work.triangleDxMDY));
+		emitU32(work.triangleShadeEnable ? 1U : 0U);
+		emitU32(work.triangleTextureEnable ? 1U : 0U);
+		emitU32(work.triangleZBufferEnable ? 1U : 0U);
+		emitU32(static_cast<u32>(work.triangleShadeR));
+		emitU32(static_cast<u32>(work.triangleShadeG));
+		emitU32(static_cast<u32>(work.triangleShadeB));
+		emitU32(static_cast<u32>(work.triangleShadeA));
+		emitU32(static_cast<u32>(work.triangleShadeDRDX));
+		emitU32(static_cast<u32>(work.triangleShadeDGDX));
+		emitU32(static_cast<u32>(work.triangleShadeDBDX));
+		emitU32(static_cast<u32>(work.triangleShadeDADX));
+		emitU32(static_cast<u32>(work.triangleShadeDRDE));
+		emitU32(static_cast<u32>(work.triangleShadeDGDE));
+		emitU32(static_cast<u32>(work.triangleShadeDBDE));
+		emitU32(static_cast<u32>(work.triangleShadeDADE));
+		emitU32(static_cast<u32>(work.triangleShadeDRDY));
+		emitU32(static_cast<u32>(work.triangleShadeDGDY));
+		emitU32(static_cast<u32>(work.triangleShadeDBDY));
+		emitU32(static_cast<u32>(work.triangleShadeDADY));
+		emitU32(static_cast<u32>(work.triangleTexS));
+		emitU32(static_cast<u32>(work.triangleTexT));
+		emitU32(static_cast<u32>(work.triangleTexW));
+		emitU32(static_cast<u32>(work.triangleTexDSDX));
+		emitU32(static_cast<u32>(work.triangleTexDTDX));
+		emitU32(static_cast<u32>(work.triangleTexDWDX));
+		emitU32(static_cast<u32>(work.triangleTexDSDE));
+		emitU32(static_cast<u32>(work.triangleTexDTDE));
+		emitU32(static_cast<u32>(work.triangleTexDWDE));
+		emitU32(static_cast<u32>(work.triangleTexDSDY));
+		emitU32(static_cast<u32>(work.triangleTexDTDY));
+		emitU32(static_cast<u32>(work.triangleTexDWDY));
+		emitU32(static_cast<u32>(work.triangleZ));
+		emitU32(static_cast<u32>(work.triangleDZDX));
+		emitU32(static_cast<u32>(work.triangleDZDE));
+		emitU32(static_cast<u32>(work.triangleDZDY));
 		emitU32(static_cast<u32>(work.colorImageFormat));
 		emitU32(static_cast<u32>(work.colorImageSize));
 		emitU32(static_cast<u32>(work.colorImageWidth));
