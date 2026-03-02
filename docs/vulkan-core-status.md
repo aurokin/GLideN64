@@ -26,7 +26,7 @@ Estimated total completion: **~99%**.
 ## Remaining Work
 
 1. Close remaining P4/P5 correctness gaps (combiner/blender/depth/coverage) after visible-output bring-up.
-2. Advance P3 from RDRAM decode bridge to authoritative TMEM-backed texel path.
+2. Advance P3 from RDRAM decode bridge to authoritative TMEM-backed texel path (TLUT decode is now real; texel addressing still pending).
 3. Remove any additional dead code found during output-debug pass.
 
 ## Cleanup Landed in This Sweep

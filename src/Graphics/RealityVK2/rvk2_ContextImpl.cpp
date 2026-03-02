@@ -99,7 +99,7 @@ void appendFrameForensicsRecord(const rvk2::ExecutorOutput & _output)
 		: 0ULL;
 	std::fprintf(
 		file,
-		"frame=%llu\twork=%llu\tbatches=%llu\twrites=%llu\tsurfaces=%llu\tpresent_surface=0x%08X\tpresent_select=%u\tpresent_hash=0x%016llX\tpresent_w=%u\tpresent_h=%u\tvi_valid=%u\tvi_origin=0x%08X\tvi_origin_match=%u\tvi_reject=%u\tvi_type=%u\tvi_use_regs=%u\tvi_src_w=%u\tvi_src_h=%u\tvi_out_w=%u\tvi_out_h=%u\tvi_stride=%u\tselected_surface_writes=%llu\tselected_surface_works=%llu\tselected_surface_size=%u\tselected_surface_w=%u\tselected_surface_h=%u\ttx_samples=%llu\ttx_rdram=%llu\ttx_synth=%llu\ttx_lut_approx=%llu\tout_luma_sum=%llu\tout_luma_avg_x1000=%llu\tvi_src_samples=%llu\tvi_src_invalid=%llu\tvi_src_luma_avg_x1000=%llu\tvi_out_luma_avg_x1000=%llu\tvi_out_nonblack=%llu",
+		"frame=%llu\twork=%llu\tbatches=%llu\twrites=%llu\tsurfaces=%llu\tpresent_surface=0x%08X\tpresent_select=%u\tpresent_hash=0x%016llX\tpresent_w=%u\tpresent_h=%u\tvi_valid=%u\tvi_origin=0x%08X\tvi_origin_match=%u\tvi_reject=%u\tvi_type=%u\tvi_use_regs=%u\tvi_src_w=%u\tvi_src_h=%u\tvi_out_w=%u\tvi_out_h=%u\tvi_stride=%u\tselected_surface_writes=%llu\tselected_surface_works=%llu\tselected_surface_size=%u\tselected_surface_w=%u\tselected_surface_h=%u\ttx_samples=%llu\ttx_tmem=%llu\ttx_rdram=%llu\ttx_synth=%llu\ttx_lut=%llu\tout_luma_sum=%llu\tout_luma_avg_x1000=%llu\tvi_src_samples=%llu\tvi_src_invalid=%llu\tvi_src_luma_avg_x1000=%llu\tvi_out_luma_avg_x1000=%llu\tvi_out_nonblack=%llu",
 		static_cast<unsigned long long>(rvk2::runtime().commandStream().frameId()),
 		static_cast<unsigned long long>(summary.executedWorkCount),
 		static_cast<unsigned long long>(summary.executedBatchCount),
@@ -127,9 +127,10 @@ void appendFrameForensicsRecord(const rvk2::ExecutorOutput & _output)
 		summary.selectedPresentSurfaceWidth,
 		summary.selectedPresentSurfaceHeight,
 		static_cast<unsigned long long>(summary.textureSampleCount),
+		static_cast<unsigned long long>(summary.textureTmemSampleCount),
 		static_cast<unsigned long long>(summary.textureRdramSampleCount),
 		static_cast<unsigned long long>(summary.textureSyntheticSampleCount),
-		static_cast<unsigned long long>(summary.textureLUTApproxSampleCount),
+		static_cast<unsigned long long>(summary.textureLUTSampleCount),
 		static_cast<unsigned long long>(summary.outputLumaSum),
 		static_cast<unsigned long long>(outputLumaAvgX1000),
 		static_cast<unsigned long long>(summary.viSourceSampleCount),

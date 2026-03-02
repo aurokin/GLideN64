@@ -23,6 +23,7 @@ Bring RVK2 from black/noise output to stable, game-representative image output b
 3. Combiner/blender/depth/coverage still use partial approximations (not full hardware-accurate hazard behavior).
 4. Triangle/raster coefficient path still needs additional subpixel/coverage correctness closure.
 5. VI bootstrap still has expected no-surface/missing-source windows, but late-frame selection is now mostly deterministic.
+6. CI/TLUT-heavy content is active in the capture path; palette decode must remain hardware-grounded.
 
 ## Phases
 
@@ -154,6 +155,27 @@ Implication:
 - P4/P5 changes resolved the immediate black-frame bottleneck.
 - Remaining work shifts from "make anything visible" to "close correctness gap and brightness/structure mismatch vs reference."
 
+## Latest Findings (P3 TLUT Decode Grounding Pass)
+
+After replacing random LUT approximation with real TMEM TLUT decode in the active RDRAM texture path:
+
+- Local gate status: pass (`./scripts/local_gate.sh`).
+- Paper Mario parity remains stable:
+  - `rmse=0.017899`, `mae=0.002317`, `pass=true`.
+- Clean frame forensics capture (`/tmp/rvk2-frame-forensics-clean.tsv`, `154` records, `111` active):
+  - present selection: `{5:43, 1:1, 3:73, 4:37}`
+  - VI reject: `{1:43, 0:111}`
+  - texture path counters:
+    - `tx_samples=719032824`
+    - `tx_rdram=719032824`
+    - `tx_tmem=0`
+    - `tx_synth=0`
+    - `tx_lut=230841816`
+
+Implication:
+- TLUT behavior is now deterministic and data-backed (palette entries read from TMEM), replacing prior synthetic/random LUT behavior.
+- Full TMEM texel addressing still needs dedicated closure; current stable path remains RDRAM decode + real TLUT decode.
+
 ## Update Log
 
 | Date | Change | Notes |
@@ -167,3 +189,4 @@ Implication:
 | 2026-03-02 | Replaced combiner input mapping with RDP selector tables and corrected 1-cycle selector usage (P4/P5 in progress). | Combiner now uses distinct A/B/C/D selector domains and uses cycle-2 selectors in 1-cycle mode; removed previous synthetic constant/destination mixing in combiner stage. |
 | 2026-03-02 | Reworked blender to selector-driven P/A/M/B path and fixed alpha-compare control decode (P5 in progress). | Blender now follows mode selectors with force/AA divide behavior and reduced synthetic weighting; alpha-compare now respects `alpha_compare_en` + `dither_alpha_en` bit semantics. |
 | 2026-03-02 | Relaxed conformance hash-sensitivity assertions by default during active bring-up. | `rvk2_conformance_tests` now keeps structural checks strict while skipping legacy sensitivity-only expectations unless `REALITYVK_RVK2_STRICT_CONFORMANCE=1` is set. |
+| 2026-03-02 | Replaced synthetic LUT approximation with real TMEM TLUT palette decode (P3/P5 in progress). | CI/TLUT sampling now uses palette entries from TMEM for decode; forensics now reports `tx_lut` and keeps texel source usage split via `tx_tmem`/`tx_rdram` counters. |

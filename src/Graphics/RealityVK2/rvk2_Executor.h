@@ -91,9 +91,10 @@ struct ExecutorSummary {
 	u64 textureReplacementHitCount = 0ULL;
 	u64 textureReplacementMissCount = 0ULL;
 	u64 textureSampleCount = 0ULL;
+	u64 textureTmemSampleCount = 0ULL;
 	u64 textureRdramSampleCount = 0ULL;
 	u64 textureSyntheticSampleCount = 0ULL;
-	u64 textureLUTApproxSampleCount = 0ULL;
+	u64 textureLUTSampleCount = 0ULL;
 	u64 outputLumaSum = 0ULL;
 	u64 presentHash = 1469598103934665603ULL;
 	u32 presentWidth = 0U;

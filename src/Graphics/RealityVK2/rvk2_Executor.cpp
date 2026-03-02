@@ -582,47 +582,30 @@ inline u32 applyTextureLUTModeColor(
 	u64 _seed,
 	u32 _rgba)
 {
+	(void)_seed;
 	const u8 lutMode = decodeTextureLUTMode(_work);
 	if (lutMode == 0U)
 		return _rgba;
 
-	u8 r = static_cast<u8>((_rgba >> 24U) & 0xFFU);
-	u8 g = static_cast<u8>((_rgba >> 16U) & 0xFFU);
-	u8 b = static_cast<u8>((_rgba >> 8U) & 0xFFU);
-	u8 a = static_cast<u8>(_rgba & 0xFFU);
-	u8 index = static_cast<u8>(r ^ g ^ b ^ static_cast<u8>(_work.tilePalette << 4U));
-	if (lutMode >= 2U)
-		index = static_cast<u8>((static_cast<u32>(r) + static_cast<u32>(g) + static_cast<u32>(b)) / 3U);
-
-	u64 paletteSeed = _seed;
-	mixTextureSeed(paletteSeed, static_cast<u64>(index));
-	mixTextureSeed(paletteSeed, static_cast<u64>(_work.textureImageAddress));
-	mixTextureSeed(paletteSeed, static_cast<u64>(_work.tilePalette));
-	paletteSeed *= 0xD6E8FEB86659FD93ULL;
-
-	if (lutMode == 1U) {
-		r = static_cast<u8>((paletteSeed >> 8U) & 0xFFU);
-		g = static_cast<u8>((paletteSeed >> 24U) & 0xFFU);
-		b = static_cast<u8>((paletteSeed >> 40U) & 0xFFU);
-		a = 255U;
-	}
-	else if (lutMode == 2U) {
-		const u8 intensity = static_cast<u8>((paletteSeed >> 16U) & 0xFFU);
-		const u8 alpha = static_cast<u8>((paletteSeed >> 32U) & 0xFFU);
-		r = intensity;
-		g = intensity;
-		b = intensity;
-		a = alpha;
-	}
-	else {
-		const u8 intensity = static_cast<u8>((paletteSeed >> 16U) & 0xFFU);
-		const u8 alpha4 = static_cast<u8>((paletteSeed >> 28U) & 0xFU);
-		r = intensity;
-		g = intensity;
-		b = intensity;
-		a = static_cast<u8>(alpha4 * 17U);
+	// CI decode stores index in RGB lanes.
+	const u8 index = static_cast<u8>((_rgba >> 24U) & 0xFFU);
+	const u16 tlut = static_cast<u16>(TMEM[(0x100U + static_cast<u32>(index)) & 0x1FFU] & 0xFFFFULL);
+	if (lutMode == 3U) {
+		const u8 i = static_cast<u8>((tlut >> 8U) & 0xFFU);
+		const u8 a = static_cast<u8>(tlut & 0xFFU);
+		return (static_cast<u32>(i) << 24U)
+			| (static_cast<u32>(i) << 16U)
+			| (static_cast<u32>(i) << 8U)
+			| static_cast<u32>(a);
 	}
 
+	const auto expand5 = [](u16 _v) -> u8 {
+		return static_cast<u8>((static_cast<u32>(_v) * 255U + 15U) / 31U);
+	};
+	const u8 r = expand5(static_cast<u16>((tlut >> 11U) & 0x1FU));
+	const u8 g = expand5(static_cast<u16>((tlut >> 6U) & 0x1FU));
+	const u8 b = expand5(static_cast<u16>((tlut >> 1U) & 0x1FU));
+	const u8 a = (tlut & 0x1U) != 0U ? 255U : 0U;
 	return (static_cast<u32>(r) << 24U)
 		| (static_cast<u32>(g) << 16U)
 		| (static_cast<u32>(b) << 8U)
@@ -643,38 +626,9 @@ inline u32 applyTextureDetailModeColor(
 	u64 _seed,
 	u32 _rgba)
 {
-	const u8 mode = decodeTextureDetailMode(_work);
-	if (mode == 0U)
-		return _rgba;
-
-	s32 r = static_cast<s32>((_rgba >> 24U) & 0xFFU);
-	s32 g = static_cast<s32>((_rgba >> 16U) & 0xFFU);
-	s32 b = static_cast<s32>((_rgba >> 8U) & 0xFFU);
-	const u8 a = static_cast<u8>(_rgba & 0xFFU);
-	const s32 n0 = static_cast<s32>((_seed >> 8U) & 0xFFU);
-	const s32 n1 = static_cast<s32>((_seed >> 24U) & 0xFFU);
-	const s32 n2 = static_cast<s32>((_seed >> 40U) & 0xFFU);
-
-	if (mode == 1U) {
-		r = 128 + ((r - 128) * 3) / 2;
-		g = 128 + ((g - 128) * 3) / 2;
-		b = 128 + ((b - 128) * 3) / 2;
-	}
-	else if (mode == 2U) {
-		r = (r * 3 + n0 + 2) / 4;
-		g = (g * 3 + n1 + 2) / 4;
-		b = (b * 3 + n2 + 2) / 4;
-	}
-	else {
-		r = (r + n0 + 1) / 2;
-		g = (g + n1 + 1) / 2;
-		b = (b + n2 + 1) / 2;
-	}
-
-	return (static_cast<u32>(clampChannelS32(r)) << 24U)
-		| (static_cast<u32>(clampChannelS32(g)) << 16U)
-		| (static_cast<u32>(clampChannelS32(b)) << 8U)
-		| static_cast<u32>(a);
+	(void)_work;
+	(void)_seed;
+	return _rgba;
 }
 
 inline u8 expand5To8(u8 _value)
@@ -977,17 +931,17 @@ inline u32 samplePseudoTexelColor(
 	mixTextureSeed(seed, static_cast<u64>(_y));
 	mixTextureSeed(seed, static_cast<u64>(_work.syncEpoch));
 
-	u32 rdramColor = 0U;
+	u32 sampledColor = 0U;
 	bool needsLUT = false;
-	if (sampleTextureFromRdram(_work, _s, _t, rdramColor, needsLUT)) {
+	if (sampleTextureFromRdram(_work, _s, _t, sampledColor, needsLUT)) {
 		if (gActiveExecutorSummary != nullptr) {
 			++gActiveExecutorSummary->textureRdramSampleCount;
 			if (needsLUT)
-				++gActiveExecutorSummary->textureLUTApproxSampleCount;
+				++gActiveExecutorSummary->textureLUTSampleCount;
 		}
 		if (needsLUT)
-			rdramColor = applyTextureLUTModeColor(_work, seed, rdramColor);
-		return applyTextureDetailModeColor(_work, seed, rdramColor);
+			sampledColor = applyTextureLUTModeColor(_work, seed, sampledColor);
+		return applyTextureDetailModeColor(_work, seed, sampledColor);
 	}
 	if (gActiveExecutorSummary != nullptr)
 		++gActiveExecutorSummary->textureSyntheticSampleCount;
@@ -1001,7 +955,11 @@ inline u32 samplePseudoTexelColor(
 		| (static_cast<u32>(g) << 16)
 		| (static_cast<u32>(b) << 8)
 		| static_cast<u32>(a);
-	rgba = applyTextureLUTModeColor(_work, seed, rgba);
+	if (decodeTextureLUTMode(_work) != 0U) {
+		if (gActiveExecutorSummary != nullptr)
+			++gActiveExecutorSummary->textureLUTSampleCount;
+		rgba = applyTextureLUTModeColor(_work, seed, rgba);
+	}
 	rgba = applyTextureDetailModeColor(_work, seed, rgba);
 	return rgba;
 }
