@@ -214,6 +214,12 @@ RenderWorkPacket buildRenderWorkPacket(
 	work.colorImageAddress = _rdpState.colorImageAddress;
 	work.depthImageAddress = _rdpState.depthImageAddress;
 	work.alphaCompare = _rdpState.otherModesDecoded.alphaCompare;
+	work.cvgDest = _rdpState.otherModesDecoded.cvgDest;
+	work.blendMask = _rdpState.otherModesDecoded.blendMask;
+	work.cvgXAlpha = _rdpState.otherModesDecoded.cvgXAlpha;
+	work.alphaCvgSel = _rdpState.otherModesDecoded.alphaCvgSel;
+	work.colorOnCvg = _rdpState.otherModesDecoded.colorOnCvg;
+	work.forceBlender = _rdpState.otherModesDecoded.forceBlender;
 	work.depthSource = _rdpState.otherModesDecoded.depthSource;
 	work.primDepthZ = _rdpState.primDepthZ;
 	work.primDepthDelta = _rdpState.primDepthDelta;

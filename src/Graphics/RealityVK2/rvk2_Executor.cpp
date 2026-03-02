@@ -555,6 +555,63 @@ inline u8 blendChannel(u8 _src, u8 _dst, u32 _srcWeight, u32 _dstWeight)
 	return static_cast<u8>((blended + (sum / 2U)) / sum);
 }
 
+struct SyntheticCoverageSample
+{
+	u8 input = 0U;
+	u8 destination = 0U;
+	u8 resolved = 0U;
+};
+
+inline u8 alphaToCoverage3(u8 _alpha)
+{
+	return static_cast<u8>(_alpha >> 5U);
+}
+
+inline u8 resolveCoverageDestination(u8 _input, u8 _destination, u8 _cvgDest)
+{
+	switch (_cvgDest & 0x3U) {
+	case 0U:
+		return static_cast<u8>(std::min<u32>(7U, static_cast<u32>(_input) + static_cast<u32>(_destination)));
+	case 1U:
+		return static_cast<u8>((static_cast<u32>(_input) + static_cast<u32>(_destination)) & 0x7U);
+	case 2U:
+		return 7U;
+	default:
+		return _destination;
+	}
+}
+
+inline SyntheticCoverageSample evaluateSyntheticCoverage(
+	const rvk2::RenderWorkPacket & _work,
+	u8 _coverageAlpha,
+	u8 _dstAlpha,
+	u32 _x,
+	u32 _y)
+{
+	u64 coverageSeed = 1469598103934665603ULL;
+	mixTextureSeed(coverageSeed, static_cast<u64>(_x));
+	mixTextureSeed(coverageSeed, static_cast<u64>(_y));
+	mixTextureSeed(coverageSeed, static_cast<u64>(_work.sourcePacketId));
+	mixTextureSeed(coverageSeed, static_cast<u64>(_work.syncEpoch));
+	mixTextureSeed(coverageSeed, static_cast<u64>(_work.keyState));
+	mixTextureSeed(coverageSeed, static_cast<u64>(_work.blendMask));
+	const u8 stochasticCoverage = static_cast<u8>((coverageSeed >> 5U) & 0x7U);
+
+	SyntheticCoverageSample sample{};
+	sample.destination = alphaToCoverage3(_dstAlpha);
+	u8 inputCoverage = stochasticCoverage;
+	if (_work.alphaCvgSel)
+		inputCoverage = alphaToCoverage3(_coverageAlpha);
+	if (_work.cvgXAlpha) {
+		const u8 alphaCoverage = alphaToCoverage3(_coverageAlpha);
+		inputCoverage = static_cast<u8>(
+			(static_cast<u32>(inputCoverage) * static_cast<u32>(alphaCoverage) + 3U) / 7U);
+	}
+	sample.input = static_cast<u8>(std::min<u32>(7U, static_cast<u32>(inputCoverage)));
+	sample.resolved = resolveCoverageDestination(sample.input, sample.destination, _work.cvgDest);
+	return sample;
+}
+
 inline u32 applySyntheticBlender(
 	const rvk2::RenderWorkPacket & _work,
 	u32 _blendParams,
@@ -596,12 +653,40 @@ inline u32 applySyntheticBlender(
 	src.g = mixChannel(src.g, fogState.g, fogMix);
 	src.b = mixChannel(src.b, fogState.b, fogMix);
 
+	const bool useCoverageControls =
+		_work.colorOnCvg
+		|| _work.cvgXAlpha
+		|| _work.alphaCvgSel
+		|| _work.forceBlender
+		|| _work.cvgDest != 0U
+		|| _work.blendMask != 0U;
+	const SyntheticCoverageSample coverage = useCoverageControls
+		? evaluateSyntheticCoverage(_work, src.a, dst.a, _x, _y)
+		: SyntheticCoverageSample{};
+	if (useCoverageControls && _work.cvgXAlpha) {
+		const u32 coverageAlphaScale =
+			(static_cast<u32>(coverage.resolved) * 255U + 3U) / 7U;
+		src.a = static_cast<u8>(
+			(static_cast<u32>(src.a) * coverageAlphaScale + 127U) / 255U);
+	}
+
 	if (srcWeight == 0U && dstWeight == 0U)
 		srcWeight = 255U;
 
 	const u32 srcAlpha = static_cast<u32>(src.a) + 1U;
 	srcWeight = (srcWeight * srcAlpha * modulatedAlphaScale + 32767U) / (256U * 256U);
 	dstWeight = (dstWeight * (256U - srcAlpha) + 127U) / 256U;
+
+	if (useCoverageControls) {
+		srcWeight += static_cast<u32>(coverage.resolved) * 16U;
+		dstWeight += static_cast<u32>(7U - coverage.resolved) * 8U;
+		srcWeight += static_cast<u32>(_work.blendMask & 0x3U);
+		dstWeight += static_cast<u32>((_work.blendMask >> 2U) & 0x3U);
+		if (_work.forceBlender) {
+			srcWeight += 8U;
+			dstWeight += 8U;
+		}
+	}
 
 	if ((_blendParams & 0x80000000U) != 0U) {
 		const u32 coverage = (static_cast<u32>(_x) * 29U + static_cast<u32>(_y) * 17U + dynamicCoverageBias) & 0xFFU;
@@ -616,6 +701,8 @@ inline u32 applySyntheticBlender(
 	out.g = blendChannel(src.g, dst.g, srcWeight, dstWeight);
 	out.b = blendChannel(src.b, dst.b, srcWeight, dstWeight);
 	out.a = blendChannel(src.a, dst.a, srcWeight, dstWeight);
+	if (useCoverageControls && _work.alphaCvgSel)
+		out.a = static_cast<u8>((static_cast<u32>(coverage.resolved) * 255U + 3U) / 7U);
 	return packRGBA(out);
 }
 
@@ -653,6 +740,23 @@ inline bool passesSyntheticAlphaCompare(
 		return alpha >= threshold;
 	}
 	return alpha != 0U;
+}
+
+inline bool passesSyntheticCoverageWrite(
+	const rvk2::RenderWorkPacket & _work,
+	u32 _pixel,
+	u32 _dstColor,
+	u32 _x,
+	u32 _y)
+{
+	if (!_work.colorOnCvg)
+		return true;
+
+	const ColorRGBA src = unpackRGBA(_pixel);
+	const ColorRGBA dst = unpackRGBA(_dstColor);
+	const SyntheticCoverageSample coverage =
+		evaluateSyntheticCoverage(_work, src.a, dst.a, _x, _y);
+	return coverage.resolved != 0U;
 }
 
 inline s32 combineDYDerivative(s32 _dy, s32 _de, bool _lmajor)
@@ -916,6 +1020,8 @@ void writeRect(
 					y);
 			if (!passesSyntheticAlphaCompare(_work, rgba, x, y))
 				continue;
+			if (!passesSyntheticCoverageWrite(_work, rgba, dstColor, x, y))
+				continue;
 			_surface.pixels[colorIdx] = rgba;
 			++_summary.colorWriteCount;
 		}
@@ -993,6 +1099,8 @@ void writeTriangle(
 				x,
 				y);
 			if (!passesSyntheticAlphaCompare(_work, rgba, x, y))
+				continue;
+			if (!passesSyntheticCoverageWrite(_work, rgba, dstColor, x, y))
 				continue;
 
 			if (_depthSurface != nullptr

@@ -24,6 +24,7 @@ This is the single execution tracker for the rewrite.
 18. VI presenter now models deterministic gamma, divot, and interlace field behavior from VI status/register state.
 19. Alpha compare state is now modeled in synthetic executor/replay and covered by conformance.
 20. Depth compare/update mode bits are now modeled in synthetic executor/replay and covered by conformance.
+21. Coverage mode flags (`cvgDest`, `cvgXAlpha`, `alphaCvgSel`, `colorOnCvg`, `forceBlender`, `blendMask`) are now modeled in synthetic executor/replay and covered by conformance.
 
 ## Phase Status
 
@@ -143,6 +144,12 @@ Estimated phase progress used:
    - executor/replay depth path now honors compare-only, update-only, and compare+update combinations
    - render-work hashing/replay model updated to include depth-mode state bits
    - conformance coverage added for depth compare/update mode behavior divergence
+22. Landed coverage-mode semantic closure:
+   - render-work now carries decoded coverage/blender interaction bits (`cvgDest`, `blendMask`, `cvgXAlpha`, `alphaCvgSel`, `colorOnCvg`, `forceBlender`)
+   - executor/replay now model deterministic coverage destination behavior and coverage-gated color-write behavior
+   - synthetic blender/replay path now incorporates coverage-mode weights/alpha effects and force-blender state
+   - render-work hashing/replay model updated to include coverage-mode fields
+   - conformance coverage added for coverage-mode flag behavior divergence
 
 ## Current Bottlenecks
 

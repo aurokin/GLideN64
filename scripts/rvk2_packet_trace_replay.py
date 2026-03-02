@@ -576,6 +576,12 @@ class RenderWorkRecord:
     tile_sync_packet_id: int
     full_sync_packet_id: int
     alpha_compare: int = 0
+    cvg_dest: int = 0
+    blend_mask: int = 0
+    cvg_x_alpha: bool = False
+    alpha_cvg_sel: bool = False
+    color_on_cvg: bool = False
+    force_blender: bool = False
     depth_compare_enable: bool = True
     depth_update_enable: bool = True
     other_modes: int = 0
@@ -3593,6 +3599,12 @@ def _build_render_work(
         color_image_address=rdp_snapshot.color_image_address,
         depth_image_address=rdp_snapshot.depth_image_address,
         alpha_compare=rdp_snapshot.other_modes_decoded.alpha_compare,
+        cvg_dest=rdp_snapshot.other_modes_decoded.cvg_dest,
+        blend_mask=rdp_snapshot.other_modes_decoded.blend_mask,
+        cvg_x_alpha=rdp_snapshot.other_modes_decoded.cvg_x_alpha,
+        alpha_cvg_sel=rdp_snapshot.other_modes_decoded.alpha_cvg_sel,
+        color_on_cvg=rdp_snapshot.other_modes_decoded.color_on_cvg,
+        force_blender=rdp_snapshot.other_modes_decoded.force_blender,
         depth_source=rdp_snapshot.other_modes_decoded.depth_source,
         prim_depth_z=rdp_snapshot.prim_depth_z,
         prim_depth_delta=rdp_snapshot.prim_depth_delta,
@@ -3739,6 +3751,12 @@ def _hash_render_work(work: RenderWorkRecord) -> int:
     hash_value = _fnv_update_int(hash_value, work.color_image_address, 4)
     hash_value = _fnv_update_int(hash_value, work.depth_image_address, 4)
     hash_value = _fnv_update_int(hash_value, work.alpha_compare, 1)
+    hash_value = _fnv_update_int(hash_value, work.cvg_dest, 1)
+    hash_value = _fnv_update_int(hash_value, work.blend_mask, 1)
+    hash_value = _fnv_update_int(hash_value, 1 if work.cvg_x_alpha else 0, 1)
+    hash_value = _fnv_update_int(hash_value, 1 if work.alpha_cvg_sel else 0, 1)
+    hash_value = _fnv_update_int(hash_value, 1 if work.color_on_cvg else 0, 1)
+    hash_value = _fnv_update_int(hash_value, 1 if work.force_blender else 0, 1)
     hash_value = _fnv_update_int(hash_value, work.depth_source, 1)
     hash_value = _fnv_update_int(hash_value, work.prim_depth_z, 2)
     hash_value = _fnv_update_int(hash_value, work.prim_depth_delta, 2)
@@ -4205,7 +4223,11 @@ def _write_render_work_rect(
         for y in range(write_y0, write_y1 + 1):
             row_index = y * width + write_x0
             for x in range(write_x0, write_x1 + 1):
-                if _passes_synthetic_alpha_compare(work, fill_rgba, x, y):
+                dst_color = pixels[row_index] & 0xFFFFFFFF
+                if (
+                    _passes_synthetic_alpha_compare(work, fill_rgba, x, y)
+                    and _passes_synthetic_coverage_write(work, fill_rgba, dst_color, x, y)
+                ):
                     pixels[row_index] = fill_rgba
                     color_write_count += 1
                 row_index += 1
@@ -4226,7 +4248,10 @@ def _write_render_work_rect(
                 x,
                 y,
             ) & 0xFFFFFFFF
-            if _passes_synthetic_alpha_compare(work, rgba, x, y):
+            if (
+                _passes_synthetic_alpha_compare(work, rgba, x, y)
+                and _passes_synthetic_coverage_write(work, rgba, dst_color, x, y)
+            ):
                 pixels[row_index] = rgba
                 color_write_count += 1
             row_index += 1
@@ -4477,6 +4502,60 @@ def _blend_channel(src: int, dst: int, src_weight: int, dst_weight: int) -> int:
     return (blended + (total // 2)) // total
 
 
+def _alpha_to_coverage3(alpha: int) -> int:
+    return (alpha & 0xFF) >> 5
+
+
+def _resolve_coverage_destination(input_coverage: int, destination_coverage: int, cvg_dest: int) -> int:
+    mode = cvg_dest & 0x3
+    if mode == 0:
+        return min(7, (input_coverage + destination_coverage))
+    if mode == 1:
+        return (input_coverage + destination_coverage) & 0x7
+    if mode == 2:
+        return 7
+    return destination_coverage
+
+
+def _mix_coverage_seed(seed: int, value: int) -> int:
+    return (
+        seed
+        ^ (
+            (value & U64_MASK)
+            + 0x9E3779B97F4A7C15
+            + ((seed << 6) & U64_MASK)
+            + (seed >> 2)
+        )
+    ) & U64_MASK
+
+
+def _evaluate_synthetic_coverage(
+    work: RenderWorkRecord, coverage_alpha: int, dst_alpha: int, x: int, y: int
+) -> tuple[int, int, int]:
+    seed = FNV_OFFSET
+    seed = _mix_coverage_seed(seed, x)
+    seed = _mix_coverage_seed(seed, y)
+    seed = _mix_coverage_seed(seed, work.source_packet_id)
+    seed = _mix_coverage_seed(seed, work.sync_epoch)
+    seed = _mix_coverage_seed(seed, work.key_state)
+    seed = _mix_coverage_seed(seed, work.blend_mask)
+    stochastic_coverage = (seed >> 5) & 0x7
+
+    destination_coverage = _alpha_to_coverage3(dst_alpha)
+    input_coverage = stochastic_coverage
+    if work.alpha_cvg_sel:
+        input_coverage = _alpha_to_coverage3(coverage_alpha)
+    if work.cvg_x_alpha:
+        alpha_coverage = _alpha_to_coverage3(coverage_alpha)
+        input_coverage = (input_coverage * alpha_coverage + 3) // 7
+
+    input_coverage = min(7, input_coverage)
+    resolved_coverage = _resolve_coverage_destination(
+        input_coverage, destination_coverage, work.cvg_dest
+    )
+    return input_coverage, destination_coverage, resolved_coverage
+
+
 def _apply_synthetic_blender(
     work: RenderWorkRecord,
     src_color: int,
@@ -4519,12 +4598,36 @@ def _apply_synthetic_blender(
     src_g = mix_channel(src_g, fog_g, fog_mix)
     src_b = mix_channel(src_b, fog_b, fog_mix)
 
+    use_coverage_controls = (
+        work.color_on_cvg
+        or work.cvg_x_alpha
+        or work.alpha_cvg_sel
+        or work.force_blender
+        or work.cvg_dest != 0
+        or work.blend_mask != 0
+    )
+    resolved_coverage = 0
+    if use_coverage_controls:
+        _, _, resolved_coverage = _evaluate_synthetic_coverage(work, src_a, dst_a, x, y)
+        if work.cvg_x_alpha:
+            coverage_alpha_scale = (resolved_coverage * 255 + 3) // 7
+            src_a = (src_a * coverage_alpha_scale + 127) // 255
+
     if src_weight == 0 and dst_weight == 0:
         src_weight = 255
 
     src_alpha = src_a + 1
     src_weight = (src_weight * src_alpha * modulated_alpha_scale + 32767) // (256 * 256)
     dst_weight = (dst_weight * (256 - src_alpha) + 127) // 256
+
+    if use_coverage_controls:
+        src_weight += resolved_coverage * 16
+        dst_weight += (7 - resolved_coverage) * 8
+        src_weight += work.blend_mask & 0x3
+        dst_weight += (work.blend_mask >> 2) & 0x3
+        if work.force_blender:
+            src_weight += 8
+            dst_weight += 8
 
     if (active_blend_params & 0x80000000) != 0:
         coverage = ((x * 29) + (y * 17) + dynamic_coverage_bias) & 0xFF
@@ -4538,6 +4641,8 @@ def _apply_synthetic_blender(
     out_g = _blend_channel(src_g, dst_g, src_weight, dst_weight)
     out_b = _blend_channel(src_b, dst_b, src_weight, dst_weight)
     out_a = _blend_channel(src_a, dst_a, src_weight, dst_weight)
+    if use_coverage_controls and work.alpha_cvg_sel:
+        out_a = (resolved_coverage * 255 + 3) // 7
     return _pack_rgba(out_r, out_g, out_b, out_a)
 
 
@@ -4673,6 +4778,17 @@ def _passes_synthetic_alpha_compare(work: RenderWorkRecord, pixel: int, x: int, 
     return alpha != 0
 
 
+def _passes_synthetic_coverage_write(
+    work: RenderWorkRecord, pixel: int, dst_color: int, x: int, y: int
+) -> bool:
+    if not work.color_on_cvg:
+        return True
+    _, _, resolved_coverage = _evaluate_synthetic_coverage(
+        work, pixel & 0xFF, dst_color & 0xFF, x, y
+    )
+    return resolved_coverage != 0
+
+
 def _write_render_work_triangle(
     surface: _ReplayColorSurface,
     depth_surface: Optional[_ReplayDepthSurface],
@@ -4775,6 +4891,9 @@ def _write_render_work_triangle(
                 y,
             ) & 0xFFFFFFFF
             if not _passes_synthetic_alpha_compare(work, rgba, x, y):
+                row_index += 1
+                continue
+            if not _passes_synthetic_coverage_write(work, rgba, dst_color, x, y):
                 row_index += 1
                 continue
 

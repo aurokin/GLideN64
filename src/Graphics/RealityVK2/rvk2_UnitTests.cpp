@@ -572,8 +572,12 @@ void testRDPExtendedStateFields()
 	expectEq(engine.snapshot().cycleType, static_cast<u8>(3U), "extended SetOtherModes cycle type mismatch");
 	expectEq(engine.snapshot().otherModesDecoded.alphaCompare, static_cast<u8>(2U), "other modes alpha compare mismatch");
 	expectEq(engine.snapshot().otherModesDecoded.cvgDest, static_cast<u8>(2U), "other modes cvgDest mismatch");
+	expectEq(engine.snapshot().otherModesDecoded.blendMask, static_cast<u8>(0xBU), "other modes blend mask mismatch");
 	expectEq(engine.snapshot().otherModesDecoded.depthMode, static_cast<u8>(3U), "other modes depthMode mismatch");
 	expectTrue(engine.snapshot().otherModesDecoded.depthCompare, "other modes depth compare mismatch");
+	expectTrue(engine.snapshot().otherModesDecoded.colorOnCvg, "other modes color-on-coverage mismatch");
+	expectTrue(engine.snapshot().otherModesDecoded.cvgXAlpha, "other modes cvg x alpha mismatch");
+	expectTrue(!engine.snapshot().otherModesDecoded.alphaCvgSel, "other modes alpha coverage select mismatch");
 	expectTrue(engine.snapshot().otherModesDecoded.forceBlender, "other modes force blender mismatch");
 	expectEq(engine.snapshot().otherModesDecoded.textureFilter, static_cast<u8>(2U), "other modes texture filter mismatch");
 	expectEq(engine.snapshot().otherModesDecoded.textureLUT, static_cast<u8>(1U), "other modes texture LUT mismatch");

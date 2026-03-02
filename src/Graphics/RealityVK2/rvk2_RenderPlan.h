@@ -94,6 +94,12 @@ struct RenderWorkPacket {
 	u32 colorImageAddress = 0U;
 	u32 depthImageAddress = 0U;
 	u8 alphaCompare = 0U;
+	u8 cvgDest = 0U;
+	u8 blendMask = 0U;
+	bool cvgXAlpha = false;
+	bool alphaCvgSel = false;
+	bool colorOnCvg = false;
+	bool forceBlender = false;
 	u8 depthSource = 0U;
 	u16 primDepthZ = 0U;
 	u16 primDepthDelta = 0U;

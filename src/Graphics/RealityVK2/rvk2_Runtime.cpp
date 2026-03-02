@@ -422,6 +422,12 @@ u64 hashRenderWorkPacket(const rvk2::RenderWorkPacket & _work)
 	updateHash(hash, _work.colorImageAddress);
 	updateHash(hash, _work.depthImageAddress);
 	updateHash(hash, _work.alphaCompare);
+	updateHash(hash, _work.cvgDest);
+	updateHash(hash, _work.blendMask);
+	updateHash(hash, _work.cvgXAlpha);
+	updateHash(hash, _work.alphaCvgSel);
+	updateHash(hash, _work.colorOnCvg);
+	updateHash(hash, _work.forceBlender);
 	updateHash(hash, _work.depthSource);
 	updateHash(hash, _work.primDepthZ);
 	updateHash(hash, _work.primDepthDelta);

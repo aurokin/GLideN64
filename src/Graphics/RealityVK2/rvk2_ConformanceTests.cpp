@@ -786,6 +786,57 @@ void testCoverageBlendFlagConformance()
 		"coverage blend flag should alter blended output hash");
 }
 
+void testCoverageModeFlagConformance()
+{
+	rvk2::Executor executor;
+	rvk2::RenderWorkPacket background = makeFillWork(110ULL, 0x00B30000U, 0x40404000U);
+	rvk2::RenderWorkPacket baselineTri = makeTriangleWork();
+	baselineTri.sourcePacketId = 111ULL;
+	baselineTri.colorImageAddress = background.colorImageAddress;
+	baselineTri.triangleShadeEnable = true;
+	baselineTri.blendParams = 0x00004080U;
+
+	const std::vector<rvk2::SubmissionBatchPacket> oneWorkBatch{makeBatchForWorkCount(1U)};
+	const std::vector<rvk2::SubmissionBatchPacket> twoWorkBatch{makeBatchForWorkCount(2U)};
+
+	const rvk2::ExecutorOutput backgroundOnly =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{background}, oneWorkBatch);
+	const rvk2::ExecutorOutput baselineOut = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, baselineTri},
+		twoWorkBatch);
+	expectTrue(
+		baselineOut.summary.colorWriteCount > backgroundOnly.summary.colorWriteCount,
+		"baseline coverage mode scene should add triangle writes");
+
+	rvk2::RenderWorkPacket colorOnCvgSave = baselineTri;
+	colorOnCvgSave.colorOnCvg = true;
+	colorOnCvgSave.cvgDest = 3U;
+	const rvk2::ExecutorOutput gatedOut = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, colorOnCvgSave},
+		twoWorkBatch);
+	expectEq(
+		gatedOut.summary.presentHash,
+		backgroundOnly.summary.presentHash,
+		"colorOnCvg + cvgDest=save should suppress writes when destination coverage is empty");
+	expectEq(
+		gatedOut.summary.colorWriteCount,
+		backgroundOnly.summary.colorWriteCount,
+		"coverage-gated write suppression should preserve background-only write count");
+
+	rvk2::RenderWorkPacket coverageModeVariant = baselineTri;
+	coverageModeVariant.cvgDest = 1U;
+	coverageModeVariant.blendMask = 0xBU;
+	coverageModeVariant.cvgXAlpha = true;
+	coverageModeVariant.alphaCvgSel = true;
+	coverageModeVariant.forceBlender = true;
+	const rvk2::ExecutorOutput coverageModeOut = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, coverageModeVariant},
+		twoWorkBatch);
+	expectTrue(
+		coverageModeOut.summary.presentHash != baselineOut.summary.presentHash,
+		"coverage mode flags should alter blended output hash");
+}
+
 void testAlphaCompareConformance()
 {
 	rvk2::Executor executor;
@@ -1333,6 +1384,7 @@ int main()
 	testDepthCompareUpdateModeConformance();
 	testDepthSurfaceAliasIsolationConformance();
 	testCoverageBlendFlagConformance();
+	testCoverageModeFlagConformance();
 	testAlphaCompareConformance();
 	testMixedStateBatchSegmentationConformance();
 	testMixedStateRapidTransitionMatrixConformance();
