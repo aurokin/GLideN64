@@ -57,6 +57,32 @@ inline u32 encodeSurfaceColor(u32 _rgba, u8 _colorImageSize)
 	return decodeFillColor(static_cast<u32>(packed), 2U);
 }
 
+inline u32 mode0Word(const rvk2::RenderWorkPacket & _work)
+{
+	return static_cast<u32>(_work.otherModes >> 32U);
+}
+
+inline u32 mode1Word(const rvk2::RenderWorkPacket & _work)
+{
+	return static_cast<u32>(_work.otherModes & 0xFFFFFFFFULL);
+}
+
+inline bool isImageReadEnabled(const rvk2::RenderWorkPacket & _work)
+{
+	return (mode1Word(_work) & (1U << 6U)) != 0U;
+}
+
+inline u8 decodeDepthMode(const rvk2::RenderWorkPacket & _work)
+{
+	return static_cast<u8>((mode1Word(_work) >> 10U) & 0x3U);
+}
+
+inline bool isTextureFilterEnabled(const rvk2::RenderWorkPacket & _work)
+{
+	const u32 mode0 = mode0Word(_work);
+	return ((mode0 >> 12U) & 0x3U) != 0U || ((mode0 >> 10U) & 0x3U) != 0U;
+}
+
 inline s32 wrapCoordPositive(s32 _value, s32 _period)
 {
 	if (_period <= 0)
@@ -151,6 +177,65 @@ inline u64 buildTextureSeedBase(const rvk2::RenderWorkPacket & _work)
 	return seed;
 }
 
+inline u32 bilerpColorRGBA(
+	u32 _c00,
+	u32 _c10,
+	u32 _c01,
+	u32 _c11,
+	u32 _fracS,
+	u32 _fracT)
+{
+	const u32 fracS = std::min<u32>(_fracS, 31U);
+	const u32 fracT = std::min<u32>(_fracT, 31U);
+	const u32 invS = 32U - fracS;
+	const u32 invT = 32U - fracT;
+	const auto unpack = [](u32 _c, u32 _shift) -> u32 {
+		return (_c >> _shift) & 0xFFU;
+	};
+	const auto blendAxis = [&](u32 _a, u32 _b) -> u32 {
+		return (_a * invS + _b * fracS + 16U) >> 5U;
+	};
+	const auto blendChannel = [&](u32 _shift) -> u32 {
+		const u32 a0 = blendAxis(unpack(_c00, _shift), unpack(_c10, _shift));
+		const u32 a1 = blendAxis(unpack(_c01, _shift), unpack(_c11, _shift));
+		return (a0 * invT + a1 * fracT + 16U) >> 5U;
+	};
+	const u32 r = blendChannel(24U);
+	const u32 g = blendChannel(16U);
+	const u32 b = blendChannel(8U);
+	const u32 a = blendChannel(0U);
+	return (r << 24U) | (g << 16U) | (b << 8U) | a;
+}
+
+inline u32 samplePseudoTexelColor(
+	const rvk2::RenderWorkPacket & _work,
+	s32 _s,
+	s32 _t,
+	s32 _w,
+	bool _includeW,
+	u32 _x,
+	u32 _y)
+{
+	u64 seed = buildTextureSeedBase(_work);
+	mixTextureSeed(seed, static_cast<u64>(static_cast<u32>(_s)));
+	mixTextureSeed(seed, static_cast<u64>(static_cast<u32>(_t)));
+	if (_includeW)
+		mixTextureSeed(seed, static_cast<u64>(static_cast<u32>(_w)));
+	mixTextureSeed(seed, static_cast<u64>(_x));
+	mixTextureSeed(seed, static_cast<u64>(_y));
+	mixTextureSeed(seed, static_cast<u64>(_work.combineMux));
+	mixTextureSeed(seed, static_cast<u64>(_work.syncEpoch));
+	seed *= 0x9E3779B97F4A7C15ULL;
+	const u8 r = static_cast<u8>((seed >> 8) & 0xFFU);
+	const u8 g = static_cast<u8>((seed >> 24) & 0xFFU);
+	const u8 b = static_cast<u8>((seed >> 40) & 0xFFU);
+	const u8 a = 255U;
+	return (static_cast<u32>(r) << 24)
+		| (static_cast<u32>(g) << 16)
+		| (static_cast<u32>(b) << 8)
+		| static_cast<u32>(a);
+}
+
 inline u32 pseudoTexel(
 	const rvk2::RenderWorkPacket & _work,
 	u32 _x,
@@ -178,22 +263,30 @@ inline u32 pseudoTexel(
 		_work.tileCmt,
 		_work.tileULT,
 		_work.tileLRT);
-	u64 seed = buildTextureSeedBase(_work);
-	mixTextureSeed(seed, static_cast<u64>(static_cast<u32>(s)));
-	mixTextureSeed(seed, static_cast<u64>(static_cast<u32>(t)));
-	mixTextureSeed(seed, static_cast<u64>(_x));
-	mixTextureSeed(seed, static_cast<u64>(_y));
-	mixTextureSeed(seed, static_cast<u64>(_work.combineMux));
-	mixTextureSeed(seed, static_cast<u64>(_work.syncEpoch));
-	seed *= 0x9E3779B97F4A7C15ULL;
-	const u8 r = static_cast<u8>((seed >> 8) & 0xFFU);
-	const u8 g = static_cast<u8>((seed >> 24) & 0xFFU);
-	const u8 b = static_cast<u8>((seed >> 40) & 0xFFU);
-	const u8 a = 255U;
-	return (static_cast<u32>(r) << 24)
-		| (static_cast<u32>(g) << 16)
-		| (static_cast<u32>(b) << 8)
-		| static_cast<u32>(a);
+	if (!isTextureFilterEnabled(_work))
+		return samplePseudoTexelColor(_work, s, t, 0, false, _x, _y);
+
+	const s32 sNext = applyTileAxisTransform(
+		sRaw + 32,
+		_work.tileShifts,
+		_work.tileMasks,
+		_work.tileCms,
+		_work.tileULS,
+		_work.tileLRS);
+	const s32 tNext = applyTileAxisTransform(
+		tRaw + 32,
+		_work.tileShiftt,
+		_work.tileMaskt,
+		_work.tileCmt,
+		_work.tileULT,
+		_work.tileLRT);
+	const u32 fracS = static_cast<u32>(sRaw) & 0x1FU;
+	const u32 fracT = static_cast<u32>(tRaw) & 0x1FU;
+	const u32 c00 = samplePseudoTexelColor(_work, s, t, 0, false, _x, _y);
+	const u32 c10 = samplePseudoTexelColor(_work, sNext, t, 0, false, _x, _y);
+	const u32 c01 = samplePseudoTexelColor(_work, s, tNext, 0, false, _x, _y);
+	const u32 c11 = samplePseudoTexelColor(_work, sNext, tNext, 0, false, _x, _y);
+	return bilerpColorRGBA(c00, c10, c01, c11, fracS, fracT);
 }
 
 struct ColorSurface {
@@ -901,23 +994,30 @@ inline u32 evaluateTriangleTextureColor(
 		_work.tileCmt,
 		_work.tileULT,
 		_work.tileLRT);
+	if (!isTextureFilterEnabled(_work))
+		return samplePseudoTexelColor(_work, s, t, w, true, _x, _y);
 
-	u64 seed = buildTextureSeedBase(_work);
-	mixTextureSeed(seed, static_cast<u64>(static_cast<u32>(s)));
-	mixTextureSeed(seed, static_cast<u64>(static_cast<u32>(t)));
-	mixTextureSeed(seed, static_cast<u64>(static_cast<u32>(w)));
-	mixTextureSeed(seed, static_cast<u64>(_x));
-	mixTextureSeed(seed, static_cast<u64>(_y));
-	mixTextureSeed(seed, static_cast<u64>(_work.combineMux));
-	mixTextureSeed(seed, static_cast<u64>(_work.syncEpoch));
-	seed *= 0x9E3779B97F4A7C15ULL;
-	const u8 r = static_cast<u8>((seed >> 8) & 0xFFU);
-	const u8 g = static_cast<u8>((seed >> 24) & 0xFFU);
-	const u8 b = static_cast<u8>((seed >> 40) & 0xFFU);
-	return (static_cast<u32>(r) << 24U)
-		| (static_cast<u32>(g) << 16U)
-		| (static_cast<u32>(b) << 8U)
-		| 255U;
+	const s32 sNext = applyTileAxisTransform(
+		sRaw + 32,
+		_work.tileShifts,
+		_work.tileMasks,
+		_work.tileCms,
+		_work.tileULS,
+		_work.tileLRS);
+	const s32 tNext = applyTileAxisTransform(
+		tRaw + 32,
+		_work.tileShiftt,
+		_work.tileMaskt,
+		_work.tileCmt,
+		_work.tileULT,
+		_work.tileLRT);
+	const u32 fracS = static_cast<u32>(sRaw) & 0x1FU;
+	const u32 fracT = static_cast<u32>(tRaw) & 0x1FU;
+	const u32 c00 = samplePseudoTexelColor(_work, s, t, w, true, _x, _y);
+	const u32 c10 = samplePseudoTexelColor(_work, sNext, t, w, true, _x, _y);
+	const u32 c01 = samplePseudoTexelColor(_work, s, tNext, w, true, _x, _y);
+	const u32 c11 = samplePseudoTexelColor(_work, sNext, tNext, w, true, _x, _y);
+	return bilerpColorRGBA(c00, c10, c01, c11, fracS, fracT);
 }
 
 inline u32 modulateRGBA(u32 _base, u32 _shade)
@@ -955,6 +1055,47 @@ inline s32 evaluateTriangleDepth(
 	}
 	const s32 dzdy = combineDYDerivative(_work.triangleDZDY, _work.triangleDZDE, _work.triangleLMajor);
 	return evalCoefficientAtPixel(_work.triangleZ, _work.triangleDZDX, dzdy, _x, _y);
+}
+
+inline bool passesSyntheticDepthCompare(
+	const rvk2::RenderWorkPacket & _work,
+	s32 _z,
+	s32 _depthValue)
+{
+	if (!_work.depthCompareEnable)
+		return true;
+	if (_depthValue == std::numeric_limits<s32>::max())
+		return true;
+
+	const s64 z = static_cast<s64>(_z);
+	const s64 depth = static_cast<s64>(_depthValue);
+	switch (decodeDepthMode(_work)) {
+	case 0U:
+		return z <= depth;
+	case 1U:
+		return z <= (depth + 0x20LL);
+	case 2U:
+		return z <= (depth + 0x100LL);
+	default:
+		return (z - depth) <= 0x40LL && (depth - z) <= 0x40LL;
+	}
+}
+
+inline bool shouldUpdateSyntheticDepth(
+	const rvk2::RenderWorkPacket & _work,
+	s32 _z,
+	s32 _depthValue)
+{
+	if (!_work.depthUpdateEnable)
+		return false;
+	switch (decodeDepthMode(_work)) {
+	case 2U:
+		return static_cast<s64>(_z) <= static_cast<s64>(_depthValue);
+	case 3U:
+		return false;
+	default:
+		return true;
+	}
 }
 
 inline u32 chooseTriangleTextureSourceColor(
@@ -1077,6 +1218,7 @@ void writeRect(
 		for (u32 x = bounds.x0; x <= bounds.x1; ++x) {
 			const size_t colorIdx = pixelIndex(_surface.width, static_cast<u16>(x), static_cast<u16>(y));
 			const u32 dstColor = _surface.pixels[colorIdx];
+			const u32 pipelineDstColor = isImageReadEnabled(_work) ? dstColor : 0x00000000U;
 			const u32 rgba =
 				_work.opKind == static_cast<u8>(rvk2::RasterOpKind::kFillRect)
 				? decodeFillColor(_work.fillColor, _work.colorImageSize)
@@ -1085,12 +1227,12 @@ void writeRect(
 					pseudoTexel(_work, x, y),
 					0xFFFFFFFFU,
 					pseudoTexel(_work, x, y),
-					dstColor,
+					pipelineDstColor,
 					x,
 					y);
 			if (!passesSyntheticAlphaCompare(_work, rgba, x, y))
 				continue;
-			if (!passesSyntheticCoverageWrite(_work, rgba, dstColor, x, y))
+			if (!passesSyntheticCoverageWrite(_work, rgba, pipelineDstColor, x, y))
 				continue;
 			_surface.pixels[colorIdx] = encodeSurfaceColor(rgba, _work.colorImageSize);
 			++_summary.colorWriteCount;
@@ -1157,6 +1299,7 @@ void writeTriangle(
 
 			const size_t colorIdx = pixelIndex(_surface.width, static_cast<u16>(x), static_cast<u16>(y));
 			const u32 dstColor = _surface.pixels[colorIdx];
+			const u32 pipelineDstColor = isImageReadEnabled(_work) ? dstColor : 0x00000000U;
 			const u32 textureColor = chooseTriangleTextureSourceColor(_work, x, y);
 			const u32 shadeColor = chooseTriangleShadeSourceColor(_work, x, y);
 			const u32 baseColor = chooseTriangleBaseColor(_work, x, y);
@@ -1165,12 +1308,12 @@ void writeTriangle(
 				textureColor,
 				shadeColor,
 				baseColor,
-				dstColor,
+				pipelineDstColor,
 				x,
 				y);
 			if (!passesSyntheticAlphaCompare(_work, rgba, x, y))
 				continue;
-			if (!passesSyntheticCoverageWrite(_work, rgba, dstColor, x, y))
+			if (!passesSyntheticCoverageWrite(_work, rgba, pipelineDstColor, x, y))
 				continue;
 
 			if (_depthSurface != nullptr
@@ -1183,9 +1326,9 @@ void writeTriangle(
 				if (depthIdx >= _depthSurface->values.size())
 					continue;
 				const s32 depthValue = _depthSurface->values[depthIdx];
-				if (_work.depthCompareEnable && z > depthValue)
+				if (!passesSyntheticDepthCompare(_work, z, depthValue))
 					continue;
-				if (_work.depthUpdateEnable)
+				if (shouldUpdateSyntheticDepth(_work, z, depthValue))
 					_depthSurface->values[depthIdx] = z;
 			}
 

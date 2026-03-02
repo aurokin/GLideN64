@@ -1108,6 +1108,7 @@ void testCopyPhaseDestinationBypassConformance()
 	rvk2::RenderWorkPacket cycle1Rect = copyRect;
 	cycle1Rect.phase = static_cast<u8>(rvk2::RenderPhase::kCycle1);
 	cycle1Rect.cycleType = 0U;
+	cycle1Rect.otherModes |= (1ULL << 6U);
 
 	const std::vector<rvk2::SubmissionBatchPacket> twoWorkBatch{makeBatchForWorkCount(2U)};
 	const rvk2::ExecutorOutput copyDarkOut = executor.executeWithOutput(
@@ -1455,6 +1456,147 @@ void testRenderTargetColorSizeConformance()
 		"render target size conformance should alter presented pixels for 16bpp writes");
 }
 
+void testImageReadConformance()
+{
+	rvk2::Executor executor;
+	rvk2::RenderWorkPacket background = makeFillWork(140ULL, 0x00AF0000U, 0x304050FFU);
+	background.rectLRX = 5U;
+	background.rectLRY = 3U;
+
+	rvk2::RenderWorkPacket imageReadOn = makeTexRectWork(false);
+	imageReadOn.sourcePacketId = 141ULL;
+	imageReadOn.colorImageAddress = background.colorImageAddress;
+	imageReadOn.colorImageWidth = 8U;
+	imageReadOn.rectULX = 0U;
+	imageReadOn.rectULY = 0U;
+	imageReadOn.rectLRX = 5U;
+	imageReadOn.rectLRY = 3U;
+	imageReadOn.otherModes = (1ULL << 6U);
+	imageReadOn.combineMux = 0ULL;
+	imageReadOn.combineMux |= (6ULL << 9U);
+	imageReadOn.combineMux |= (6ULL << 21U);
+	imageReadOn.combineMux |= (6ULL << 33U);
+	imageReadOn.combineMux |= (6ULL << 45U);
+	imageReadOn.blendParams = 0U;
+
+	rvk2::RenderWorkPacket imageReadOff = imageReadOn;
+	imageReadOff.sourcePacketId = 142ULL;
+	imageReadOff.otherModes = 0ULL;
+
+	const std::vector<rvk2::SubmissionBatchPacket> batches{makeBatchForWorkCount(2U)};
+	const rvk2::ExecutorOutput onOut = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, imageReadOn},
+		batches);
+	const rvk2::ExecutorOutput offOut = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, imageReadOff},
+		batches);
+
+	expectTrue(
+		onOut.summary.colorWriteCount > 0ULL,
+		"image-read conformance scene should write pixels");
+	expectEq(
+		onOut.summary.colorWriteCount,
+		offOut.summary.colorWriteCount,
+		"image-read enable transition should preserve write coverage");
+	expectTrue(
+		onOut.summary.presentHash != offOut.summary.presentHash,
+		"image-read enable transition should alter present hash");
+	expectTrue(
+		!presentFramesEqual(onOut, offOut),
+		"image-read enable transition should alter presented pixels");
+}
+
+void testDepthModeConformance()
+{
+	rvk2::Executor executor;
+	const u32 colorAddress = 0x00B00000U;
+	const u32 depthAddress = 0x00B10000U;
+
+	rvk2::RenderWorkPacket nearWork = makeTriangleWork();
+	nearWork.sourcePacketId = 150ULL;
+	nearWork.colorImageAddress = colorAddress;
+	nearWork.colorImageWidth = 8U;
+	nearWork.depthImageAddress = depthAddress;
+	nearWork.depthTest = true;
+	nearWork.triangleZBufferEnable = true;
+	nearWork.depthCompareEnable = true;
+	nearWork.depthUpdateEnable = true;
+	nearWork.triangleZ = 1000;
+	nearWork.blendParams = 0x000000FFU;
+
+	rvk2::RenderWorkPacket farWork = nearWork;
+	farWork.sourcePacketId = 151ULL;
+	farWork.triangleZ = 1016;
+
+	rvk2::RenderWorkPacket opaNear = nearWork;
+	rvk2::RenderWorkPacket opaFar = farWork;
+	opaNear.otherModes = 0ULL;
+	opaFar.otherModes = 0ULL;
+
+	rvk2::RenderWorkPacket interNear = nearWork;
+	rvk2::RenderWorkPacket interFar = farWork;
+	interNear.otherModes = (1ULL << 10U);
+	interFar.otherModes = (1ULL << 10U);
+
+	const std::vector<rvk2::SubmissionBatchPacket> batches{makeBatchForWorkCount(2U)};
+	const rvk2::ExecutorOutput opaOut =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{opaNear, opaFar}, batches);
+	const rvk2::ExecutorOutput interOut =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{interNear, interFar}, batches);
+
+	expectTrue(
+		opaOut.summary.colorWriteCount > 0ULL,
+		"depth-mode conformance baseline should write pixels");
+	expectTrue(
+		interOut.summary.colorWriteCount > opaOut.summary.colorWriteCount,
+		"depth-mode interpenetrating path should admit more writes than opaque mode");
+	expectTrue(
+		interOut.summary.presentHash != opaOut.summary.presentHash,
+		"depth-mode transition should alter present hash");
+}
+
+void testTextureFilterConformance()
+{
+	rvk2::Executor executor;
+	rvk2::RenderWorkPacket pointWork = makeTexRectWork(false);
+	pointWork.sourcePacketId = 160ULL;
+	pointWork.colorImageAddress = 0x00B20000U;
+	pointWork.colorImageWidth = 8U;
+	pointWork.rectULX = 0U;
+	pointWork.rectULY = 0U;
+	pointWork.rectLRX = 5U;
+	pointWork.rectLRY = 3U;
+	pointWork.texS = 0x0011;
+	pointWork.texT = 0x0007;
+	pointWork.texDSDX = 0x0031;
+	pointWork.texDTDY = 0x0027;
+	pointWork.otherModes = 0ULL;
+
+	rvk2::RenderWorkPacket filteredWork = pointWork;
+	filteredWork.sourcePacketId = 161ULL;
+	filteredWork.otherModes = (2ULL << (32U + 12U));
+
+	const std::vector<rvk2::SubmissionBatchPacket> batches{makeSingleBatch()};
+	const rvk2::ExecutorOutput pointOut =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{pointWork}, batches);
+	const rvk2::ExecutorOutput filteredOut =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{filteredWork}, batches);
+
+	expectTrue(
+		pointOut.summary.colorWriteCount > 0ULL,
+		"texture-filter conformance baseline should write pixels");
+	expectEq(
+		filteredOut.summary.colorWriteCount,
+		pointOut.summary.colorWriteCount,
+		"texture-filter transition should preserve write coverage");
+	expectTrue(
+		filteredOut.summary.presentHash != pointOut.summary.presentHash,
+		"texture-filter transition should alter present hash");
+	expectTrue(
+		!presentFramesEqual(filteredOut, pointOut),
+		"texture-filter transition should alter presented pixels");
+}
+
 void testVIFilterModeConformance()
 {
 	const u32 colorAddress = 0x00AB0000U;
@@ -1700,6 +1842,9 @@ int main()
 	testRenderStateInputSensitivityConformance();
 	testRenderTargetIsolationConformance();
 	testRenderTargetColorSizeConformance();
+	testImageReadConformance();
+	testDepthModeConformance();
+	testTextureFilterConformance();
 	testVIFilterModeConformance();
 	testVIFailSafeConformance();
 	testVIPixelAdvanceConformance();

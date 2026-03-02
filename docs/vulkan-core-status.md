@@ -37,6 +37,9 @@ This is the single execution tracker for the rewrite.
 31. VI register path now models `PIXEL_ADVANCE[15:12]` as deterministic horizontal subpixel sample offset.
 32. VI register path now enforces type-aware `VI_WIDTH` line-stride alignment (16bpp `%4`, 32bpp `%2`) as deterministic fail-safe blanking.
 33. Executor/replay color-surface writes now honor render-target pixel size semantics (`colorImageSize=2` quantized to deterministic RGBA5551-expanded output).
+34. Executor/replay synthetic paths now model destination read enable (`otherModes.imageRead`) so combiner/blender/coverage destination participation is explicitly gated.
+35. Executor/replay triangle depth compare/update now models `otherModes.depthMode` (`OPA`/`INTER`/`XLU`/`DEC`) with deterministic mode-specific behavior.
+36. Executor/replay synthetic texture sampling now models texture-filter/bilerp behavior via deterministic bilinear neighborhood sampling for texrect and textured triangles.
 
 ## Phase Status
 
@@ -51,7 +54,7 @@ This is the single execution tracker for the rewrite.
 
 ## Completion Estimate
 
-Estimated overall roadmap completion: **~73%**.
+Estimated overall roadmap completion: **~76%**.
 
 Heuristic phase weighting used for this estimate:
 - A: 20%
@@ -63,8 +66,8 @@ Heuristic phase weighting used for this estimate:
 
 Estimated phase progress used:
 - A: 100%
-- B: 74%
-- C: 65%
+- B: 79%
+- C: 70%
 - D: 100%
 - E: 0%
 - F: 0%
@@ -213,6 +216,11 @@ Estimated phase progress used:
    - executor writes now encode to surface format by `colorImageSize` before storage (`16bpp -> RGBA5551` quantize/expand)
    - replay model mirrors identical target-size write behavior for deterministic trace/replay consistency
    - executor conformance coverage added for `colorImageSize`-driven output divergence with coverage invariance
+35. Added B/C semantic closure for destination/depth/filter behavior:
+   - executor/replay now gate destination color participation on `otherModes.imageRead` for combiner/blender/coverage paths
+   - executor/replay now apply mode-specific depth compare/update rules from `otherModes.depthMode`
+   - executor/replay now apply deterministic texture-filter/bilerp sampling for texrect + textured triangle paths
+   - added conformance coverage for `imageRead`, `depthMode`, and texture-filter transitions
 
 ## Current Bottlenecks
 

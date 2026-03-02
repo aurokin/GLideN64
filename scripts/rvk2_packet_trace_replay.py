@@ -4025,6 +4025,27 @@ def _encode_surface_color(rgba: int, color_size: int) -> int:
     return _decode_fill_color(packed, 2)
 
 
+def _mode0_word(work: RenderWorkRecord) -> int:
+    return (work.other_modes >> 32) & 0xFFFFFFFF
+
+
+def _mode1_word(work: RenderWorkRecord) -> int:
+    return work.other_modes & 0xFFFFFFFF
+
+
+def _is_image_read_enabled(work: RenderWorkRecord) -> bool:
+    return (_mode1_word(work) & (1 << 6)) != 0
+
+
+def _decode_depth_mode(work: RenderWorkRecord) -> int:
+    return (_mode1_word(work) >> 10) & 0x3
+
+
+def _is_texture_filter_enabled(work: RenderWorkRecord) -> bool:
+    mode0 = _mode0_word(work)
+    return ((mode0 >> 12) & 0x3) != 0 or ((mode0 >> 10) & 0x3) != 0
+
+
 def _wrap_coord_positive(value: int, period: int) -> int:
     if period <= 0:
         return 0
@@ -4108,6 +4129,49 @@ def _build_texture_seed_base(work: RenderWorkRecord) -> int:
     return seed & U64_MASK
 
 
+def _bilerp_color_rgba(c00: int, c10: int, c01: int, c11: int, frac_s: int, frac_t: int) -> int:
+    fs = min(max(frac_s, 0), 31)
+    ft = min(max(frac_t, 0), 31)
+    inv_s = 32 - fs
+    inv_t = 32 - ft
+
+    def unpack(c: int, shift: int) -> int:
+        return (c >> shift) & 0xFF
+
+    def blend_axis(a: int, b: int) -> int:
+        return (a * inv_s + b * fs + 16) >> 5
+
+    def blend_channel(shift: int) -> int:
+        a0 = blend_axis(unpack(c00, shift), unpack(c10, shift))
+        a1 = blend_axis(unpack(c01, shift), unpack(c11, shift))
+        return (a0 * inv_t + a1 * ft + 16) >> 5
+
+    r = blend_channel(24)
+    g = blend_channel(16)
+    b = blend_channel(8)
+    a = blend_channel(0)
+    return ((r & 0xFF) << 24) | ((g & 0xFF) << 16) | ((b & 0xFF) << 8) | (a & 0xFF)
+
+
+def _sample_pseudo_texel_color(
+    work: RenderWorkRecord, s: int, t: int, w: int, include_w: bool, x: int, y: int
+) -> int:
+    seed = _build_texture_seed_base(work)
+    seed = _mix_texture_seed(seed, s & 0xFFFFFFFF)
+    seed = _mix_texture_seed(seed, t & 0xFFFFFFFF)
+    if include_w:
+        seed = _mix_texture_seed(seed, w & 0xFFFFFFFF)
+    seed = _mix_texture_seed(seed, x & 0xFFFFFFFF)
+    seed = _mix_texture_seed(seed, y & 0xFFFFFFFF)
+    seed = _mix_texture_seed(seed, work.combine_mux & U64_MASK)
+    seed = _mix_texture_seed(seed, work.sync_epoch & 0xFFFFFFFF)
+    seed = (seed * 0x9E3779B97F4A7C15) & U64_MASK
+    r = (seed >> 8) & 0xFF
+    g = (seed >> 24) & 0xFF
+    b = (seed >> 40) & 0xFF
+    return ((r & 0xFF) << 24) | ((g & 0xFF) << 16) | ((b & 0xFF) << 8) | 0xFF
+
+
 def _pseudo_texel(work: RenderWorkRecord, x: int, y: int) -> int:
     dx = x - work.rect_ulx
     dy = y - work.rect_uly
@@ -4123,19 +4187,22 @@ def _pseudo_texel(work: RenderWorkRecord, x: int, y: int) -> int:
     t = _apply_tile_axis_transform(
         t_raw, work.tile_shiftt, work.tile_maskt, work.tile_cmt, work.tile_ult, work.tile_lrt
     )
+    if not _is_texture_filter_enabled(work):
+        return _sample_pseudo_texel_color(work, s, t, 0, False, x, y)
 
-    seed = _build_texture_seed_base(work)
-    seed = _mix_texture_seed(seed, s & 0xFFFFFFFF)
-    seed = _mix_texture_seed(seed, t & 0xFFFFFFFF)
-    seed = _mix_texture_seed(seed, x & 0xFFFFFFFF)
-    seed = _mix_texture_seed(seed, y & 0xFFFFFFFF)
-    seed = _mix_texture_seed(seed, work.combine_mux & U64_MASK)
-    seed = _mix_texture_seed(seed, work.sync_epoch & 0xFFFFFFFF)
-    seed = (seed * 0x9E3779B97F4A7C15) & U64_MASK
-    r = (seed >> 8) & 0xFF
-    g = (seed >> 24) & 0xFF
-    b = (seed >> 40) & 0xFF
-    return ((r & 0xFF) << 24) | ((g & 0xFF) << 16) | ((b & 0xFF) << 8) | 0xFF
+    s_next = _apply_tile_axis_transform(
+        s_raw + 32, work.tile_shifts, work.tile_masks, work.tile_cms, work.tile_uls, work.tile_lrs
+    )
+    t_next = _apply_tile_axis_transform(
+        t_raw + 32, work.tile_shiftt, work.tile_maskt, work.tile_cmt, work.tile_ult, work.tile_lrt
+    )
+    frac_s = s_raw & 0x1F
+    frac_t = t_raw & 0x1F
+    c00 = _sample_pseudo_texel_color(work, s, t, 0, False, x, y)
+    c10 = _sample_pseudo_texel_color(work, s_next, t, 0, False, x, y)
+    c01 = _sample_pseudo_texel_color(work, s, t_next, 0, False, x, y)
+    c11 = _sample_pseudo_texel_color(work, s_next, t_next, 0, False, x, y)
+    return _bilerp_color_rgba(c00, c10, c01, c11, frac_s, frac_t)
 
 
 def _pseudo_triangle_color(work: RenderWorkRecord, x: int, y: int) -> int:
@@ -4240,9 +4307,10 @@ def _write_render_work_rect(
             row_index = y * width + write_x0
             for x in range(write_x0, write_x1 + 1):
                 dst_color = pixels[row_index] & 0xFFFFFFFF
+                pipeline_dst_color = dst_color if _is_image_read_enabled(work) else 0
                 if (
                     _passes_synthetic_alpha_compare(work, fill_rgba, x, y)
-                    and _passes_synthetic_coverage_write(work, fill_rgba, dst_color, x, y)
+                    and _passes_synthetic_coverage_write(work, fill_rgba, pipeline_dst_color, x, y)
                 ):
                     pixels[row_index] = _encode_surface_color(fill_rgba, work.color_image_size)
                     color_write_count += 1
@@ -4254,19 +4322,20 @@ def _write_render_work_rect(
         row_index = y * width + write_x0
         for x in range(write_x0, write_x1 + 1):
             dst_color = pixels[row_index] & 0xFFFFFFFF
+            pipeline_dst_color = dst_color if _is_image_read_enabled(work) else 0
             texel_color = _pseudo_texel(work, x, y)
             rgba = _run_synthetic_phase_pipeline(
                 work,
                 texel_color,
                 0xFFFFFFFF,
                 texel_color,
-                dst_color,
+                pipeline_dst_color,
                 x,
                 y,
             ) & 0xFFFFFFFF
             if (
                 _passes_synthetic_alpha_compare(work, rgba, x, y)
-                and _passes_synthetic_coverage_write(work, rgba, dst_color, x, y)
+                and _passes_synthetic_coverage_write(work, rgba, pipeline_dst_color, x, y)
             ):
                 pixels[row_index] = _encode_surface_color(rgba, work.color_image_size)
                 color_write_count += 1
@@ -4317,20 +4386,22 @@ def _evaluate_triangle_texture_color(work: RenderWorkRecord, x: int, y: int) -> 
     t = _apply_tile_axis_transform(
         t_raw, work.tile_shiftt, work.tile_maskt, work.tile_cmt, work.tile_ult, work.tile_lrt
     )
+    if not _is_texture_filter_enabled(work):
+        return _sample_pseudo_texel_color(work, s, t, w, True, x, y)
 
-    seed = _build_texture_seed_base(work)
-    seed = _mix_texture_seed(seed, s & 0xFFFFFFFF)
-    seed = _mix_texture_seed(seed, t & 0xFFFFFFFF)
-    seed = _mix_texture_seed(seed, w & 0xFFFFFFFF)
-    seed = _mix_texture_seed(seed, x & 0xFFFFFFFF)
-    seed = _mix_texture_seed(seed, y & 0xFFFFFFFF)
-    seed = _mix_texture_seed(seed, work.combine_mux & U64_MASK)
-    seed = _mix_texture_seed(seed, work.sync_epoch & 0xFFFFFFFF)
-    seed = (seed * 0x9E3779B97F4A7C15) & U64_MASK
-    r = (seed >> 8) & 0xFF
-    g = (seed >> 24) & 0xFF
-    b = (seed >> 40) & 0xFF
-    return ((r & 0xFF) << 24) | ((g & 0xFF) << 16) | ((b & 0xFF) << 8) | 0xFF
+    s_next = _apply_tile_axis_transform(
+        s_raw + 32, work.tile_shifts, work.tile_masks, work.tile_cms, work.tile_uls, work.tile_lrs
+    )
+    t_next = _apply_tile_axis_transform(
+        t_raw + 32, work.tile_shiftt, work.tile_maskt, work.tile_cmt, work.tile_ult, work.tile_lrt
+    )
+    frac_s = s_raw & 0x1F
+    frac_t = t_raw & 0x1F
+    c00 = _sample_pseudo_texel_color(work, s, t, w, True, x, y)
+    c10 = _sample_pseudo_texel_color(work, s_next, t, w, True, x, y)
+    c01 = _sample_pseudo_texel_color(work, s, t_next, w, True, x, y)
+    c11 = _sample_pseudo_texel_color(work, s_next, t_next, w, True, x, y)
+    return _bilerp_color_rgba(c00, c10, c01, c11, frac_s, frac_t)
 
 
 def _modulate_rgba(base: int, shade: int) -> int:
@@ -4690,6 +4761,33 @@ def _evaluate_triangle_depth(work: RenderWorkRecord, x: int, y: int) -> int:
     return _eval_coefficient_at_pixel(work.triangle_z, work.triangle_dzdx, dzdy, x, y)
 
 
+def _passes_synthetic_depth_compare(work: RenderWorkRecord, z: int, depth_value: int) -> bool:
+    if not work.depth_compare_enable:
+        return True
+    if depth_value == 0x7FFFFFFF:
+        return True
+
+    depth_mode = _decode_depth_mode(work)
+    if depth_mode == 0:
+        return z <= depth_value
+    if depth_mode == 1:
+        return z <= depth_value + 0x20
+    if depth_mode == 2:
+        return z <= depth_value + 0x100
+    return (z - depth_value) <= 0x40 and (depth_value - z) <= 0x40
+
+
+def _should_update_synthetic_depth(work: RenderWorkRecord, z: int, depth_value: int) -> bool:
+    if not work.depth_update_enable:
+        return False
+    depth_mode = _decode_depth_mode(work)
+    if depth_mode == 2:
+        return z <= depth_value
+    if depth_mode == 3:
+        return False
+    return True
+
+
 def _choose_triangle_texture_source_color(work: RenderWorkRecord, x: int, y: int) -> int:
     use_triangle_texture = work.textured and work.triangle_texture_enable
     if use_triangle_texture:
@@ -4894,6 +4992,7 @@ def _write_render_work_triangle(
                 continue
 
             dst_color = pixels[row_index] & 0xFFFFFFFF
+            pipeline_dst_color = dst_color if _is_image_read_enabled(work) else 0
             texture_color = _choose_triangle_texture_source_color(work, x, y)
             shade_color = _choose_triangle_shade_source_color(work, x, y)
             base_color = _choose_triangle_base_color(work, x, y)
@@ -4902,14 +5001,14 @@ def _write_render_work_triangle(
                 texture_color,
                 shade_color,
                 base_color,
-                dst_color,
+                pipeline_dst_color,
                 x,
                 y,
             ) & 0xFFFFFFFF
             if not _passes_synthetic_alpha_compare(work, rgba, x, y):
                 row_index += 1
                 continue
-            if not _passes_synthetic_coverage_write(work, rgba, dst_color, x, y):
+            if not _passes_synthetic_coverage_write(work, rgba, pipeline_dst_color, x, y):
                 row_index += 1
                 continue
 
@@ -4926,10 +5025,10 @@ def _write_render_work_triangle(
                     row_index += 1
                     continue
                 depth_value = depth_surface.values[depth_index]
-                if work.depth_compare_enable and z > depth_value:
+                if not _passes_synthetic_depth_compare(work, z, depth_value):
                     row_index += 1
                     continue
-                if work.depth_update_enable:
+                if _should_update_synthetic_depth(work, z, depth_value):
                     depth_surface.values[depth_index] = z
 
             pixels[row_index] = _encode_surface_color(rgba, work.color_image_size)
