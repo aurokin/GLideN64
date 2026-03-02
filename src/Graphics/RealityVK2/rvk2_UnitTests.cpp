@@ -1388,6 +1388,38 @@ void testVIRendererAspectScaling()
 	expectEq(nonInterlacedPixels[0], 0x101010FFU, "VIRenderer non-interlaced sample mismatch");
 	expectEq(interlacedPixels[0], 0x202020FFU, "VIRenderer interlaced field sample mismatch");
 
+	std::vector<u32> interlacePhaseSource{
+		0x000000FFU, 0x000000FFU,
+		0x101010FFU, 0x101010FFU,
+		0x202020FFU, 0x202020FFU,
+		0x303030FFU, 0x303030FFU,
+		0x404040FFU, 0x404040FFU,
+		0x505050FFU, 0x505050FFU,
+		0x606060FFU, 0x606060FFU,
+		0x707070FFU, 0x707070FFU
+	};
+	rvk2::VIFrameInput interlacePhaseInput{};
+	interlacePhaseInput.sourceWidth = 2U;
+	interlacePhaseInput.sourceHeight = 8U;
+	interlacePhaseInput.sourcePixels = &interlacePhaseSource;
+	interlacePhaseInput.registers.valid = true;
+	interlacePhaseInput.registers.status = 3U | 0x000040U;
+	interlacePhaseInput.registers.vCurrentLine = 1U;
+	interlacePhaseInput.registers.width = 2U;
+	interlacePhaseInput.registers.vSync = 525U;
+	interlacePhaseInput.registers.hStart = (0U << 16U) | 2U;
+	interlacePhaseInput.registers.vStart = (0U << 16U) | 4U;
+	interlacePhaseInput.registers.xScale = 1024U;
+	interlacePhaseInput.registers.yScale = (512U << 16U) | 2048U;
+	std::vector<u32> interlacePhasePixels;
+	const rvk2::VIFrameSummary interlacePhaseSummary =
+		rendererSquare.present(interlacePhaseInput, &interlacePhasePixels);
+	expectEq(interlacePhaseSummary.presentWidth, 2U, "VIRenderer interlace phase width mismatch");
+	expectEq(interlacePhaseSummary.presentHeight, 2U, "VIRenderer interlace phase height mismatch");
+	expectEq(interlacePhasePixels.size(), static_cast<size_t>(4U), "VIRenderer interlace phase pixel count mismatch");
+	expectEq(interlacePhasePixels[0], 0x202020FFU, "VIRenderer interlace phase row0 mismatch");
+	expectEq(interlacePhasePixels[2], 0x606060FFU, "VIRenderer interlace phase row1 mismatch");
+
 	registerInput.registers.status = 0U;
 	const rvk2::VIFrameSummary blankSummary = rendererSquare.present(registerInput);
 	expectEq(blankSummary.presentWidth, 0U, "VIRenderer blank width mismatch");

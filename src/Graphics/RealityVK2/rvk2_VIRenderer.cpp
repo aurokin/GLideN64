@@ -410,15 +410,23 @@ VIFrameSummary VIRenderer::present(
 					viState.outputHeight - 1U,
 					(contentYLocal * static_cast<u32>(viState.outputHeight)) / contentHeight);
 
-				u32 sourceX = 0U;
-				u32 sourceY = 0U;
+					u32 sourceX = 0U;
+					u32 sourceY = 0U;
 					if (viState.useRegisters) {
 						sourceX = std::min<u32>(
 							viState.sourceWidth - 1U,
 							(viState.xStart + baseX * viState.xStep) >> 10U);
-						sourceY = std::min<u32>(
-							viState.sourceHeight - 1U,
-							(viState.yStart + baseY * viState.yStep) >> 10U);
+						if (viState.interlaced) {
+							const u32 fieldBaseY = baseY * 2U + static_cast<u32>(viState.interlaceField);
+							sourceY = std::min<u32>(
+								viState.sourceHeight - 1U,
+								(viState.yStart + fieldBaseY * viState.yStep) >> 10U);
+						}
+						else {
+							sourceY = std::min<u32>(
+								viState.sourceHeight - 1U,
+								(viState.yStart + baseY * viState.yStep) >> 10U);
+						}
 					}
 					else {
 						sourceX = std::min<u32>(
@@ -427,11 +435,11 @@ VIFrameSummary VIRenderer::present(
 						sourceY = std::min<u32>(
 							viState.sourceHeight - 1U,
 							(baseY * static_cast<u32>(viState.sourceHeight)) / viState.outputHeight);
-					}
-					if (viState.interlaced) {
-						sourceY = std::min<u32>(
-							viState.sourceHeight - 1U,
-							sourceY * 2U + static_cast<u32>(viState.interlaceField));
+						if (viState.interlaced) {
+							sourceY = std::min<u32>(
+								viState.sourceHeight - 1U,
+								sourceY * 2U + static_cast<u32>(viState.interlaceField));
+						}
 					}
 					const size_t sampleIndex = pixelIndex(_input.sourceWidth, sourceX, sourceY);
 					pixel = applyVITypeDecode((*_input.sourcePixels)[sampleIndex], viState.viType);

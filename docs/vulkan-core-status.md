@@ -27,6 +27,7 @@ This is the single execution tracker for the rewrite.
 21. Coverage mode flags (`cvgDest`, `cvgXAlpha`, `alphaCvgSel`, `colorOnCvg`, `forceBlender`, `blendMask`) are now modeled in synthetic executor/replay and covered by conformance.
 22. VI presenter now models `VI_STATUS` gamma-dither and AA-mode filtering behavior with deterministic unit coverage.
 23. VI presenter now applies VI type-aware decode behavior for 16bpp mode (`status.type=2`) with deterministic quantization.
+24. VI presenter now applies interlace field selection in register-stepping space (field-aware Y stepping) for serrated mode.
 
 ## Phase Status
 
@@ -41,7 +42,7 @@ This is the single execution tracker for the rewrite.
 
 ## Completion Estimate
 
-Estimated overall roadmap completion: **~64%**.
+Estimated overall roadmap completion: **~65%**.
 
 Heuristic phase weighting used for this estimate:
 - A: 20%
@@ -55,7 +56,7 @@ Estimated phase progress used:
 - A: 100%
 - B: 74%
 - C: 65%
-- D: 54%
+- D: 60%
 - E: 0%
 - F: 0%
 
@@ -160,6 +161,10 @@ Estimated phase progress used:
    - presenter now applies deterministic VI type-aware decode for 16bpp path (`status.type=2`)
    - sampled source pixels are quantized to 5/5/5/1-expanded RGBA before downstream VI filtering
    - unit coverage added for type2 vs type3 hash divergence and quantized sample expectation
+25. Tightened interlace register-step behavior:
+   - presenter now applies interlace field offset before fixed-point Y step conversion in register-driven mode
+   - this aligns serrate sampling with register-space stepping instead of post-sample row doubling
+   - unit coverage added for interlaced field phase behavior with non-zero `yStart` and non-1.0 `yStep`
 
 ## Current Bottlenecks
 
