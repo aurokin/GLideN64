@@ -267,22 +267,21 @@ void gDPSetCombine( u32 muxs0, u32 muxs1 )
 
 void gDPSetColorImage( u32 format, u32 size, u32 width, u32 address )
 {
+	const u32 physicalAddress = RSP_SegmentToPhysical(address);
 	const u32 packedWidth = width > 0U ? (width - 1U) : 0U;
 	const u32 w0 = (0x3FU << 24)
 		| ((format & 0x7U) << 21)
 		| ((size & 0x3U) << 19)
 		| (packedWidth & 0x0FFFU);
-	submitRvk2SyntheticRdp(w0, address);
-
-	address = RSP_SegmentToPhysical( address );
+	submitRvk2SyntheticRdp(w0, physicalAddress);
 
 	gDP.colorImage.format = format;
 	gDP.colorImage.size = size;
 	gDP.colorImage.width = width;
 	gDP.colorImage.height = 0;
-	gDP.colorImage.address = address;
+	gDP.colorImage.address = physicalAddress;
 
-	frameBufferList().saveBuffer(address, static_cast<u16>(format), static_cast<u16>(size), static_cast<u16>(width), false);
+	frameBufferList().saveBuffer(physicalAddress, static_cast<u16>(format), static_cast<u16>(size), static_cast<u16>(width), false);
 
 #ifdef DEBUG_DUMP
 	DebugMsg( DEBUG_NORMAL, "gDPSetColorImage( %s, %s, %i, 0x%08X );\n",
@@ -295,17 +294,18 @@ void gDPSetColorImage( u32 format, u32 size, u32 width, u32 address )
 
 void gDPSetTextureImage(u32 format, u32 size, u32 width, u32 address)
 {
+	const u32 physicalAddress = RSP_SegmentToPhysical(address);
 	const u32 packedWidth = width > 0U ? (width - 1U) : 0U;
 	const u32 w0 = (0x3DU << 24)
 		| ((format & 0x7U) << 21)
 		| ((size & 0x3U) << 19)
 		| (packedWidth & 0x0FFFU);
-	submitRvk2SyntheticRdp(w0, address);
+	submitRvk2SyntheticRdp(w0, physicalAddress);
 
 	gDP.textureImage.format = format;
 	gDP.textureImage.size = size;
 	gDP.textureImage.width = width;
-	gDP.textureImage.address = RSP_SegmentToPhysical(address);
+	gDP.textureImage.address = physicalAddress;
 	gDP.textureImage.bpl = gDP.textureImage.width << gDP.textureImage.size >> 1;
 	if (gSP.DMAOffsets.tex_offset != 0) {
 		if (format == G_IM_FMT_RGBA) {
@@ -329,12 +329,12 @@ void gDPSetTextureImage(u32 format, u32 size, u32 width, u32 address)
 
 void gDPSetDepthImage( u32 address )
 {
+	const u32 physicalAddress = RSP_SegmentToPhysical(address);
 	const u32 w0 = (0x3EU << 24);
-	submitRvk2SyntheticRdp(w0, address);
+	submitRvk2SyntheticRdp(w0, physicalAddress);
 
-	address = RSP_SegmentToPhysical( address );
-	gDP.depthImageAddress = address;
-	depthBufferList().saveBuffer(address);
+	gDP.depthImageAddress = physicalAddress;
+	depthBufferList().saveBuffer(physicalAddress);
 
 	DebugMsg( DEBUG_NORMAL, "gDPSetDepthImage( 0x%08X );\n", gDP.depthImageAddress );
 }

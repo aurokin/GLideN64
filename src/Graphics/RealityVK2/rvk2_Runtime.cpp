@@ -615,8 +615,6 @@ void Runtime::beginFrame(u64 _frameId)
 	m_renderPlan.clear();
 	m_submissionBatches.clear();
 	m_renderPlanState = RenderPlanState{};
-	m_rdpState.reset();
-	m_tmemModel.reset();
 	m_unknownRdpOpcodeCount = 0U;
 	m_firstUnknownRdpPacketId = 0ULL;
 	m_firstUnknownRdpOpcode = 0U;

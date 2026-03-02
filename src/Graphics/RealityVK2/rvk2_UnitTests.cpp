@@ -380,7 +380,7 @@ void testRDPStateTransitions()
 	setColor.domain = rvk2::CommandDomain::kRDP;
 	setColor.opcode = 0x3FU;
 	setColor.w0 = (0x3FU << 24) | (5U << 21) | (2U << 19) | 0x2ABU;
-	setColor.w1 = 0x00123456U;
+	setColor.w1 = 0x8F123456U;
 	engine.apply(setColor);
 	expectEq(engine.snapshot().colorImageFormat, static_cast<u8>(5U), "SetColorImage format mismatch");
 	expectEq(engine.snapshot().colorImageSize, static_cast<u8>(2U), "SetColorImage size mismatch");
@@ -392,7 +392,7 @@ void testRDPStateTransitions()
 	setDepth.domain = rvk2::CommandDomain::kRDP;
 	setDepth.opcode = 0x3EU;
 	setDepth.w0 = (0x3EU << 24);
-	setDepth.w1 = 0x00FEDCBAU;
+	setDepth.w1 = 0xFFFEDCBAU;
 	engine.apply(setDepth);
 	expectEq(engine.snapshot().depthImageAddress, 0x00FEDCBAU, "SetDepthImage address mismatch");
 
@@ -473,7 +473,7 @@ void testTMEMStateTransitions()
 	setTexture.domain = rvk2::CommandDomain::kRDP;
 	setTexture.opcode = 0x3DU;
 	setTexture.w0 = (0x3DU << 24) | (2U << 21) | (3U << 19) | 0x0155U;
-	setTexture.w1 = 0x00ABCDEFU;
+	setTexture.w1 = 0x80ABCDEFU;
 	model.apply(setTexture);
 	expectEq(model.snapshot().textureImage.format, static_cast<u8>(2U), "SetTextureImage format mismatch");
 	expectEq(model.snapshot().textureImage.size, static_cast<u8>(3U), "SetTextureImage size mismatch");

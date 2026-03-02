@@ -43,7 +43,22 @@ inline bool shouldSubmitRvk2SyntheticTriangle()
 	return rvk2::runtime().commandStream().frameId() != 0ULL;
 }
 
+inline bool shouldSubmitRvk2SyntheticRdp()
+{
+	if (RSP.LLE)
+		return false;
+	return rvk2::runtime().commandStream().frameId() != 0ULL;
+}
+
 inline rvk2::CommandProvenance makeRvk2SyntheticTriangleProvenance()
+{
+	rvk2::CommandProvenance provenance{};
+	provenance.taskId = static_cast<u32>(rvk2::runtime().commandStream().frameId());
+	provenance.microcode = static_cast<u16>(GBI.getMicrocodeType());
+	return provenance;
+}
+
+inline rvk2::CommandProvenance makeRvk2SyntheticRdpProvenance()
 {
 	rvk2::CommandProvenance provenance{};
 	provenance.taskId = static_cast<u32>(rvk2::runtime().commandStream().frameId());
@@ -55,6 +70,25 @@ inline u32 currentRvk2SyntheticTriangleAddress()
 {
 	const u32 pc = RSP.PC[RSP.PCi];
 	return pc >= 8U ? pc - 8U : pc;
+}
+
+inline u32 currentRvk2SyntheticRdpAddress()
+{
+	const u32 pc = RSP.PC[RSP.PCi];
+	return pc >= 8U ? pc - 8U : pc;
+}
+
+inline void submitRvk2SyntheticSetOtherModes()
+{
+	if (!shouldSubmitRvk2SyntheticRdp())
+		return;
+
+	const u32 w0 = (0x2FU << 24) | (gDP.otherMode.h & 0x00FFFFFFU);
+	rvk2::runtime().submitRDPWord(
+		currentRvk2SyntheticRdpAddress(),
+		w0,
+		gDP.otherMode.l,
+		makeRvk2SyntheticRdpProvenance());
 }
 
 inline void submitRvk2SyntheticTriangle(
@@ -1961,6 +1995,7 @@ void gSPSetOtherMode_H(u32 _length, u32 _shift, u32 _data)
 {
 	const u32 mask = (((u64)1 << _length) - 1) << _shift;
 	gDP.otherMode.h = (gDP.otherMode.h&(~mask)) | _data;
+	submitRvk2SyntheticSetOtherModes();
 
 	if (mask & 0x00300000)  // cycle type
 		gDP.changed |= CHANGED_CYCLETYPE;
@@ -2017,6 +2052,7 @@ void gSPSetOtherMode_L(u32 _length, u32 _shift, u32 _data)
 {
 	const u32 mask = (((u64)1 << _length) - 1) << _shift;
 	gDP.otherMode.l = (gDP.otherMode.l&(~mask)) | _data;
+	submitRvk2SyntheticSetOtherModes();
 
 	if (mask & 0x00000003)  // alpha compare
 		gDP.changed |= CHANGED_ALPHACOMPARE;

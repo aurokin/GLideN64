@@ -20,6 +20,8 @@ constexpr u8 kCmdSetEnvColor = 0x3BU;
 constexpr u8 kCmdSetCombineMode = 0x3CU;
 constexpr u8 kCmdSetDepthImage = 0x3EU;
 constexpr u8 kCmdSetColorImage = 0x3FU;
+// SetColorImage/SetDepthImage expose dramAddress[23:0] in the command word.
+constexpr u32 kRdramAddressMask = 0x00FFFFFFU;
 
 inline u32 bitRange(u32 _value, u32 _shift, u32 _width)
 {
@@ -192,13 +194,13 @@ void RDPStateEngine::applySetColorImage(const CommandPacket & _packet)
 	m_snapshot.colorImageFormat = static_cast<u8>(bitRange(_packet.w0, 21, 3));
 	m_snapshot.colorImageSize = static_cast<u8>(bitRange(_packet.w0, 19, 2));
 	m_snapshot.colorImageWidth = static_cast<u16>(bitRange(_packet.w0, 0, 12) + 1U);
-	m_snapshot.colorImageAddress = _packet.w1;
+	m_snapshot.colorImageAddress = _packet.w1 & kRdramAddressMask;
 	m_snapshot.changedMask |= rdp_state_changed::kColorImage;
 }
 
 void RDPStateEngine::applySetDepthImage(const CommandPacket & _packet)
 {
-	m_snapshot.depthImageAddress = _packet.w1;
+	m_snapshot.depthImageAddress = _packet.w1 & kRdramAddressMask;
 	m_snapshot.changedMask |= rdp_state_changed::kDepthImage;
 }
 
