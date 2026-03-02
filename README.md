@@ -1,51 +1,125 @@
+# RealityVK (Vulkan-First N64 Video Core)
 
-# RealityVK [![Github Badge]][Workflow]
+RealityVK is a Vulkan-first N64 video plugin fork focused on rebuilding the renderer around explicit N64 semantics and deterministic validation.
 
-*A next generation* ***Graphics Plugin*** *for* ***N64*** *emulators.*
+This branch is not preserving legacy GLideN64 architecture as a constraint. The target is a cleaner and more accurate Vulkan core (`rvk2`).
 
----
+## Current Direction
 
-## Continuous Integration
+1. Rewrite toward `rvk2` semantic pipeline (`command -> draw semantic -> raster op -> render work -> submission -> executor`).
+2. Keep feature scope tight and correctness-driven.
+3. Treat determinism and replayability as first-class quality gates.
 
-**CI** builds have the latest `features` / `fixes` , are generally <br>
-stable, but may introduce **bugs** and have *incomplete translations* .
+## Scope Policy
 
-<br>
+Kept product features:
 
-To obtain **CI** builds for the `mupen64plus` & <br>
-`zilmar-spec` emulators do the following :
+1. 4:3 and 16:9 output scaling.
+2. Hi-res texture pack support.
+3. `.htc` texture cache support.
 
-##### With Github
+Everything else is optional and must justify complexity against correctness.
 
-Download them from the latest **[Workflow]** .
+## Repository Status
 
-##### Without Github
+1. Vulkan-only branch for renderer execution paths.
+2. `rvk2` scaffolding, trace schema, replay validator, and local gate integration are active.
+3. Core semantic correctness is still in progress (combiner/blender/depth/hazard closure not finished).
 
-Download them from the latest **[Release]** .
+For live status, see:
 
-<br>
+1. `docs/vulkan-core-status.md`
+2. `docs/vulkan-core-rebuild-plan.md`
 
-##### Version
+## Quick Start (Linux)
 
-*Choose between `32-bit` / `64-bit`* <br>
-*according to your emulator version.*
+### Build
 
-##### Earlier Builds
+```bash
+cmake -S src -B build/release-vulkan-smoke \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DMUPENPLUSAPI=ON \
+  -DMUPENPLUSAPI_GLIDENUI=OFF
 
-*For earlier builds you will have to log in and <br>
-download them from an older* ***[Workflow]*** *.*
+cmake --build build/release-vulkan-smoke -j$(nproc)
+```
 
-## Documentation
+### Required local gate
 
-- Start here: [docs/README.md](/home/auro/code/gliden64/docs/README.md)
-- Operations workflow: [WORKFLOW.md](/home/auro/code/gliden64/WORKFLOW.md)
+```bash
+./scripts/local_gate.sh
+```
 
+### Gate with smoke + rvk2 replay
 
-<!----------------------------------------------------------------------------->
+```bash
+REALITYVK_GATE_WITH_SMOKE=1 ./scripts/local_gate.sh
+```
 
-[Wiki]: https://github.com/gonetz/RealityVK/wiki
+### Control replay CPU workers
 
-[Release]: https://github.com/gonetz/RealityVK/releases/tag/github-actions
-[Workflow]: https://github.com/gonetz/RealityVK/actions?query=branch%3Amaster
+```bash
+REALITYVK_GATE_RVK2_TRACE_REPLAY_JOBS=0 ./scripts/local_gate.sh
+```
 
-[Github Badge]: https://github.com/gonetz/RealityVK/actions/workflows/build.yml/badge.svg?branch=master
+`0` means auto/all cores. Use `1` for single-process replay.
+
+## Runtime / Validation Commands
+
+```bash
+# Paper Mario parity compare
+./scripts/paper_mario_parity.sh
+
+# Deterministic smoke scenarios
+./scripts/local_smoke.sh
+
+# Visual compare viewer for parity outputs
+./scripts/paper_mario_compare_view.sh
+
+# Refresh Vulkan smoke baseline checksums (intentional changes only)
+REALITYVK_SMOKE_BACKENDS=Vulkan REALITYVK_SMOKE_UPDATE_BASELINES=1 ./scripts/local_smoke.sh
+
+# Refresh Paper Mario reference capture cache
+REALITYVK_PM_REFRESH_REFERENCE=1 ./scripts/paper_mario_parity.sh
+```
+
+## rvk2 Trace Replay Tool
+
+`rvk2` packet traces can be replay-validated offline:
+
+```bash
+python3 scripts/rvk2_packet_trace_replay.py \
+  --input build/local-gate/rvk2.packet.tsv \
+  --json-out build/local-gate/rvk2.packet.replay.json \
+  --jobs 0
+```
+
+## Key Paths
+
+1. `src/Graphics/RealityVK2/`: rvk2 rewrite modules.
+2. `src/Graphics/VulkanContext/`: current Vulkan backend implementation.
+3. `scripts/`: local gate, parity, smoke, replay tools.
+4. `tests/smoke/`: deterministic scenario manifests and baselines.
+5. `docs/`: canonical project docs.
+
+## Documentation Index
+
+Start here:
+
+1. `docs/README.md`
+2. `docs/vulkan-core-rebuild-plan.md`
+3. `docs/vulkan-core-status.md`
+4. `docs/local-ci.md`
+5. `docs/local-smoke.md`
+6. `docs/n64-runtime-validation-checklist.md`
+
+## Development Rules (Short Form)
+
+1. Prefer correctness and determinism over heuristic hacks.
+2. Keep changes measurable through traces/tests/smoke artifacts.
+3. Do not reintroduce legacy OpenGL compatibility paths unless explicitly required.
+4. Keep docs compact: one canonical plan and one canonical status tracker.
+
+## License
+
+RealityVK is distributed under GPLv2. See `LICENSE`.

@@ -2795,26 +2795,6 @@ def _decode_fill_color(fill_color: int, color_size: int) -> int:
     return ((r & 0xFF) << 24) | ((g & 0xFF) << 16) | ((b & 0xFF) << 8) | (a & 0xFF)
 
 
-def _pseudo_texel(work: RenderWorkRecord, x: int, y: int) -> int:
-    dx = x - work.rect_ulx
-    dy = y - work.rect_uly
-    s = work.tex_s + ((dx * work.tex_dsdx) >> 5)
-    t = work.tex_t + ((dy * work.tex_dtdy) >> 5)
-    seed = work.texture_image_address & 0xFFFFFFFFFFFFFFFF
-    seed ^= (work.tile_tmem & 0xFFFF) << 12
-    seed ^= (work.tile_line & 0xFFFF) << 20
-    seed ^= (s & 0xFFFF) << 1
-    seed ^= (t & 0xFFFF) << 17
-    seed ^= (x & 0xFFFFFFFF) << 33
-    seed ^= (y & 0xFFFFFFFF) << 45
-    seed ^= work.combine_mux & 0xFFFFFFFFFFFFFFFF
-    seed = (seed * 0x9E3779B97F4A7C15) & 0xFFFFFFFFFFFFFFFF
-    r = (seed >> 8) & 0xFF
-    g = (seed >> 24) & 0xFF
-    b = (seed >> 40) & 0xFF
-    return (r << 24) | (g << 16) | (b << 8) | 0xFF
-
-
 def _surface_index(width: int, x: int, y: int) -> int:
     return y * width + x
 
@@ -2924,24 +2904,6 @@ def _write_render_work_rect(
     summary.color_write_count += color_write_count
 
 
-def _edge_function(ax: float, ay: float, bx: float, by: float, px: float, py: float) -> float:
-    return (px - ax) * (by - ay) - (py - ay) * (bx - ax)
-
-
-def _pseudo_triangle_color(work: RenderWorkRecord, x: int, y: int) -> int:
-    seed = work.combine_mux & 0xFFFFFFFFFFFFFFFF
-    seed ^= (work.blend_params & 0xFFFFFFFF) << 29
-    seed ^= (work.source_packet_id & 0xFFFFFFFFFFFFFFFF) << 7
-    seed ^= (x & 0xFFFFFFFF) << 33
-    seed ^= (y & 0xFFFFFFFF) << 45
-    seed ^= work.sync_epoch & 0xFFFFFFFF
-    seed = (seed * 0x9E3779B97F4A7C15) & 0xFFFFFFFFFFFFFFFF
-    r = (seed >> 9) & 0xFF
-    g = (seed >> 27) & 0xFF
-    b = (seed >> 41) & 0xFF
-    return (r << 24) | (g << 16) | (b << 8) | 0xFF
-
-
 def _write_render_work_triangle(
     surface: _ReplayColorSurface,
     work: RenderWorkRecord,
@@ -2995,7 +2957,7 @@ def _write_render_work_triangle(
     by = ym
     cx = x_long_at_yl
     cy = yl
-    area = _edge_function(ax, ay, bx, by, cx, cy)
+    area = (cx - ax) * (by - ay) - (cy - ay) * (bx - ax)
     if area == 0.0:
         return
 

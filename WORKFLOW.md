@@ -325,7 +325,7 @@ scripts/paper_mario_parity.sh
 
 After each meaningful change:
 
-1. Update `docs/realityvk-vs-upstream-flow.md` with:
+1. Update `docs/vulkan-core-status.md` with:
    - what changed,
    - exact metrics,
    - interpretation,
@@ -354,7 +354,7 @@ To monitor progress, track these expectations:
 3. Any promoted behavior has a disable env knob.
 4. Runtime process hygiene is maintained (no stale launch sessions).
 5. Docs are updated when behavior or metrics change:
-   - `docs/realityvk-vs-upstream-flow.md`
+   - `docs/vulkan-core-status.md`
    - `docs/local-smoke.md`
 6. Artifact provenance remains clear via:
    - `paper_mario_intro.metrics.json`

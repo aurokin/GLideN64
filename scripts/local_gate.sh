@@ -22,6 +22,46 @@ if ! command -v cmake >/dev/null 2>&1; then
   exit 127
 fi
 
+validate_doc_links() {
+  local removed_paths=(
+    "docs/realityvk-vs-upstream-flow.md"
+    "docs/vulkan-migration-plan.md"
+    "docs/vulkan-backend-intent.md"
+    "docs/n64-video-core-bug-matrix.md"
+    "docs/vulkan-core-future-map.md"
+    "docs/vulkan-core-owner-map.md"
+    "docs/vulkan-core-phase-a-checklist.md"
+    "docs/archive/"
+  )
+  local active_docs=(
+    "${ROOT_DIR}/README.md"
+    "${ROOT_DIR}/WORKFLOW.md"
+    "${ROOT_DIR}/docs/README.md"
+    "${ROOT_DIR}/docs/local-ci.md"
+    "${ROOT_DIR}/docs/local-smoke.md"
+    "${ROOT_DIR}/docs/n64-runtime-validation-checklist.md"
+    "${ROOT_DIR}/docs/vulkan-core-rebuild-plan.md"
+    "${ROOT_DIR}/docs/vulkan-core-status.md"
+  )
+
+  local stale_found=0
+  for removed_path in "${removed_paths[@]}"; do
+    local matches=""
+    matches="$(grep -n -F -- "${removed_path}" "${active_docs[@]}" 2>/dev/null || true)"
+    if [[ -n "${matches}" ]]; then
+      if [[ "${stale_found}" == "0" ]]; then
+        echo "ERROR: stale documentation references detected in active docs/workflow:" >&2
+      fi
+      echo "${matches}" >&2
+      stale_found=1
+    fi
+  done
+
+  if [[ "${stale_found}" == "1" ]]; then
+    exit 1
+  fi
+}
+
 configure_and_build() {
   local name="$1"
   local build_type="$2"
@@ -66,6 +106,7 @@ run_rvk2_unit_tests() {
 }
 
 mkdir -p "${BUILD_ROOT}"
+validate_doc_links
 
 configure_and_build "linux-release-cli" "Release" "OFF"
 configure_and_build "linux-debug-cli" "Debug" "OFF"
