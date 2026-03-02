@@ -18,7 +18,7 @@
 #include "TextureFilterHandler.h"
 #include "DisplayWindow.h"
 #include "Graphics/RealityVK2/rvk2_Runtime.h"
-#include "Graphics/RealityVK2/rvk2_RuntimeSwitch.h"
+#include "Graphics/RealityVK2/rvk2_TraceConfig.h"
 #include "Graphics/RealityVK2/rvk2_TraceOutput.h"
 
 using namespace std;

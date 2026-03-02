@@ -4,7 +4,7 @@
 
 #include "Log.h"
 #include "rvk2_Runtime.h"
-#include "rvk2_RuntimeSwitch.h"
+#include "rvk2_TraceConfig.h"
 #include "rvk2_Validation.h"
 
 namespace {

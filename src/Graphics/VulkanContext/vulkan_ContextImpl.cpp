@@ -594,8 +594,7 @@ enum : u32 {
 	kPacketSourceTriangles = 1U,
 	kPacketSourceRects = 2U,
 	kPacketSourceLines = 3U,
-	kPacketSourceBlitDefault = 4U,
-	kPacketSourceFallbackFbo = 5U
+	kPacketSourceBlitDefault = 4U
 };
 
 u64 nextVkDrawPacketId()
@@ -615,8 +614,6 @@ const char * packetSourceName(u32 _source)
 		return "lines";
 	case kPacketSourceBlitDefault:
 		return "blit_default";
-	case kPacketSourceFallbackFbo:
-		return "fallback_fbo";
 	default:
 		return "unknown";
 	}
@@ -3134,22 +3131,6 @@ bool ContextImpl::present()
 			std::vector<DrawPacket> presentPackets;
 			presentPackets.reserve(queuedPackets.size() + 1U);
 			size_t totalVertexCount = 0;
-			u32 skippedSuspiciousPresentPackets = 0U;
-			bool hasLargeTexturedPacket = false;
-			static const bool enablePresentFallback = std::getenv("REALITYVK_VK_ENABLE_PRESENT_FALLBACK") != nullptr;
-
-			auto packetTextureDimensions = [&](const DrawPacket & _packet, u32 & _width, u32 & _height) -> bool {
-				_width = 0U;
-				_height = 0U;
-				if ((_packet.textureSlotMask & (1U << 0)) == 0U)
-					return false;
-				const TextureStore::TextureResource * texture = m_vk->textureStore.getTexture(_packet.textureSlots[0].texture);
-				if (texture == nullptr)
-					return false;
-				_width = texture->contentWidth != 0U ? texture->contentWidth : texture->width;
-				_height = texture->contentHeight != 0U ? texture->contentHeight : texture->height;
-				return _width != 0U && _height != 0U;
-			};
 			static const u32 debugTraceRtHandle = []() -> u32 {
 				const char * env = std::getenv("REALITYVK_VK_DEBUG_TRACE_RT_HANDLE");
 				if (env == nullptr || env[0] == '\0')
@@ -3228,24 +3209,6 @@ bool ContextImpl::present()
 				const f32 width = maxX - minX;
 				const f32 height = maxY - minY;
 				return width >= 1.70f && height >= 1.70f;
-			};
-
-			const u64 swapchainArea = static_cast<u64>(std::max<u32>(1U, m_vk->swapchainExtent.width))
-				* static_cast<u64>(std::max<u32>(1U, m_vk->swapchainExtent.height));
-			auto isSuspiciousFullscreenSmallTexturePacket = [&](const DrawPacket & _packet) -> bool {
-				if (_packet.debugSource != kPacketSourceRects || !_packet.debugTexrect)
-					return false;
-				if ((_packet.shaderFlags & vulkan::draw_shader_flags::kTexture0) == 0U)
-					return false;
-				if (!packetIsFullscreen(_packet))
-					return false;
-				u32 textureWidth = 0U;
-				u32 textureHeight = 0U;
-				if (!packetTextureDimensions(_packet, textureWidth, textureHeight))
-					return false;
-				const u64 textureArea = static_cast<u64>(textureWidth) * static_cast<u64>(textureHeight);
-				// Reject atlas-sized fullscreen packets that frequently override the real scene.
-				return textureArea * 64ULL < swapchainArea;
 			};
 
 				for (const DrawPacket & packet : queuedPackets) {
@@ -3405,18 +3368,6 @@ bool ContextImpl::present()
 					packetCopy.dirtyMask |= draw_dirty::kScissor;
 				}
 
-				if (enablePresentFallback && isSuspiciousFullscreenSmallTexturePacket(packetCopy)) {
-					++skippedSuspiciousPresentPackets;
-					continue;
-				}
-
-				u32 textureWidth = 0U;
-				u32 textureHeight = 0U;
-				if (packetTextureDimensions(packetCopy, textureWidth, textureHeight)) {
-					const u64 textureArea = static_cast<u64>(textureWidth) * static_cast<u64>(textureHeight);
-					if (textureArea * 20ULL >= swapchainArea)
-						hasLargeTexturedPacket = true;
-				}
 				if (debugTraceRtHandle != 0U && debugTraceRtReadLogCount < 256U) {
 					for (u32 slot = 0U; slot < 2U; ++slot) {
 						if ((packetCopy.textureSlotMask & (1U << slot)) == 0U)
@@ -3598,140 +3549,15 @@ bool ContextImpl::present()
 				presentPackets.emplace_back(std::move(packetCopy));
 			}
 
-			struct PresentFallbackCandidate {
-				graphics::ObjectHandle framebuffer = graphics::ObjectHandle::null;
-				graphics::ObjectHandle texture = graphics::ObjectHandle::null;
-				graphics::TextureTargetParam textureTarget = graphics::textureTarget::TEXTURE_2D;
-				u32 width = 0U;
-				u32 height = 0U;
-				u64 serial = 0U;
-			};
-
-			PresentFallbackCandidate fallbackCandidate{};
-			auto considerFallbackFramebuffer = [&](graphics::ObjectHandle _framebuffer, u64 _serial) {
-				if (!_framebuffer.isNotNull())
-					return;
-				const u32 colorAttachmentLimit = m_vk->framebufferStore.getDrawBufferCount(_framebuffer);
-				const FramebufferStore::FramebufferAttachment * attachment = resolveColorAttachment(
-					m_vk->framebufferStore,
-					_framebuffer,
-					graphics::bufferAttachment::COLOR_ATTACHMENT0,
-					nullptr,
-					colorAttachmentLimit);
-				if (attachment == nullptr || !attachment->textureHandle.isNotNull())
-					return;
-				const TextureStore::TextureResource * texture = m_vk->textureStore.getTexture(attachment->textureHandle);
-				if (texture == nullptr || texture->imageView == VK_NULL_HANDLE || !texture->hasContent)
-					return;
-				const u32 width = texture->contentWidth != 0U ? texture->contentWidth : texture->width;
-				const u32 height = texture->contentHeight != 0U ? texture->contentHeight : texture->height;
-				if (width == 0U || height == 0U)
-					return;
-
-				const u64 currentArea = static_cast<u64>(width) * static_cast<u64>(height);
-				const u64 bestArea = static_cast<u64>(fallbackCandidate.width) * static_cast<u64>(fallbackCandidate.height);
-				if (!fallbackCandidate.texture.isNotNull()
-					|| _serial > fallbackCandidate.serial
-					|| (_serial == fallbackCandidate.serial && currentArea > bestArea)) {
-					fallbackCandidate.framebuffer = _framebuffer;
-					fallbackCandidate.texture = attachment->textureHandle;
-					fallbackCandidate.textureTarget = graphics::TextureTargetParam(static_cast<u32>(attachment->textureTarget));
-					fallbackCandidate.width = width;
-					fallbackCandidate.height = height;
-					fallbackCandidate.serial = _serial;
-				}
-			};
-
-			considerFallbackFramebuffer(
-				m_vk->lastColorBlitDrawFramebuffer,
-				m_vk->lastColorBlitDrawFramebufferSerial);
-			if (!fallbackCandidate.texture.isNotNull()) {
-				considerFallbackFramebuffer(
-					m_vk->lastNonDefaultReadFramebuffer,
-					m_vk->lastNonDefaultReadFramebufferSerial);
-			}
-			if (!fallbackCandidate.texture.isNotNull()) {
-				considerFallbackFramebuffer(
-					m_vk->lastNonDefaultDrawFramebuffer,
-					m_vk->lastNonDefaultDrawFramebufferSerial);
-			}
-
-			bool fallbackInjected = false;
-			const bool shouldInjectFallback = enablePresentFallback
-				&& fallbackCandidate.texture.isNotNull()
-				&& (presentPackets.empty() || skippedSuspiciousPresentPackets > 0U || !hasLargeTexturedPacket);
-			if (shouldInjectFallback) {
-				DrawPacket fallbackPacket{};
-				fallbackPacket.primitive = PrimitiveType::TriangleStrip;
-				fallbackPacket.transformMode = VertexTransformMode::Rect;
-				fallbackPacket.textureUnit0 = 0U;
-				fallbackPacket.textureUnit1 = 1U;
-				fallbackPacket.shaderFlags = vulkan::draw_shader_flags::kTexture0;
-				fallbackPacket.positionsNormalized = true;
-				fallbackPacket.forceRasterRectTransform = false;
-				assignPacketDebugMetadata(fallbackPacket, kPacketSourceFallbackFbo, nullptr, true);
-				fallbackPacket.textureSlotMask = (1U << 0);
-				fallbackPacket.textureSlots[0].unit = 0U;
-				fallbackPacket.textureSlots[0].texture = fallbackCandidate.texture;
-				fallbackPacket.textureSlots[0].target = fallbackCandidate.textureTarget;
-				fallbackPacket.state.raster.viewportX = 0;
-				fallbackPacket.state.raster.viewportY = 0;
-				fallbackPacket.state.raster.viewportWidth = static_cast<s32>(m_vk->swapchainExtent.width);
-				fallbackPacket.state.raster.viewportHeight = static_cast<s32>(m_vk->swapchainExtent.height);
-				fallbackPacket.state.raster.viewportValid = true;
-				fallbackPacket.state.raster.scissorEnabled = false;
-				fallbackPacket.state.depth.testEnabled = false;
-				fallbackPacket.state.depth.writeEnabled = false;
-				fallbackPacket.state.depth.compare = CompareMode::kAlways;
-				fallbackPacket.state.blend.enabled = false;
-				fallbackPacket.state.cullMode = CullMode::kNone;
-				fallbackPacket.dirtyMask = draw_dirty::kAll;
-				fallbackPacket.vertices.reserve(4U);
-				auto addFallbackVertex = [&fallbackPacket](f32 _x, f32 _y, f32 _s, f32 _t) {
-					DrawVertex vertex{};
-					vertex.x = _x;
-					vertex.y = _y;
-					vertex.z = 0.0f;
-					vertex.w = 1.0f;
-					vertex.r = 1.0f;
-					vertex.g = 1.0f;
-					vertex.b = 1.0f;
-					vertex.a = 1.0f;
-					vertex.s0 = _s;
-					vertex.t0 = _t;
-					vertex.s1 = _s;
-					vertex.t1 = _t;
-					fallbackPacket.vertices.push_back(vertex);
-				};
-				// Offscreen color attachments are stored upside-down relative to clip-space Y.
-				addFallbackVertex(-1.0f, -1.0f, 0.0f, 1.0f);
-				addFallbackVertex(1.0f, -1.0f, 1.0f, 1.0f);
-				addFallbackVertex(-1.0f, 1.0f, 0.0f, 0.0f);
-				addFallbackVertex(1.0f, 1.0f, 1.0f, 0.0f);
-
-				const bool singleFullscreenPacket = presentPackets.size() == 1U && packetIsFullscreen(presentPackets[0]);
-				if (singleFullscreenPacket)
-					presentPackets.emplace_back(std::move(fallbackPacket));
-				else
-					presentPackets.insert(presentPackets.begin(), std::move(fallbackPacket));
-				totalVertexCount += 4U;
-				fallbackInjected = true;
-			}
-
 			const bool hasDrawPackets = totalVertexCount > 0;
 			if (isVkFboTraceEnabled()) {
 				vkFboTrace(
-					"op=present packets=%u vertices=%u skippedOffscreenDraws=%llu skippedOffscreenVertices=%llu skippedSuspicious=%u fallbackInjected=%u fallbackFbo=%u fallbackTex=%u fallbackSize=%ux%u",
+					"op=present packets=%u vertices=%u skippedOffscreenDraws=%llu skippedOffscreenVertices=%llu skippedSuspicious=%u",
 					static_cast<u32>(presentPackets.size()),
 					static_cast<u32>(totalVertexCount),
 					static_cast<unsigned long long>(offscreenSkippedDrawCalls()),
 					static_cast<unsigned long long>(offscreenSkippedVertices()),
-					skippedSuspiciousPresentPackets,
-					fallbackInjected ? 1U : 0U,
-					static_cast<u32>(fallbackCandidate.framebuffer),
-					static_cast<u32>(fallbackCandidate.texture),
-					fallbackCandidate.width,
-					fallbackCandidate.height);
+					0U);
 			}
 				static const bool debugPresent = std::getenv("REALITYVK_VK_DEBUG_PRESENT") != nullptr;
 				static const bool debugPresentPackets = std::getenv("REALITYVK_VK_DEBUG_PRESENT_PACKETS") != nullptr;

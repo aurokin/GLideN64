@@ -108,7 +108,7 @@ set(RealityVK_SOURCES
   Graphics/RealityVK2/rvk2_RDPState.cpp
   Graphics/RealityVK2/rvk2_RSPFrontend.cpp
   Graphics/RealityVK2/rvk2_Runtime.cpp
-  Graphics/RealityVK2/rvk2_RuntimeSwitch.cpp
+  Graphics/RealityVK2/rvk2_TraceConfig.cpp
   Graphics/RealityVK2/rvk2_SubmissionPlan.cpp
   Graphics/RealityVK2/rvk2_TMEMModel.cpp
   Graphics/RealityVK2/rvk2_TextureReplacement.cpp

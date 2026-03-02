@@ -11,7 +11,7 @@
 #include "DebugDump.h"
 #include "DisplayWindow.h"
 #include "Graphics/RealityVK2/rvk2_Runtime.h"
-#include "Graphics/RealityVK2/rvk2_RuntimeSwitch.h"
+#include "Graphics/RealityVK2/rvk2_TraceConfig.h"
 #include "Graphics/RealityVK2/rvk2_TraceOutput.h"
 
 void RDP_Unknown( u32 w0, u32 w1 )

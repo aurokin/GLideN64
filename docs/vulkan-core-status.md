@@ -68,6 +68,7 @@ This is the single execution tracker for the rewrite.
 62. Replacement visibility now supports stable per-frame summary file output (`REALITYVK_RVK2_TX_SUMMARY_PATH`) and maintainer control tooling (`scripts/rvk2_tx_control.py`).
 63. Runtime cutover hardening started: context creation is now rvk2-only, runtime-switch fallback is removed, legacy draw pass-through in `rvk2::ContextImpl` is disabled, and no-work presents now clear to deterministic black.
 64. Command ingest is now unconditional on rvk2 path (RSP/RDP/HLE/Turbo3D/T3DUX no longer guard on runtime-switch capture checks), and dead runtime-switch selector APIs were removed.
+65. Legacy present fallback injection path is deleted from Vulkan present, and stale runtime-switch naming/config surfaces were renamed to trace-config (`rvk2_TraceConfig`) for rvk2-only operation clarity.
 
 ## Phase Status
 
@@ -78,11 +79,11 @@ This is the single execution tracker for the rewrite.
 | C: Core Rendering Correctness | Done | Fill/copy/texrect/triangle/depth/coverage/blend hazard behavior is closed for the scoped synthetic contract and covered by conformance. |
 | D: VI and Presentation | Done | Register-driven source selection/scaling/filter/fail-safe behavior is implemented with unit + conformance + smoke coverage for current scoped contract. |
 | E: Texture Replacement | Done | Deterministic key/cache contracts, store APIs, `.htc` IO, pack-index ingest, lifecycle controls, bounded load policy, optional executor sampling, runtime control-file UX, summary visibility, and maintainer tooling are landed. |
-| F: Cutover and Deletion | In progress | Runtime/context fallback is removed and ingest is unconditional; full legacy-path deletion and cleanup are still open. |
+| F: Cutover and Deletion | In progress | Runtime/context fallback is removed, ingest is unconditional, and present fallback injection is deleted; full legacy-path deletion and cleanup are still open. |
 
 ## Completion Estimate
 
-Estimated overall roadmap completion: **~97%**.
+Estimated overall roadmap completion: **~98%**.
 
 Heuristic phase weighting used for this estimate:
 - A: 20%
@@ -98,7 +99,7 @@ Estimated phase progress used:
 - C: 100%
 - D: 100%
 - E: 100%
-- F: 35%
+- F: 45%
 
 ## Completed Recently
 
@@ -324,13 +325,17 @@ Estimated phase progress used:
    - added maintainer control utility (`scripts/rvk2_tx_control.py`) and unit coverage for control-file config + lifecycle behavior
 52. Started Phase F hard cutover:
    - context creation now always instantiates `rvk2::ContextImpl` (runtime switch fallback removed)
-   - `rvk2_RuntimeSwitch` is now fixed to rvk2 path and trace capture always-on for active runtime ingestion
+   - rvk2 trace/config ingestion is fixed to active runtime-only behavior (no runtime selector path)
    - `rvk2::ContextImpl` no longer forwards triangle/rect/line draws to legacy Vulkan draw submission
    - no-work presentation now clears to black rather than showing legacy draw output
 53. Tightened Phase F ingest/runtime cleanup:
    - RSP/RDP/Turbo3D/T3DUX/hybrid HLE synthetic submission paths no longer branch on runtime-switch capture checks
    - rvk2 frame begin/capture emission paths are now unconditional in active runtime
    - removed dead runtime-switch selector APIs (`getRequestedRuntimePath`, `isRealityVK2Requested`, `shouldCaptureRDPTrace`)
+54. Advanced Phase F present/trace cleanup:
+   - deleted Vulkan present fallback candidate/injection path and associated env gate (`REALITYVK_VK_ENABLE_PRESENT_FALLBACK`)
+   - removed fallback packet debug source classification from present packet metadata
+   - renamed stale `rvk2_RuntimeSwitch` module to `rvk2_TraceConfig` to reflect rvk2-only trace/config responsibilities
 
 ## Current Bottlenecks
 
@@ -348,8 +353,8 @@ Estimated phase progress used:
 
 ## Remaining Work Split (Approx)
 
-1. Phase F cutover/deletion (legacy path deletion/cleanup): **50%** of remaining work.
-2. Parity stabilization and metric closure: **25%**.
+1. Phase F cutover/deletion (legacy path deletion/cleanup): **45%** of remaining work.
+2. Parity stabilization and metric closure: **30%**.
 3. Trace/replay strictness + schema tightening: **20%**.
 4. Post-closure texture replacement burn-in/coverage expansion: **5%**.
 

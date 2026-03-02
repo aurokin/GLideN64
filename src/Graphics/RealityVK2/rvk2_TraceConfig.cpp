@@ -1,4 +1,4 @@
-#include "rvk2_RuntimeSwitch.h"
+#include "rvk2_TraceConfig.h"
 
 #include <atomic>
 #include <cstdlib>
