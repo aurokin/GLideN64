@@ -1507,6 +1507,79 @@ void testVIRendererAspectScaling()
 	expectEq(originOutOfRangePixels[2], 0x00000000U, "VIRenderer origin OOR sample (0,1) mismatch");
 	expectEq(originOutOfRangePixels[3], 0x00000000U, "VIRenderer origin OOR sample (1,1) mismatch");
 
+	std::vector<u32> strideSource(32U, 0U);
+	for (size_t i = 0; i < strideSource.size(); ++i) {
+		const u8 value = static_cast<u8>(i & 0xFFU);
+		strideSource[i] = (static_cast<u32>(value) << 24U)
+			| (static_cast<u32>(value) << 16U)
+			| (static_cast<u32>(value) << 8U)
+			| 0xFFU;
+	}
+	rvk2::VIFrameInput strideInput{};
+	strideInput.sourceWidth = 8U;
+	strideInput.sourceHeight = 4U;
+	strideInput.sourcePixels = &strideSource;
+	strideInput.registers.valid = true;
+	strideInput.registers.status = 3U;
+	strideInput.registers.width = 4U;
+	strideInput.registers.vSync = 525U;
+	strideInput.registers.hStart = (0U << 16U) | 2U;
+	strideInput.registers.vStart = (0U << 16U) | 4U;
+	strideInput.registers.xScale = 2048U;
+	strideInput.registers.yScale = 2048U;
+	std::vector<u32> stridePixels;
+	const rvk2::VIFrameSummary strideSummary =
+		rendererSquare.present(strideInput, &stridePixels);
+	expectEq(strideSummary.presentWidth, 2U, "VIRenderer stride width mismatch");
+	expectEq(strideSummary.presentHeight, 2U, "VIRenderer stride height mismatch");
+	expectEq(stridePixels.size(), static_cast<size_t>(4U), "VIRenderer stride pixel count mismatch");
+	expectEq(stridePixels[0], strideSource[0], "VIRenderer stride sample (0,0) mismatch");
+	expectEq(stridePixels[1], strideSource[2], "VIRenderer stride sample (1,0) mismatch");
+	expectEq(stridePixels[2], strideSource[8], "VIRenderer stride sample (0,1) mismatch");
+	expectEq(stridePixels[3], strideSource[10], "VIRenderer stride sample (1,1) mismatch");
+
+	std::vector<u32> strideShortSource{
+		0x101010FFU, 0x202020FFU, 0x303030FFU, 0x404040FFU,
+		0x505050FFU, 0x606060FFU, 0x707070FFU, 0x808080FFU
+	};
+	rvk2::VIFrameInput strideOverflowInput{};
+	strideOverflowInput.sourceWidth = 4U;
+	strideOverflowInput.sourceHeight = 2U;
+	strideOverflowInput.sourcePixels = &strideShortSource;
+	strideOverflowInput.registers.valid = true;
+	strideOverflowInput.registers.status = 3U;
+	strideOverflowInput.registers.width = 8U;
+	strideOverflowInput.registers.vSync = 525U;
+	strideOverflowInput.registers.hStart = (0U << 16U) | 2U;
+	strideOverflowInput.registers.vStart = (0U << 16U) | 4U;
+	strideOverflowInput.registers.xScale = 2048U;
+	strideOverflowInput.registers.yScale = 2048U;
+	std::vector<u32> strideOverflowPixels;
+	const rvk2::VIFrameSummary strideOverflowSummary =
+		rendererSquare.present(strideOverflowInput, &strideOverflowPixels);
+	expectEq(strideOverflowSummary.presentWidth, 2U, "VIRenderer stride overflow width mismatch");
+	expectEq(strideOverflowSummary.presentHeight, 2U, "VIRenderer stride overflow height mismatch");
+	expectEq(
+		strideOverflowPixels.size(),
+		static_cast<size_t>(4U),
+		"VIRenderer stride overflow pixel count mismatch");
+	expectEq(
+		strideOverflowPixels[0],
+		strideShortSource[0],
+		"VIRenderer stride overflow sample (0,0) mismatch");
+	expectEq(
+		strideOverflowPixels[1],
+		strideShortSource[2],
+		"VIRenderer stride overflow sample (1,0) mismatch");
+	expectEq(
+		strideOverflowPixels[2],
+		0x00000000U,
+		"VIRenderer stride overflow sample (0,1) mismatch");
+	expectEq(
+		strideOverflowPixels[3],
+		0x00000000U,
+		"VIRenderer stride overflow sample (1,1) mismatch");
+
 	rvk2::VIFrameInput wrappedVStartInput{};
 	wrappedVStartInput.sourceWidth = 2U;
 	wrappedVStartInput.sourceHeight = 2U;

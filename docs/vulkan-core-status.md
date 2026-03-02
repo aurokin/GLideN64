@@ -30,6 +30,7 @@ This is the single execution tracker for the rewrite.
 24. VI presenter now applies interlace field selection in register-stepping space (field-aware Y stepping) for serrated mode.
 25. VI presenter now enforces register-window edge clipping (out-of-range samples resolve to black) and blank output on invalid H/V windows.
 26. VI presentation now applies origin-relative base pixel offsets only when `VI_ORIGIN` maps to a selected surface.
+27. VI register-driven sampling now treats `VI_WIDTH` as source line stride for linear address generation.
 
 ## Phase Status
 
@@ -44,7 +45,7 @@ This is the single execution tracker for the rewrite.
 
 ## Completion Estimate
 
-Estimated overall roadmap completion: **~67%**.
+Estimated overall roadmap completion: **~68%**.
 
 Heuristic phase weighting used for this estimate:
 - A: 20%
@@ -58,7 +59,7 @@ Estimated phase progress used:
 - A: 100%
 - B: 74%
 - C: 65%
-- D: 70%
+- D: 74%
 - E: 0%
 - F: 0%
 
@@ -175,6 +176,11 @@ Estimated phase progress used:
    - executor now resolves `VI_ORIGIN` to exact or containing render targets (address-range aware by color-image size)
    - presenter now applies origin-relative source pixel offset when and only when the selected surface matches `VI_ORIGIN`
    - unit coverage added for in-range `VI_ORIGIN` surface selection, origin-offset sampling, wrapped `vStart` handling, and no-match fallback behavior
+28. Landed VI width-stride addressing semantics:
+   - register-driven sampling now uses `VI_WIDTH` as line stride when mapping `(x,y)` sample positions to source linear addresses
+   - source sampling validity now resolves through stride-aware linear bounds (including out-of-range row/offset clip-to-black behavior)
+   - AA/divot neighborhood taps now operate on stride-aware linear neighbors for register-driven paths
+   - unit coverage added for stride remapping (`VI_WIDTH < sourceWidth`) and stride overflow clipping (`VI_WIDTH > backing width`)
 
 ## Current Bottlenecks
 
