@@ -828,46 +828,84 @@ inline u32 bitsPerPixelFromSurfaceSize(u8 _size)
 	}
 }
 
+constexpr size_t kExecutorSurfaceHistoryLimit = 6U;
+
+template <typename SurfaceT>
+bool originMatchesSurfaceRange(
+	u32 _surfaceAddress,
+	const SurfaceT & _surface,
+	u32 _viOriginAddress,
+	bool & _outExactMatch)
+{
+	_outExactMatch = false;
+	if (_viOriginAddress == _surfaceAddress) {
+		_outExactMatch = true;
+		return true;
+	}
+	const u64 pixelCount = static_cast<u64>(_surface.width) * static_cast<u64>(_surface.height);
+	const u64 bitCount = pixelCount * static_cast<u64>(bitsPerPixelFromSurfaceSize(_surface.size));
+	const u64 byteCount = (bitCount + 7ULL) >> 3U;
+	const u64 surfaceBegin = static_cast<u64>(_surfaceAddress);
+	const u64 surfaceEnd = surfaceBegin + byteCount;
+	const u64 origin = static_cast<u64>(_viOriginAddress);
+	return origin >= surfaceBegin && origin < surfaceEnd;
+}
+
+template <typename SurfaceMapT>
+bool chooseSurfaceForVIOriginGeneric(
+	const SurfaceMapT & _surfaces,
+	u32 _viOriginAddress,
+	u32 & _outSurfaceAddress,
+	bool & _outExactMatch)
+{
+	_outExactMatch = false;
+	u32 bestAddress = 0U;
+	u32 bestDelta = std::numeric_limits<u32>::max();
+	bool found = false;
+	for (const auto & entry : _surfaces) {
+		const u32 surfaceAddress = entry.first;
+		const auto & surface = entry.second;
+		bool exactMatch = false;
+		if (!originMatchesSurfaceRange(surfaceAddress, surface, _viOriginAddress, exactMatch))
+			continue;
+		const u32 delta = _viOriginAddress - surfaceAddress;
+		if (!found || delta < bestDelta) {
+			found = true;
+			bestDelta = delta;
+			bestAddress = surfaceAddress;
+			_outExactMatch = exactMatch;
+		}
+	}
+	if (!found)
+		return false;
+	_outSurfaceAddress = bestAddress;
+	return true;
+}
+
 bool chooseSurfaceForVIOrigin(
 	const std::unordered_map<u32, ColorSurface> & _surfaces,
 	u32 _viOriginAddress,
 	u32 & _outSurfaceAddress,
 	bool & _outExactMatch)
 {
-	_outExactMatch = false;
-	const auto exact = _surfaces.find(_viOriginAddress);
-	if (exact != _surfaces.end()) {
-		_outSurfaceAddress = _viOriginAddress;
-		_outExactMatch = true;
-		return true;
-	}
+	return chooseSurfaceForVIOriginGeneric(
+		_surfaces,
+		_viOriginAddress,
+		_outSurfaceAddress,
+		_outExactMatch);
+}
 
-	u32 bestAddress = 0U;
-	u32 bestDelta = std::numeric_limits<u32>::max();
-	bool found = false;
-	for (const auto & entry : _surfaces) {
-		const u32 surfaceAddress = entry.first;
-		const ColorSurface & surface = entry.second;
-		const u64 pixelCount = static_cast<u64>(surface.width) * static_cast<u64>(surface.height);
-		const u64 bitCount = pixelCount * static_cast<u64>(bitsPerPixelFromSurfaceSize(surface.size));
-		const u64 byteCount = (bitCount + 7ULL) >> 3U;
-		const u64 surfaceBegin = static_cast<u64>(surfaceAddress);
-		const u64 surfaceEnd = surfaceBegin + byteCount;
-		const u64 origin = static_cast<u64>(_viOriginAddress);
-		if (origin < surfaceBegin || origin >= surfaceEnd)
-			continue;
-		const u32 delta = static_cast<u32>(origin - surfaceBegin);
-		if (!found || delta < bestDelta) {
-			found = true;
-			bestDelta = delta;
-			bestAddress = surfaceAddress;
-		}
-	}
-
-	if (!found)
-		return false;
-	_outSurfaceAddress = bestAddress;
-	return true;
+bool chooseHistorySurfaceForVIOrigin(
+	const std::unordered_map<u32, rvk2::ExecutorCachedSurface> & _surfaces,
+	u32 _viOriginAddress,
+	u32 & _outSurfaceAddress,
+	bool & _outExactMatch)
+{
+	return chooseSurfaceForVIOriginGeneric(
+		_surfaces,
+		_viOriginAddress,
+		_outSurfaceAddress,
+		_outExactMatch);
 }
 
 bool chooseMostWrittenSurfaceAddress(
@@ -2484,6 +2522,10 @@ void Executor::updateConfig(const ExecutorConfig & _config)
 		m_textureReplacementStore.clear();
 		m_textureReplacementLoaded = false;
 	}
+	if (invalidateTokenChanged) {
+		m_lastSelectedSurface = ExecutorCachedSurface{};
+		m_surfaceHistory.clear();
+	}
 }
 
 void Executor::ensureTextureReplacementLoaded()
@@ -2523,6 +2565,7 @@ ExecutorOutput Executor::executeWithOutput(
 
 	ExecutorOutput output{};
 	ExecutorSummary & summary = output.summary;
+	const u64 frameStamp = ++m_surfaceHistoryStamp;
 	summary.presentAspectX = m_config.presentAspectX;
 	summary.presentAspectY = m_config.presentAspectY;
 	summary.viRegistersValid = m_config.viRegistersValid ? 1U : 0U;
@@ -2656,6 +2699,21 @@ ExecutorOutput Executor::executeWithOutput(
 					? kExecutorPresentSelectionVIOriginExact
 					: kExecutorPresentSelectionVIOriginRange;
 		}
+		else if (!m_surfaceHistory.empty()) {
+			u32 historyMatchedAddress = presentSurfaceAddress;
+			bool historyExact = false;
+			if (chooseHistorySurfaceForVIOrigin(
+					m_surfaceHistory,
+					viOriginAddress,
+					historyMatchedAddress,
+					historyExact)) {
+				presentSurfaceAddress = historyMatchedAddress;
+				summary.presentSelectionReason =
+					historyExact
+						? kExecutorPresentSelectionVIOriginExact
+						: kExecutorPresentSelectionVIOriginRange;
+			}
+		}
 	}
 	summary.viOriginMatchedSurface = viOriginMatchedSurface ? 1U : 0U;
 	auto it = surfaces.find(presentSurfaceAddress);
@@ -2680,6 +2738,13 @@ ExecutorOutput Executor::executeWithOutput(
 	const auto selectedWorkIt = surfaceWorkCounts.find(presentSurfaceAddress);
 	if (selectedWorkIt != surfaceWorkCounts.end())
 		summary.selectedPresentSurfaceWorkCount = selectedWorkIt->second;
+	const auto historyIt = m_surfaceHistory.find(presentSurfaceAddress);
+	if (summary.selectedPresentSurfaceWriteCount == 0ULL
+		&& historyIt != m_surfaceHistory.end())
+		summary.selectedPresentSurfaceWriteCount = historyIt->second.writeCount;
+	if (summary.selectedPresentSurfaceWorkCount == 0ULL
+		&& historyIt != m_surfaceHistory.end())
+		summary.selectedPresentSurfaceWorkCount = historyIt->second.workCount;
 
 	if (it != surfaces.end()) {
 		VIFrameInput presentInput{};
@@ -2712,9 +2777,156 @@ ExecutorOutput Executor::executeWithOutput(
 		summary.viResolvedUsesRegisters = viSummary.usesRegisters;
 		output.presentFrame.width = viSummary.presentWidth;
 		output.presentFrame.height = viSummary.presentHeight;
+		m_lastSelectedSurface.valid = true;
+		m_lastSelectedSurface.address = presentSurfaceAddress;
+		m_lastSelectedSurface.format = it->second.format;
+		m_lastSelectedSurface.size = it->second.size;
+		m_lastSelectedSurface.width = it->second.width;
+		m_lastSelectedSurface.height = it->second.height;
+		m_lastSelectedSurface.writeCount = summary.selectedPresentSurfaceWriteCount;
+		m_lastSelectedSurface.workCount = summary.selectedPresentSurfaceWorkCount;
+		m_lastSelectedSurface.lastTouched = frameStamp;
+		m_lastSelectedSurface.pixels = it->second.pixels;
 	}
-	else
+	else if (historyIt != m_surfaceHistory.end()) {
+		const ExecutorCachedSurface & cached = historyIt->second;
+		bool cacheExactMatch = false;
+		const bool cacheOriginMatch =
+			m_config.viRegistersValid
+			&& originMatchesSurfaceRange(
+				cached.address,
+				cached,
+				m_config.viOrigin & 0x00FFFFFFU,
+				cacheExactMatch);
+		if (cacheOriginMatch)
+			summary.viOriginMatchedSurface = 1U;
+		else if (summary.presentSelectionReason == kExecutorPresentSelectionNoSurface)
+			summary.presentSelectionReason = kExecutorPresentSelectionPreviousSurface;
+
+		VIFrameInput presentInput{};
+		presentInput.sourceAddressValid = cacheOriginMatch;
+		presentInput.sourceAddress = cached.address;
+		presentInput.sourceWidth = cached.width;
+		presentInput.sourceHeight = cached.height;
+		presentInput.sourcePixels = &cached.pixels;
+		presentInput.registers.valid = m_config.viRegistersValid;
+		presentInput.registers.status = m_config.viStatus;
+		presentInput.registers.origin = m_config.viOrigin;
+		presentInput.registers.width = m_config.viWidth;
+		presentInput.registers.vCurrentLine = m_config.viVCurrentLine;
+		presentInput.registers.vSync = m_config.viVSync;
+		presentInput.registers.hStart = m_config.viHStart;
+		presentInput.registers.vStart = m_config.viVStart;
+		presentInput.registers.xScale = m_config.viXScale;
+		presentInput.registers.yScale = m_config.viYScale;
+		const VIFrameSummary viSummary = viRenderer.present(presentInput, &output.presentFrame.pixels);
+		summary.presentHash = viSummary.presentHash;
+		summary.presentWidth = viSummary.presentWidth;
+		summary.presentHeight = viSummary.presentHeight;
+		summary.viRejectReason = viSummary.rejectReason;
+		summary.viResolvedSourceWidth = viSummary.resolvedSourceWidth;
+		summary.viResolvedSourceHeight = viSummary.resolvedSourceHeight;
+		summary.viResolvedOutputWidth = viSummary.resolvedOutputWidth;
+		summary.viResolvedOutputHeight = viSummary.resolvedOutputHeight;
+		summary.viResolvedLineStride = viSummary.resolvedLineStride;
+		summary.viResolvedType = viSummary.resolvedType;
+		summary.viResolvedUsesRegisters = viSummary.usesRegisters;
+		output.presentFrame.width = viSummary.presentWidth;
+		output.presentFrame.height = viSummary.presentHeight;
+		m_lastSelectedSurface = cached;
+		m_lastSelectedSurface.lastTouched = frameStamp;
+	}
+	else if (m_lastSelectedSurface.valid) {
+		bool cacheExactMatch = false;
+		const bool cacheOriginMatch =
+			m_config.viRegistersValid
+			&& originMatchesSurfaceRange(
+				m_lastSelectedSurface.address,
+				m_lastSelectedSurface,
+				m_config.viOrigin & 0x00FFFFFFU,
+				cacheExactMatch);
+		if (cacheOriginMatch) {
+			summary.viOriginMatchedSurface = 1U;
+			summary.presentSelectionReason =
+				cacheExactMatch
+					? kExecutorPresentSelectionVIOriginExact
+					: kExecutorPresentSelectionVIOriginRange;
+		}
+		else
+			summary.presentSelectionReason = kExecutorPresentSelectionPreviousSurface;
+		summary.selectedPresentSurfaceAddress = m_lastSelectedSurface.address;
+		summary.selectedPresentSurfaceWriteCount = m_lastSelectedSurface.writeCount;
+		summary.selectedPresentSurfaceWorkCount = m_lastSelectedSurface.workCount;
+
+		VIFrameInput presentInput{};
+		presentInput.sourceAddressValid = cacheOriginMatch;
+		presentInput.sourceAddress = m_lastSelectedSurface.address;
+		presentInput.sourceWidth = m_lastSelectedSurface.width;
+		presentInput.sourceHeight = m_lastSelectedSurface.height;
+		presentInput.sourcePixels = &m_lastSelectedSurface.pixels;
+		presentInput.registers.valid = m_config.viRegistersValid;
+		presentInput.registers.status = m_config.viStatus;
+		presentInput.registers.origin = m_config.viOrigin;
+		presentInput.registers.width = m_config.viWidth;
+		presentInput.registers.vCurrentLine = m_config.viVCurrentLine;
+		presentInput.registers.vSync = m_config.viVSync;
+		presentInput.registers.hStart = m_config.viHStart;
+		presentInput.registers.vStart = m_config.viVStart;
+		presentInput.registers.xScale = m_config.viXScale;
+		presentInput.registers.yScale = m_config.viYScale;
+		const VIFrameSummary viSummary = viRenderer.present(presentInput, &output.presentFrame.pixels);
+		summary.presentHash = viSummary.presentHash;
+		summary.presentWidth = viSummary.presentWidth;
+		summary.presentHeight = viSummary.presentHeight;
+		summary.viRejectReason = viSummary.rejectReason;
+		summary.viResolvedSourceWidth = viSummary.resolvedSourceWidth;
+		summary.viResolvedSourceHeight = viSummary.resolvedSourceHeight;
+		summary.viResolvedOutputWidth = viSummary.resolvedOutputWidth;
+		summary.viResolvedOutputHeight = viSummary.resolvedOutputHeight;
+		summary.viResolvedLineStride = viSummary.resolvedLineStride;
+		summary.viResolvedType = viSummary.resolvedType;
+		summary.viResolvedUsesRegisters = viSummary.usesRegisters;
+		output.presentFrame.width = viSummary.presentWidth;
+		output.presentFrame.height = viSummary.presentHeight;
+	}
+	else {
+		summary.presentSelectionReason = kExecutorPresentSelectionNoSurface;
 		summary.viRejectReason = kVIRejectMissingSource;
+	}
+
+	for (const auto & entry : surfaces) {
+		const u32 address = entry.first;
+		const ColorSurface & surface = entry.second;
+		ExecutorCachedSurface & cached = m_surfaceHistory[address];
+		cached.valid = true;
+		cached.address = address;
+		cached.format = surface.format;
+		cached.size = surface.size;
+		cached.width = surface.width;
+		cached.height = surface.height;
+		const auto writeIt = surfaceColorWrites.find(address);
+		const auto workIt = surfaceWorkCounts.find(address);
+		cached.writeCount = writeIt != surfaceColorWrites.end() ? writeIt->second : 0ULL;
+		cached.workCount = workIt != surfaceWorkCounts.end() ? workIt->second : 0ULL;
+		cached.lastTouched = frameStamp;
+		cached.pixels = surface.pixels;
+	}
+	while (m_surfaceHistory.size() > kExecutorSurfaceHistoryLimit) {
+		u32 oldestAddress = 0U;
+		u64 oldestTouched = std::numeric_limits<u64>::max();
+		bool foundOldest = false;
+		for (const auto & historyEntry : m_surfaceHistory) {
+			if (!foundOldest || historyEntry.second.lastTouched < oldestTouched) {
+				foundOldest = true;
+				oldestAddress = historyEntry.first;
+				oldestTouched = historyEntry.second.lastTouched;
+			}
+		}
+		if (!foundOldest)
+			break;
+		m_surfaceHistory.erase(oldestAddress);
+	}
+
 	gActiveExecutorSummary = previousExecutorSummary;
 	gActiveTextureReplacementStore = previousReplacementStore;
 	return output;

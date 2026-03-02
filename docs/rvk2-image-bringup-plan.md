@@ -31,7 +31,7 @@ Total remaining work represented here: 100%.
 | ID | Priority | Status | Weight | Outcome |
 | --- | --- | --- | --- | --- |
 | P1 | Highest | In progress | 10% | Add frame-forensics layer so each bad frame is diagnosable. |
-| P2 | Highest | Planned | 15% | Make present target selection deterministic and VI-origin authoritative. |
+| P2 | Highest | In progress | 15% | Make present target selection deterministic and VI-origin authoritative. |
 | P3 | Highest | Planned | 25% | Replace pseudo texture sampling with real TMEM-backed sampling. |
 | P4 | High | Planned | 20% | Replace pseudo triangle color path with coefficient-driven raster evaluation. |
 | P5 | High | Planned | 25% | Implement real combiner/blender/depth/coverage semantics for cycle 1/2. |
@@ -47,8 +47,8 @@ Total remaining work represented here: 100%.
 
 ## Live Progress
 
-- Overall completion of this bring-up plan: **~7%**
-- Active phase: **P1**
+- Overall completion of this bring-up plan: **~12%**
+- Active phase: **P2**
 - Blockers: none (technical debt only)
 
 ## Latest Findings (Forensics Run)
@@ -71,9 +71,25 @@ Implication:
 - We now have precise visibility into when black output is “no render surface yet” vs “rendered but wrong content.”
 - P2 should focus on tightening present target policy around VI-origin + surface activity epoch.
 
+## Latest Findings (P2 Selection Pass)
+
+After adding previous-surface support and bounded surface-history selection:
+
+- Present selection mix shifted from mostly `last-surface` fallback to deterministic fallback classes:
+  - `kExecutorPresentSelectionVIOriginRange (3)`: `73`
+  - `kExecutorPresentSelectionMostWrittenFallback (4)`: `37`
+  - `kExecutorPresentSelectionLastSurface (1)`: `1`
+  - `kExecutorPresentSelectionNoSurface (5)`: `44`
+- Zero-present frames remained `44`, but all are early bootstrap windows before any render surface exists.
+
+Implication:
+- Runtime now makes less arbitrary present-target choices once surfaces exist.
+- Remaining visual corruption is increasingly likely inside content generation (TMEM/pixel path), not target selection.
+
 ## Update Log
 
 | Date | Change | Notes |
 | --- | --- | --- |
 | 2026-03-02 | Initial plan created. | Derived from current RVK2 smoke/parity behavior and trace analysis. |
 | 2026-03-02 | Added frame forensics instrumentation (P1, in progress). | Executor summary now records present-surface selection, per-surface write/work rankings, and VI rejection/resolved-state metadata; context can emit per-frame forensic records via `REALITYVK2_FRAME_FORENSICS_FILE`. |
+| 2026-03-02 | Added deterministic present fallback improvements (P2, in progress). | Executor now supports no-work previous-surface fallback, bounded surface-history cache, and VI-origin selection against history before non-authoritative fallback. |

@@ -2,6 +2,7 @@
 
 #include <array>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "rvk2_SubmissionPlan.h"
@@ -19,6 +20,7 @@ enum ExecutorPresentSelectionReason : u8
 	kExecutorPresentSelectionVIOriginRange = 3U,
 	kExecutorPresentSelectionMostWrittenFallback = 4U,
 	kExecutorPresentSelectionNoSurface = 5U,
+	kExecutorPresentSelectionPreviousSurface = 6U,
 };
 
 struct ExecutorConfig {
@@ -96,6 +98,19 @@ struct ExecutorOutput {
 	ExecutorPresentFrame presentFrame{};
 };
 
+struct ExecutorCachedSurface {
+	bool valid = false;
+	u32 address = 0U;
+	u8 format = 0U;
+	u8 size = 0U;
+	u16 width = 0U;
+	u16 height = 0U;
+	u64 writeCount = 0ULL;
+	u64 workCount = 0ULL;
+	u64 lastTouched = 0ULL;
+	std::vector<u32> pixels;
+};
+
 class Executor
 {
 public:
@@ -114,6 +129,9 @@ private:
 	ExecutorConfig m_config;
 	bool m_textureReplacementLoaded = false;
 	TextureReplacementStore m_textureReplacementStore{};
+	ExecutorCachedSurface m_lastSelectedSurface{};
+	std::unordered_map<u32, ExecutorCachedSurface> m_surfaceHistory{};
+	u64 m_surfaceHistoryStamp = 0ULL;
 
 	void ensureTextureReplacementLoaded();
 };

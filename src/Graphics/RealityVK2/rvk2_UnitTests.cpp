@@ -1904,6 +1904,72 @@ void testExecutorVIOriginPresentationSelection()
 		"Executor VI no-match hash should match default presentation");
 }
 
+void testExecutorPreviousSurfaceFallback()
+{
+	auto makeFillWork = [](
+		u64 _packetId,
+		u32 _colorAddress,
+		u32 _fillColor) -> rvk2::RenderWorkPacket {
+		rvk2::RenderWorkPacket work{};
+		work.sourcePacketId = _packetId;
+		work.sourceOpcode = 0x36U;
+		work.opKind = static_cast<u8>(rvk2::RasterOpKind::kFillRect);
+		work.phase = static_cast<u8>(rvk2::RenderPhase::kFill);
+		work.cycleType = 3U;
+		work.rectULX = 0U;
+		work.rectULY = 0U;
+		work.rectLRX = 1U;
+		work.rectLRY = 1U;
+		work.colorImageFormat = 0U;
+		work.colorImageSize = 3U;
+		work.colorImageWidth = 2U;
+		work.colorImageAddress = _colorAddress;
+		work.fillColor = _fillColor;
+		return work;
+	};
+
+	const rvk2::RenderWorkPacket fill = makeFillWork(1ULL, 0x00100000U, 0x11223344U);
+	rvk2::SubmissionBatchPacket batch{};
+	batch.batchIndex = 0U;
+	batch.phase = static_cast<u8>(rvk2::RenderPhase::kFill);
+	batch.cycleType = 3U;
+	batch.firstWorkIndex = 0U;
+	batch.lastWorkIndex = 0U;
+	batch.workCount = 1U;
+	const std::vector<rvk2::RenderWorkPacket> firstWorkPackets{fill};
+	const std::vector<rvk2::SubmissionBatchPacket> firstBatches{batch};
+
+	rvk2::ExecutorConfig config{};
+	config.presentAspectX = 1U;
+	config.presentAspectY = 1U;
+	rvk2::Executor executor(config);
+	const rvk2::ExecutorOutput firstOut =
+		executor.executeWithOutput(firstWorkPackets, firstBatches);
+	expectTrue(
+		!firstOut.presentFrame.pixels.empty(),
+		"Executor first frame should produce present pixels");
+	expectEq(
+		firstOut.summary.presentSelectionReason,
+		static_cast<u8>(rvk2::kExecutorPresentSelectionLastSurface),
+		"Executor first frame should present current surface");
+
+	const std::vector<rvk2::RenderWorkPacket> emptyWorkPackets;
+	const std::vector<rvk2::SubmissionBatchPacket> emptyBatches;
+	const rvk2::ExecutorOutput secondOut =
+		executor.executeWithOutput(emptyWorkPackets, emptyBatches);
+	expectTrue(
+		!secondOut.presentFrame.pixels.empty(),
+		"Executor no-work frame should still present previous surface");
+	expectEq(
+		secondOut.summary.presentSelectionReason,
+		static_cast<u8>(rvk2::kExecutorPresentSelectionPreviousSurface),
+		"Executor no-work frame should mark previous-surface selection");
+	expectEq(
+		secondOut.summary.presentHash,
+		firstOut.summary.presentHash,
+		"Executor no-work frame should preserve previous present hash");
+}
+
 void testExecutorTriangleCoefficientConsumption()
 {
 	auto makeTriangleWork = []() -> rvk2::RenderWorkPacket {
@@ -3036,6 +3102,7 @@ int main()
 	testTexRectSemanticExtraction();
 	testVIRendererAspectScaling();
 	testExecutorVIOriginPresentationSelection();
+	testExecutorPreviousSurfaceFallback();
 	testExecutorTriangleCoefficientConsumption();
 	testSubmissionPlanSplitClassification();
 	testExecutorFrameOutput();
