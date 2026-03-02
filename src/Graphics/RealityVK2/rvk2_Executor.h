@@ -15,6 +15,7 @@ struct ExecutorConfig {
 	u8 presentAspectY = 3U;
 	bool textureReplacementEnable = false;
 	std::string textureReplacementCachePath{};
+	std::string textureReplacementPackPath{};
 	bool viRegistersValid = false;
 	u32 viStatus = 0U;
 	u32 viOrigin = 0U;

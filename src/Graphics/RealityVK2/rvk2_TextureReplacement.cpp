@@ -1,7 +1,12 @@
 #include "rvk2_TextureReplacement.h"
 
 #include <algorithm>
+#include <cctype>
+#include <cerrno>
 #include <cstdio>
+#include <cstdlib>
+#include <limits>
+#include <string>
 #include <utility>
 
 namespace {
@@ -128,6 +133,102 @@ inline s32 wrapCoordPositive(s32 _value, s32 _period)
 	if (wrapped < 0)
 		wrapped += _period;
 	return wrapped;
+}
+
+inline std::string trimAsciiWhitespace(const std::string & _input)
+{
+	size_t begin = 0U;
+	while (begin < _input.size()
+		&& std::isspace(static_cast<unsigned char>(_input[begin])) != 0)
+		++begin;
+	size_t end = _input.size();
+	while (end > begin
+		&& std::isspace(static_cast<unsigned char>(_input[end - 1U])) != 0)
+		--end;
+	return _input.substr(begin, end - begin);
+}
+
+bool parseU64Token(const std::string & _token, u64 & _out)
+{
+	const std::string token = trimAsciiWhitespace(_token);
+	if (token.empty())
+		return false;
+	char * end = nullptr;
+	errno = 0;
+	const unsigned long long value = std::strtoull(token.c_str(), &end, 0);
+	if (errno != 0 || end == nullptr || *end != '\0')
+		return false;
+	_out = static_cast<u64>(value);
+	return true;
+}
+
+bool parseU16Token(const std::string & _token, u16 & _out)
+{
+	u64 value = 0ULL;
+	if (!parseU64Token(_token, value))
+		return false;
+	if (value > static_cast<u64>(std::numeric_limits<u16>::max()))
+		return false;
+	_out = static_cast<u16>(value);
+	return true;
+}
+
+std::string joinPath(const std::string & _base, const std::string & _leaf)
+{
+	if (_leaf.empty())
+		return _base;
+	if (!_leaf.empty() && (_leaf[0] == '/' || _leaf[0] == '\\'))
+		return _leaf;
+	if (_leaf.size() > 1U && _leaf[1U] == ':')
+		return _leaf;
+	if (_base.empty())
+		return _leaf;
+	const char tail = _base[_base.size() - 1U];
+	if (tail == '/' || tail == '\\')
+		return _base + _leaf;
+	return _base + "/" + _leaf;
+}
+
+bool splitTSVLine(
+	const std::string & _line,
+	std::vector<std::string> & _outFields)
+{
+	_outFields.clear();
+	size_t start = 0U;
+	while (start <= _line.size()) {
+		size_t end = _line.find('\t', start);
+		if (end == std::string::npos) {
+			_outFields.push_back(_line.substr(start));
+			break;
+		}
+		_outFields.push_back(_line.substr(start, end - start));
+		start = end + 1U;
+	}
+	return !_outFields.empty();
+}
+
+bool loadRawRGBAFile(
+	const std::string & _path,
+	u16 _width,
+	u16 _height,
+	rvk2::TextureReplacementImage & _outImage)
+{
+	std::FILE * file = std::fopen(_path.c_str(), "rb");
+	if (file == nullptr)
+		return false;
+	const u32 pixelCount = static_cast<u32>(_width) * static_cast<u32>(_height);
+	rvk2::TextureReplacementImage image{};
+	image.width = _width;
+	image.height = _height;
+	image.pixels.resize(pixelCount, 0U);
+	bool ok = true;
+	for (u32 i = 0U; ok && i < pixelCount; ++i)
+		ok = readU32LE(file, image.pixels[i]);
+	std::fclose(file);
+	if (!ok)
+		return false;
+	_outImage = std::move(image);
+	return true;
 }
 
 inline u16 decodeTileSpanTexels(u16 _a, u16 _b)
@@ -415,6 +516,69 @@ bool loadTextureReplacementHTC(const char * _path, TextureReplacementStore & _st
 	if (!ok)
 		return false;
 	_store = std::move(loaded);
+	return true;
+}
+
+bool loadTextureReplacementPack(const char * _packPath, TextureReplacementStore & _store)
+{
+	if (_packPath == nullptr || _packPath[0] == '\0')
+		return false;
+
+	const std::string packPath = _packPath;
+	const std::string indexPath = joinPath(packPath, "rkv2_pack_index_v1.tsv");
+	std::FILE * file = std::fopen(indexPath.c_str(), "rb");
+	if (file == nullptr)
+		return false;
+
+	std::vector<std::pair<TextureReplacementCacheKey, TextureReplacementImage>> pendingEntries;
+	char lineBuffer[4096]{};
+	bool ok = true;
+	while (std::fgets(lineBuffer, sizeof(lineBuffer), file) != nullptr) {
+		std::string line = trimAsciiWhitespace(lineBuffer);
+		if (line.empty() || line[0] == '#')
+			continue;
+
+		std::vector<std::string> fields;
+		if (!splitTSVLine(line, fields) || fields.size() != 5U) {
+			ok = false;
+			break;
+		}
+
+		TextureReplacementCacheKey key{};
+		u16 width = 0U;
+		u16 height = 0U;
+		if (!parseU64Token(fields[0], key.hi)
+			|| !parseU64Token(fields[1], key.lo)
+			|| !parseU16Token(fields[2], width)
+			|| !parseU16Token(fields[3], height)
+			|| width == 0U
+			|| height == 0U) {
+			ok = false;
+			break;
+		}
+
+		const std::string imageLeaf = trimAsciiWhitespace(fields[4]);
+		if (imageLeaf.empty()) {
+			ok = false;
+			break;
+		}
+
+		TextureReplacementImage image{};
+		if (!loadRawRGBAFile(joinPath(packPath, imageLeaf), width, height, image)) {
+			ok = false;
+			break;
+		}
+		pendingEntries.push_back(std::make_pair(key, std::move(image)));
+	}
+
+	std::fclose(file);
+	if (!ok)
+		return false;
+
+	for (const auto & entry : pendingEntries) {
+		if (!_store.insert(entry.first, entry.second))
+			return false;
+	}
 	return true;
 }
 

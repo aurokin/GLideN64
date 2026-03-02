@@ -1,6 +1,8 @@
 #include <cstdio>
+#include <cerrno>
 #include <string>
 #include <vector>
+#include <sys/stat.h>
 
 #include "rvk2_CommandStream.h"
 #include "rvk2_Executor.h"
@@ -2191,6 +2193,71 @@ void testTextureReplacementCacheIO()
 	std::remove(cachePath);
 }
 
+void testTextureReplacementPackIngest()
+{
+	const char * packDir = "/tmp/rvk2_pack_unit";
+	const char * indexPath = "/tmp/rvk2_pack_unit/rkv2_pack_index_v1.tsv";
+	const char * imagePath = "/tmp/rvk2_pack_unit/sample.rgba32";
+	std::remove(indexPath);
+	std::remove(imagePath);
+	if (::mkdir(packDir, 0700) != 0 && errno != EEXIST) {
+		expectTrue(false, "texture replacement pack test mkdir failed");
+		return;
+	}
+
+	rvk2::TextureReplacementCacheKey key{0x123456789ABCDEF0ULL, 0x0FEDCBA987654321ULL};
+	std::FILE * imageFile = std::fopen(imagePath, "wb");
+	expectTrue(imageFile != nullptr, "texture replacement pack image open failed");
+	if (imageFile != nullptr) {
+		const u8 bytes[8]{
+			0x11U, 0x22U, 0x33U, 0x44U,
+			0x55U, 0x66U, 0x77U, 0x88U
+		};
+		const size_t written = std::fwrite(bytes, 1U, sizeof(bytes), imageFile);
+		std::fclose(imageFile);
+		expectEq(
+			written,
+			sizeof(bytes),
+			"texture replacement pack image write size mismatch");
+	}
+
+	std::FILE * indexFile = std::fopen(indexPath, "wb");
+	expectTrue(indexFile != nullptr, "texture replacement pack index open failed");
+	if (indexFile != nullptr) {
+		std::fprintf(
+			indexFile,
+			"# hi\tlo\twidth\theight\trgba_file\n0x%016llX\t0x%016llX\t2\t1\tsample.rgba32\n",
+			static_cast<unsigned long long>(key.hi),
+			static_cast<unsigned long long>(key.lo));
+		std::fclose(indexFile);
+	}
+
+	rvk2::TextureReplacementStore loaded;
+	expectTrue(
+		rvk2::loadTextureReplacementPack(packDir, loaded),
+		"texture replacement pack ingest should load valid index");
+	const rvk2::TextureReplacementImage * image = loaded.find(key);
+	expectTrue(
+		image != nullptr,
+		"texture replacement pack ingest should expose indexed key");
+	if (image != nullptr) {
+		expectEq(image->width, static_cast<u16>(2U), "texture replacement pack width mismatch");
+		expectEq(image->height, static_cast<u16>(1U), "texture replacement pack height mismatch");
+		expectEq(
+			image->pixels[0],
+			0x44332211U,
+			"texture replacement pack first pixel mismatch");
+		expectEq(
+			image->pixels[1],
+			0x88776655U,
+			"texture replacement pack second pixel mismatch");
+	}
+
+	std::remove(indexPath);
+	std::remove(imagePath);
+	std::remove(packDir);
+}
+
 void testExecutorTextureReplacementSampling()
 {
 	rvk2::RenderWorkPacket work{};
@@ -2253,6 +2320,40 @@ void testExecutorTextureReplacementSampling()
 		rvk2::writeTextureReplacementHTC(cachePath, store),
 		"executor texture replacement setup write should succeed");
 
+	const char * packDir = "/tmp/rvk2_executor_pack_unit";
+	const char * packIndexPath = "/tmp/rvk2_executor_pack_unit/rkv2_pack_index_v1.tsv";
+	const char * packImagePath = "/tmp/rvk2_executor_pack_unit/repl.rgba32";
+	std::remove(packIndexPath);
+	std::remove(packImagePath);
+	if (::mkdir(packDir, 0700) != 0 && errno != EEXIST) {
+		expectTrue(false, "executor texture replacement pack mkdir failed");
+		std::remove(cachePath);
+		return;
+	}
+	std::FILE * packImageFile = std::fopen(packImagePath, "wb");
+	expectTrue(packImageFile != nullptr, "executor texture replacement pack image open failed");
+	if (packImageFile != nullptr) {
+		const u8 bytes[4]{
+			0xFFU, 0x00U, 0x00U, 0xFFU
+		};
+		const size_t written = std::fwrite(bytes, 1U, sizeof(bytes), packImageFile);
+		std::fclose(packImageFile);
+		expectEq(
+			written,
+			sizeof(bytes),
+			"executor texture replacement pack image write size mismatch");
+	}
+	std::FILE * packIndexFile = std::fopen(packIndexPath, "wb");
+	expectTrue(packIndexFile != nullptr, "executor texture replacement pack index open failed");
+	if (packIndexFile != nullptr) {
+		std::fprintf(
+			packIndexFile,
+			"0x%016llX\t0x%016llX\t1\t1\trepl.rgba32\n",
+			static_cast<unsigned long long>(cacheKey.hi),
+			static_cast<unsigned long long>(cacheKey.lo));
+		std::fclose(packIndexFile);
+	}
+
 	rvk2::SubmissionBatchPacket batch{};
 	batch.batchIndex = 0U;
 	batch.firstWorkIndex = 0U;
@@ -2273,6 +2374,19 @@ void testExecutorTextureReplacementSampling()
 	rvk2::Executor replacementExecutor(replacementConfig);
 	const rvk2::ExecutorOutput replacementOut =
 		replacementExecutor.executeWithOutput(workPackets, batches);
+	rvk2::ExecutorConfig packConfig{};
+	packConfig.textureReplacementEnable = true;
+	packConfig.textureReplacementPackPath = packDir;
+	rvk2::Executor packExecutor(packConfig);
+	const rvk2::ExecutorOutput packOut =
+		packExecutor.executeWithOutput(workPackets, batches);
+	rvk2::ExecutorConfig bothConfig{};
+	bothConfig.textureReplacementEnable = true;
+	bothConfig.textureReplacementCachePath = cachePath;
+	bothConfig.textureReplacementPackPath = packDir;
+	rvk2::Executor bothExecutor(bothConfig);
+	const rvk2::ExecutorOutput bothOut =
+		bothExecutor.executeWithOutput(workPackets, batches);
 
 	expectTrue(
 		replacementOut.summary.colorWriteCount > 0ULL,
@@ -2284,8 +2398,21 @@ void testExecutorTextureReplacementSampling()
 	expectTrue(
 		replacementOut.summary.presentHash != baselineOut.summary.presentHash,
 		"executor replacement toggle should alter present hash");
+	expectTrue(
+		packOut.summary.presentHash != baselineOut.summary.presentHash,
+		"executor pack replacement toggle should alter present hash");
+	expectTrue(
+		packOut.summary.presentHash != replacementOut.summary.presentHash,
+		"executor pack replacement should differ from cache replacement");
+	expectEq(
+		bothOut.summary.presentHash,
+		packOut.summary.presentHash,
+		"executor pack replacement should override cache when both are provided");
 
 	std::remove(cachePath);
+	std::remove(packIndexPath);
+	std::remove(packImagePath);
+	std::remove(packDir);
 }
 
 } // namespace
@@ -2309,6 +2436,7 @@ int main()
 	testExecutorFrameOutput();
 	testTextureReplacementContract();
 	testTextureReplacementCacheIO();
+	testTextureReplacementPackIngest();
 	testExecutorTextureReplacementSampling();
 
 	if (g_failures == 0) {

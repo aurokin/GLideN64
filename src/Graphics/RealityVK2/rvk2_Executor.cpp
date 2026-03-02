@@ -1852,6 +1852,11 @@ ExecutorConfig loadExecutorConfigFromEnv()
 		config.textureReplacementCachePath = txCachePath;
 		config.textureReplacementEnable = true;
 	}
+	const char * txPackPath = std::getenv("REALITYVK_RVK2_TX_PACK_PATH");
+	if (txPackPath != nullptr && txPackPath[0] != '\0') {
+		config.textureReplacementPackPath = txPackPath;
+		config.textureReplacementEnable = true;
+	}
 	return config;
 }
 
@@ -1867,11 +1872,16 @@ void Executor::ensureTextureReplacementLoaded()
 	m_textureReplacementLoaded = true;
 	if (!m_config.textureReplacementEnable)
 		return;
-	if (m_config.textureReplacementCachePath.empty())
-		return;
-	rvk2::loadTextureReplacementHTC(
-		m_config.textureReplacementCachePath.c_str(),
-		m_textureReplacementStore);
+	if (!m_config.textureReplacementCachePath.empty()) {
+		rvk2::loadTextureReplacementHTC(
+			m_config.textureReplacementCachePath.c_str(),
+			m_textureReplacementStore);
+	}
+	if (!m_config.textureReplacementPackPath.empty()) {
+		rvk2::loadTextureReplacementPack(
+			m_config.textureReplacementPackPath.c_str(),
+			m_textureReplacementStore);
+	}
 }
 
 ExecutorOutput Executor::executeWithOutput(
