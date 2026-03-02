@@ -17,7 +17,7 @@ This is the single execution tracker for the rewrite.
 11. Packet trace/replay now carries variable-length command payload words beyond legacy inline limits.
 12. Synthetic executor now applies explicit combiner + blender stages (including destination-dependent blending and texrect flip sampling), and replay model is synchronized.
 13. Mixed-state stress conformance now covers rapid phase/depth/coverage/combiner/scissor transitions and batch-segmentation determinism.
-14. Packet trace semantic rows (`S`) now emit full coefficient schema (72 columns) and replay parser validates the expanded schema while preserving legacy compatibility.
+14. Packet trace semantic rows (`S`) now emit full coefficient schema (72 columns), and replay parser enforcement is strict for schema-v1 row widths (`S=72`, `R=71`, `W=109`).
 15. Synthetic texture sampling now consumes expanded texture/tile/load state for texrect and textured triangles (executor + replay aligned).
 16. VI/presentation path now consumes live VI register snapshots and selects presented surface by exact/containing `VI_ORIGIN` match when available.
 17. Primitive depth source path (`otherModes.depthSource` + `SetPrimDepth`) is now modeled in executor + replay with deterministic conformance coverage.
@@ -45,11 +45,11 @@ This is the single execution tracker for the rewrite.
 39. Executor/replay texture path now models `otherModes.texturePersp`, `otherModes.textureLOD`, `otherModes.textureDetail`, and `otherModes.textureLUT`.
 40. VI conformance now includes interlace field-phase behavior at executor level.
 41. Executor/replay blender path now models cycle-specific blend mux selector fields (`c1/c2 m1/m2 a/b`) with deterministic `aaEnable` + `pipelineMode` behavior.
-42. Phase E contract work has started via new `rvk2_TextureReplacement` deterministic keying + `.htc` cache-key contract module with unit coverage.
+42. Phase E contract work has started via new `rvk2_TextureReplacement` deterministic keying + `.hts` cache-key contract module with unit coverage.
 43. Conformance now includes blend mux selector transitions and AA/pipeline mode transitions.
 44. Phase E now includes deterministic texture-replacement store APIs (insert/lookup/ordered key iteration) and deterministic replacement sampling behavior.
-45. Phase E now includes deterministic `.htc` cache read/write APIs (`RKVHTC1`) with unit coverage.
-46. Executor texture path now supports optional replacement sampling via deterministic key/cache lookup (`REALITYVK_RVK2_TEX_REPLACEMENT`, `REALITYVK_RVK2_TX_HTC_PATH`, `REALITYVK_RVK2_TX_PACK_PATH`).
+45. Phase E now includes deterministic `.hts` cache read/write APIs (`RKVHTS1`, with legacy `RKVHTC1` load compatibility) with unit coverage.
+46. Executor texture path now supports optional replacement sampling via deterministic key/cache lookup (`REALITYVK_RVK2_TEX_REPLACEMENT`, `REALITYVK_RVK2_TX_HTS_PATH`, `REALITYVK_RVK2_TX_PACK_PATH`; legacy `_HTC_PATH` alias supported).
 47. Phase E now includes deterministic pack ingest via `rkv2_pack_index_v1.tsv` (cache-key indexed raw RGBA entries) with unit + executor coverage.
 48. Executor lifecycle now supports deterministic replacement reload/invalidation tokens and no longer reconstructs executor per present.
 49. Replacement store now supports deterministic bounds policy (`max entries` / `max pixels`) applied at load time.
@@ -72,6 +72,9 @@ This is the single execution tracker for the rewrite.
 66. `rvk2::ContextImpl` now hard-noops high-frequency legacy draw-state mutators (`enable`, cull/depth/blend/viewport/scissor/polygon-offset setters), reducing dead legacy draw-recorder churn while preserving base-qualified presenter operations.
 67. Replay strictness tightened for current schema-v1 render-work rows: 109-column `W` rows are no longer marked legacy and now participate in full declared-vs-computed mismatch checks.
 68. Replay validator no longer bypasses declared-vs-computed row mismatch checks based on legacy-row flags; semantic/raster/render-work/submission rows are always compared.
+69. Replay parser compatibility branches for legacy semantic/raster/render-work row widths are removed; schema-v1 parsing is now width-strict and single-path.
+70. Legacy software blend-table path (`GraphicsDrawer::_legacyBlending`) is deleted; runtime blend setup now uses the single non-legacy path.
+71. Texture replacement runtime/control defaults now use `.hts` naming (`RKVHTS1`, `REALITYVK_RVK2_TX_HTS_PATH`, `hts_path`) while remaining load-compatible with legacy `.htc` inputs.
 
 ## Phase Status
 
@@ -81,12 +84,12 @@ This is the single execution tracker for the rewrite.
 | B: Semantic Pipeline Backbone | Done | Draw semantic -> raster -> render-work -> submission -> executor path is deterministic and now has explicit split-classification coverage. |
 | C: Core Rendering Correctness | Done | Fill/copy/texrect/triangle/depth/coverage/blend hazard behavior is closed for the scoped synthetic contract and covered by conformance. |
 | D: VI and Presentation | Done | Register-driven source selection/scaling/filter/fail-safe behavior is implemented with unit + conformance + smoke coverage for current scoped contract. |
-| E: Texture Replacement | Done | Deterministic key/cache contracts, store APIs, `.htc` IO, pack-index ingest, lifecycle controls, bounded load policy, optional executor sampling, runtime control-file UX, summary visibility, and maintainer tooling are landed. |
+| E: Texture Replacement | Done | Deterministic key/cache contracts, store APIs, `.hts` IO (legacy `.htc` load-compatible), pack-index ingest, lifecycle controls, bounded load policy, optional executor sampling, runtime control-file UX, summary visibility, and maintainer tooling are landed. |
 | F: Cutover and Deletion | In progress | Runtime/context fallback is removed, ingest is unconditional, and present fallback injection is deleted; full legacy-path deletion and cleanup are still open. |
 
 ## Completion Estimate
 
-Estimated overall roadmap completion: **~98%**.
+Estimated overall roadmap completion: **~99%**.
 
 Heuristic phase weighting used for this estimate:
 - A: 20%
@@ -102,7 +105,7 @@ Estimated phase progress used:
 - C: 100%
 - D: 100%
 - E: 100%
-- F: 55%
+- F: 75%
 
 ## Completed Recently
 
@@ -262,15 +265,15 @@ Estimated phase progress used:
    - executor/replay now consume cycle-specific blend mux selector fields (`c1/c2 m1/m2 a/b`) in synthetic blender paths
    - executor/replay now consume `aaEnable` and `pipelineMode` in deterministic coverage/blend behavior
    - added conformance coverage for blend selector transitions and AA/pipeline transitions
-   - landed `rvk2_TextureReplacement` deterministic key + `.htc` cache-key contract module with unit coverage
+   - landed `rvk2_TextureReplacement` deterministic key + `.hts` cache-key contract module with unit coverage
 38. Extended Phase E texture replacement implementation:
    - added deterministic texture replacement store APIs (`insert`, `find`, ordered `keys`, and deterministic sampling helper)
-   - added deterministic `.htc` cache write/read APIs (`RKVHTC1` header, versioned entry serialization)
+   - added deterministic `.hts` cache write/read APIs (`RKVHTS1` header, versioned entry serialization)
    - integrated optional texture replacement sampling into executor texture path through deterministic key/cache lookup
    - added unit coverage for cache IO roundtrip and executor replacement sampling behavior
 39. Added Phase E deterministic pack ingest path:
    - added `rkv2_pack_index_v1.tsv` ingest (`hi`, `lo`, `width`, `height`, `rgba_file`) into replacement store
-   - executor now optionally loads pack index path (`REALITYVK_RVK2_TX_PACK_PATH`) and overlays pack entries over `.htc` cache entries
+   - executor now optionally loads pack index path (`REALITYVK_RVK2_TX_PACK_PATH`) and overlays pack entries over `.hts` cache entries
    - added unit coverage for direct pack ingest and executor pack-vs-cache replacement precedence
 40. Added Phase E lifecycle + bounds controls:
    - executor now supports deterministic reload/invalidation tokens (`REALITYVK_RVK2_TX_RELOAD_TOKEN`, `REALITYVK_RVK2_TX_INVALIDATE_TOKEN`)
@@ -350,27 +353,39 @@ Estimated phase progress used:
 57. Removed legacy-row mismatch bypass in replay checks:
    - row comparison no longer skips when legacy-row flags are set on a frame
    - declared semantic/raster/render-work/submission rows now always validate against replay-computed rows
-   - this keeps parser compatibility while enforcing strict contract validation
+   - this established strict declared-vs-computed validation ahead of full legacy row-width parser retirement
+58. Retired replay legacy row-width compatibility parsing:
+   - `S` rows now require 72 columns, `R` rows require 71 columns, and `W` rows require 109 columns
+   - removed compatibility parsing branches for older compact row widths
+   - parser now runs on a single schema-v1 decode path for semantic/raster/render-work rows
+59. Removed legacy blend-table execution path from runtime draw setup:
+   - deleted `GraphicsDrawer::_legacyBlending` implementation and declaration
+   - `setBlendMode` no longer branches to legacy blend emulation
+   - runtime blend setup now stays on the single non-legacy path
+60. Finalized `.hts` cache naming for replacement runtime/operator surfaces:
+   - cache writer now emits `RKVHTS1` and loader accepts both `RKVHTS1` and legacy `RKVHTC1`
+   - env/control defaults are `REALITYVK_RVK2_TX_HTS_PATH` and `hts_path` (`_HTC_PATH`/`htc_path` kept as compatibility aliases)
+   - docs/tooling examples now reference `.hts` cache files
 
 ## Current Bottlenecks
 
 1. Visual parity threshold still fails on maintained Paper Mario metric (`rmse=0.259169` vs `0.25` gate target).
 2. Legacy-derived renderer code still exists in-tree and is still compiled; runtime fallback is removed, but code deletion is incomplete.
-3. Trace/replay still carries transitional compatibility paths that should be removed once cutover fixtures are refreshed.
+3. Trace/replay strict parser is landed, but maintained trace fixtures/reference artifacts still need broader refresh under the final schema-v1-only path.
 4. Texture replacement is functionally closed, but pack/caching behavior still needs wider parity burn-in across additional title coverage.
 
 ## Next Coding Priorities
 
 1. Continue Phase F: delete legacy-derived render execution paths and related dead code now that fallback runtime + switch-gating are removed.
 2. Continue parity reduction on maintained Paper Mario comparison while preserving deterministic trace/replay contracts.
-3. Tighten trace/replay strictness by retiring legacy row compatibility once smoke/parity fixtures are regenerated.
+3. Refresh maintained trace/replay fixtures under strict schema-v1 parsing and expand coverage beyond current maintained trace set.
 4. Expand parity burn-in coverage for texture replacement packs/caches now that Phase E runtime UX is closed.
 
 ## Remaining Work Split (Approx)
 
-1. Phase F cutover/deletion (legacy path deletion/cleanup): **40%** of remaining work.
-2. Parity stabilization and metric closure: **35%**.
-3. Trace/replay strictness + schema tightening: **20%**.
+1. Phase F cutover/deletion (legacy path deletion/cleanup): **45%** of remaining work.
+2. Parity stabilization and metric closure: **40%**.
+3. Trace/replay fixture refresh under strict schema-v1 parser: **10%**.
 4. Post-closure texture replacement burn-in/coverage expansion: **5%**.
 
 ## Remaining Work by Phase
@@ -381,7 +396,7 @@ Estimated phase progress used:
    - Remove stale runtime-switch policy/config surfaces that implied dual-path operation.
 2. **Cross-phase parity + strictness work**
    - Reduce maintained Paper Mario parity metric to target threshold.
-   - Retire trace/replay compatibility handling for legacy semantic row widths after fixture refresh.
+   - Refresh/expand maintained trace fixtures and parity artifacts under strict schema-v1 parser behavior.
    - Expand pack/cache replacement parity coverage beyond current maintained scenario set.
 
 ## Local Gate Contract

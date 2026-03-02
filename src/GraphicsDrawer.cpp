@@ -334,166 +334,6 @@ void GraphicsDrawer::_updateViewport(const FrameBuffer* _pBuffer, const f32 scal
 	gSP.changed |= CHANGED_VIEWPORT;
 }
 
-void GraphicsDrawer::_legacyBlending() const
-{
-	const u32 blendmode = gDP.otherMode.l >> 16;
-	// 0x7000 = CVG_X_ALPHA|ALPHA_CVG_SEL|FORCE_BL
-	if (gDP.otherMode.alphaCvgSel != 0 && (gDP.otherMode.l & 0x7000) != 0x7000) {
-		switch (blendmode) {
-		case 0x4055: // Mario Golf
-		case 0x5055: // Paper Mario intro clr_mem * a_in + clr_mem * a_mem
-			gfxContext.enable(enable::BLEND, true);
-			gfxContext.setBlending(blend::ZERO, blend::ONE);
-			break;
-		default:
-			gfxContext.enable(enable::BLEND, false);
-		}
-		return;
-	}
-
-	if (gDP.otherMode.forceBlender != 0 && gDP.otherMode.cycleType < G_CYC_COPY) {
-		BlendParam sfactor, dfactor;
-
-		switch (blendmode)
-		{
-			// Mace objects
-		case 0x0382:
-			// Mace special blend mode, see GLSLCombiner.cpp
-		case 0x0091:
-			// 1080 Sky
-		case 0x0C08:
-			// Used LOTS of places
-		case 0x0F0A:
-			//DK64 blue prints
-		case 0x0302:
-			// Bomberman 2 special blend mode, see GLSLCombiner.cpp
-		case 0xA500:
-			//Sin and Punishment
-		case 0xCB02:
-			// Battlezone
-			// clr_in * a + clr_in * (1-a)
-		case 0xC800:
-			// Conker BFD
-			// clr_in * a_fog + clr_fog * (1-a)
-			// clr_in * 0 + clr_in * 1
-		case 0x07C2:
-		case 0x00C0:
-			//ISS64
-		case 0xC302:
-			// Donald Duck
-		case 0xC702:
-			sfactor = blend::ONE;
-			dfactor = blend::ZERO;
-			break;
-
-		case 0x55f0:
-			// Bust-A-Move 3 DX
-			// CLR_MEM * A_FOG + CLR_FOG * 1MA
-			sfactor = blend::ONE;
-			dfactor = blend::SRC_ALPHA;
-			break;
-
-		case 0x0F1A:
-			if (gDP.otherMode.cycleType == G_CYC_1CYCLE) {
-				sfactor = blend::ONE;
-				dfactor = blend::ZERO;
-			} else {
-				sfactor = blend::ZERO;
-				dfactor = blend::ONE;
-			}
-			break;
-
-			//Space Invaders
-		case 0x0448: // Add
-		case 0x055A:
-			sfactor = blend::ONE;
-			dfactor = blend::ONE;
-			break;
-
-		case 0xc712: // Pokemon Stadium?
-		case 0xAF50: // LOT in Zelda: MM
-		case 0x0F5A: // LOT in Zelda: MM
-		case 0x0FA5: // Seems to be doing just blend color - maybe combiner can be used for this?
-		case 0x5055: // Used in Paper Mario intro, I'm not sure if this is right...
-			//clr_in * 0 + clr_mem * 1
-			sfactor = blend::ZERO;
-			dfactor = blend::ONE;
-			break;
-
-		case 0x5F50: //clr_mem * 0 + clr_mem * (1-a)
-			sfactor = blend::ZERO;
-			dfactor = blend::ONE_MINUS_SRC_ALPHA;
-			break;
-
-		case 0xF550: //clr_fog * a_fog + clr_mem * (1-a)
-		case 0x0150: // spiderman
-		case 0x0550: // bomberman 64
-		case 0x0D18: //clr_in * a_fog + clr_mem * (1-a)
-			sfactor = blend::SRC_ALPHA;
-			dfactor = blend::ONE_MINUS_SRC_ALPHA;
-			break;
-
-		case 0xC912: //40 winks, clr_in * a_fog + clr_mem * 1
-			sfactor = blend::SRC_ALPHA;
-			dfactor = blend::ONE;
-			break;
-
-		case 0x0040: // Fzero
-		case 0xC810: // Blends fog
-		case 0x0C18: // Standard interpolated blend
-		case 0x0050: // Standard interpolated blend
-		case 0x0051: // Standard interpolated blend
-		case 0x0055: // Used for antialiasing
-			sfactor = blend::SRC_ALPHA;
-			dfactor = blend::ONE_MINUS_SRC_ALPHA;
-			break;
-
-		case 0x0C19: // Used for antialiasing
-		case 0xC811: // Blends fog
-			sfactor = blend::SRC_ALPHA;
-			dfactor = blend::DST_ALPHA;
-			break;
-
-		case 0x5000: // V8 explosions
-			sfactor = blend::ONE_MINUS_SRC_ALPHA;
-			dfactor = blend::SRC_ALPHA;
-			break;
-
-		case 0xFA00: // Bomberman second attack
-			sfactor = blend::ONE;
-			dfactor = blend::ZERO;
-			break;
-
-		default:
-			//LOG(LOG_VERBOSE, "Unhandled blend mode=%x", gDP.otherMode.l >> 16);
-			sfactor = blend::SRC_ALPHA;
-			dfactor = blend::ONE_MINUS_SRC_ALPHA;
-			break;
-		}
-
-		gfxContext.enable(enable::BLEND, true);
-		gfxContext.setBlending(sfactor, dfactor);
-	} else if (gDP.otherMode.colorOnCvg != 0) {
-		// CLR_ON_CVG - just use second mux of blender
-		bool useMemColor = false;
-		if (gDP.otherMode.cycleType == G_CYC_1CYCLE) {
-			if (gDP.otherMode.c1_m2a == 1)
-				useMemColor = true;
-		} else if (gDP.otherMode.cycleType == G_CYC_2CYCLE) {
-			if (gDP.otherMode.c2_m2a == 1)
-				useMemColor = true;
-		}
-		if (useMemColor) {
-			gfxContext.enable(enable::BLEND, true);
-			gfxContext.setBlending(blend::ZERO, blend::ONE);
-		} else {
-			gfxContext.enable(enable::BLEND, false);
-		}
-	} else {
-		gfxContext.enable(enable::BLEND, false);
-	}
-}
-
 void GraphicsDrawer::_ordinaryBlending() const
 {
 	// Set unsupported blend modes
@@ -695,17 +535,14 @@ void GraphicsDrawer::_dualSourceBlending() const
 
 void GraphicsDrawer::setBlendMode(bool _forceLegacyBlending) const
 {
+	(void)_forceLegacyBlending;
+
 	bool blastCorpsHack = (config.generalEmulation.hacks & hack_blastCorps) != 0 &&
 						  gSP.texture.on == 0 && gDP.otherMode.cycleType < G_CYC_COPY && currentCombiner()->usesTexture();
 
 	if (blastCorpsHack) {
 		gfxContext.enable(enable::BLEND, true);
 		gfxContext.setBlending(blend::ZERO, blend::ONE);
-		return;
-	}
-
-	if (_forceLegacyBlending || config.generalEmulation.enableLegacyBlending != 0) {
-		_legacyBlending();
 		return;
 	}
 

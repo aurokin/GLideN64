@@ -135,7 +135,7 @@ def build_parser() -> argparse.ArgumentParser:
     set_cmd = sub.add_parser("set", help="Set one or more control file values.")
     set_cmd.add_argument("--control-file", required=True, help="Path to control file.")
     set_cmd.add_argument("--enable", choices=("0", "1"), help="Enable texture replacement.")
-    set_cmd.add_argument("--cache-path", help="Path to .htc cache file.")
+    set_cmd.add_argument("--cache-path", help="Path to .hts cache file.")
     set_cmd.add_argument("--pack-path", help="Path to texture pack directory.")
     set_cmd.add_argument("--max-entries", help="Maximum replacement entry count.")
     set_cmd.add_argument("--max-pixels", help="Maximum replacement pixel count.")

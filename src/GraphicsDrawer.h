@@ -200,7 +200,6 @@ private:
 
 	void _setSpecialTexrect() const;
 
-	void _legacyBlending() const;
 	void _ordinaryBlending() const;
 	void _dualSourceBlending() const;
 	void _updateCullFace() const;

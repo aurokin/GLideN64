@@ -140,7 +140,7 @@ void applyTextureReplacementControlFile(
 			}
 			continue;
 		}
-		if (key == "cache_path" || key == "htc_path") {
+		if (key == "cache_path" || key == "hts_path" || key == "htc_path") {
 			_config.textureReplacementCachePath = value;
 			continue;
 		}
@@ -2392,7 +2392,9 @@ ExecutorConfig loadExecutorConfigFromEnv()
 	const char * txSummaryPath = std::getenv("REALITYVK_RVK2_TX_SUMMARY_PATH");
 	if (txSummaryPath != nullptr && txSummaryPath[0] != '\0')
 		config.textureReplacementSummaryPath = txSummaryPath;
-	const char * txCachePath = std::getenv("REALITYVK_RVK2_TX_HTC_PATH");
+	const char * txCachePath = std::getenv("REALITYVK_RVK2_TX_HTS_PATH");
+	if (txCachePath == nullptr || txCachePath[0] == '\0')
+		txCachePath = std::getenv("REALITYVK_RVK2_TX_HTC_PATH");
 	if (txCachePath != nullptr && txCachePath[0] != '\0') {
 		config.textureReplacementCachePath = txCachePath;
 		config.textureReplacementEnable = true;
@@ -2455,7 +2457,7 @@ void Executor::ensureTextureReplacementLoaded()
 		return;
 	TextureReplacementStore loadedStore{};
 	if (!m_config.textureReplacementCachePath.empty()) {
-		rvk2::loadTextureReplacementHTC(
+		rvk2::loadTextureReplacementHTS(
 			m_config.textureReplacementCachePath.c_str(),
 			loadedStore);
 	}

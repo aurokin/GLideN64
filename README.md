@@ -16,7 +16,7 @@ Kept product features:
 
 1. 4:3 and 16:9 output scaling.
 2. Hi-res texture pack support.
-3. `.htc` texture cache support.
+3. `.hts` texture cache support.
 
 Everything else is optional and must justify complexity against correctness.
 
@@ -123,7 +123,7 @@ export REALITYVK_RVK2_TX_CONTROL_FILE=/tmp/rvk2_tx_control.txt
 python3 scripts/rvk2_tx_control.py set \
   --control-file /tmp/rvk2_tx_control.txt \
   --enable 1 \
-  --cache-path /path/to/pack.htc \
+  --cache-path /path/to/pack.hts \
   --pack-path /path/to/pack \
   --summary-path /tmp/rvk2_tx_summary.txt \
   --log-summary 1

@@ -13,8 +13,9 @@ namespace {
 
 constexpr u64 kFnvOffset = 1469598103934665603ULL;
 constexpr u64 kFnvPrime = 1099511628211ULL;
-constexpr u8 kHTCMagic[8] = {'R', 'K', 'V', 'H', 'T', 'C', '1', '\0'};
-constexpr u32 kHTCVersion = 1U;
+constexpr u8 kHTSMagic[8] = {'R', 'K', 'V', 'H', 'T', 'S', '1', '\0'};
+constexpr u8 kLegacyHTCMagic[8] = {'R', 'K', 'V', 'H', 'T', 'C', '1', '\0'};
+constexpr u32 kHTSVersion = 1U;
 
 inline void hashByte(u64 & _hash, u8 _value)
 {
@@ -470,7 +471,7 @@ u32 sampleTextureReplacementImage(const TextureReplacementImage & _image, s32 _s
 	return _image.pixels[idx];
 }
 
-bool writeTextureReplacementHTC(const char * _path, const TextureReplacementStore & _store)
+bool writeTextureReplacementHTS(const char * _path, const TextureReplacementStore & _store)
 {
 	if (_path == nullptr || _path[0] == '\0')
 		return false;
@@ -481,8 +482,8 @@ bool writeTextureReplacementHTC(const char * _path, const TextureReplacementStor
 
 	bool ok = true;
 	const std::vector<TextureReplacementCacheKey> keys = _store.keys();
-	ok = ok && writeBytes(file, kHTCMagic, sizeof(kHTCMagic));
-	ok = ok && writeU32LE(file, kHTCVersion);
+	ok = ok && writeBytes(file, kHTSMagic, sizeof(kHTSMagic));
+	ok = ok && writeU32LE(file, kHTSVersion);
 	ok = ok && writeU32LE(file, static_cast<u32>(keys.size()));
 	for (const TextureReplacementCacheKey & key : keys) {
 		const TextureReplacementImage * image = _store.find(key);
@@ -507,7 +508,7 @@ bool writeTextureReplacementHTC(const char * _path, const TextureReplacementStor
 	return ok;
 }
 
-bool loadTextureReplacementHTC(const char * _path, TextureReplacementStore & _store)
+bool loadTextureReplacementHTS(const char * _path, TextureReplacementStore & _store)
 {
 	if (_path == nullptr || _path[0] == '\0')
 		return false;
@@ -523,7 +524,9 @@ bool loadTextureReplacementHTC(const char * _path, TextureReplacementStore & _st
 	ok = ok && readBytes(file, magic, sizeof(magic));
 	ok = ok && readU32LE(file, version);
 	ok = ok && readU32LE(file, entryCount);
-	if (!ok || std::equal(std::begin(magic), std::end(magic), std::begin(kHTCMagic)) == false || version != kHTCVersion) {
+	const bool isCurrentMagic = std::equal(std::begin(magic), std::end(magic), std::begin(kHTSMagic));
+	const bool isLegacyMagic = std::equal(std::begin(magic), std::end(magic), std::begin(kLegacyHTCMagic));
+	if (!ok || (!isCurrentMagic && !isLegacyMagic) || version != kHTSVersion) {
 		std::fclose(file);
 		return false;
 	}
@@ -558,6 +561,16 @@ bool loadTextureReplacementHTC(const char * _path, TextureReplacementStore & _st
 		return false;
 	_store = std::move(loaded);
 	return true;
+}
+
+bool writeTextureReplacementHTC(const char * _path, const TextureReplacementStore & _store)
+{
+	return writeTextureReplacementHTS(_path, _store);
+}
+
+bool loadTextureReplacementHTC(const char * _path, TextureReplacementStore & _store)
+{
+	return loadTextureReplacementHTS(_path, _store);
 }
 
 bool loadTextureReplacementPack(const char * _packPath, TextureReplacementStore & _store)

@@ -104,7 +104,7 @@ export REALITYVK_RVK2_TX_CONTROL_FILE=/tmp/rvk2_tx_control.txt
 python3 scripts/rvk2_tx_control.py set \
   --control-file /tmp/rvk2_tx_control.txt \
   --enable 1 \
-  --cache-path /path/to/cache.htc \
+  --cache-path /path/to/cache.hts \
   --pack-path /path/to/pack \
   --summary-path /tmp/rvk2_tx_summary.txt \
   --log-summary 1

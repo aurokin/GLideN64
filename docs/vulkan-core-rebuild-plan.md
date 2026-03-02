@@ -10,7 +10,7 @@ This is a reimplementation, not an incremental port.
 
 1. 4:3 and 16:9 output scaling.
 2. Hi-res texture pack support.
-3. `.htc` texture cache support.
+3. `.hts` texture cache support.
 
 Everything else is optional and must justify itself against correctness.
 
@@ -86,7 +86,7 @@ Exit:
 
 1. Deterministic replacement keying.
 2. Hi-res pack integration.
-3. `.htc` compatibility and cache behavior.
+3. `.hts` compatibility and cache behavior.
 
 Exit:
 

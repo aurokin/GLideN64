@@ -2317,16 +2317,16 @@ void testTextureReplacementCacheIO()
 		static_cast<size_t>(2U),
 		"texture replacement cache should track entry count");
 
-	const char * cachePath = "/tmp/rvk2_texture_replacement_unit.htc";
+	const char * cachePath = "/tmp/rvk2_texture_replacement_unit.hts";
 	std::remove(cachePath);
 	expectTrue(
-		rvk2::writeTextureReplacementHTC(cachePath, store),
-		"texture replacement cache should serialize to htc");
+		rvk2::writeTextureReplacementHTS(cachePath, store),
+		"texture replacement cache should serialize to hts");
 
 	rvk2::TextureReplacementStore loaded;
 	expectTrue(
-		rvk2::loadTextureReplacementHTC(cachePath, loaded),
-		"texture replacement cache should deserialize from htc");
+		rvk2::loadTextureReplacementHTS(cachePath, loaded),
+		"texture replacement cache should deserialize from hts");
 	expectEq(
 		loaded.entryCount(),
 		store.entryCount(),
@@ -2535,10 +2535,10 @@ void testExecutorTextureReplacementSampling()
 		store.insert(cacheKey, replacementImage),
 		"executor texture replacement setup insert should succeed");
 
-	const char * cachePath = "/tmp/rvk2_executor_texture_replacement_unit.htc";
+	const char * cachePath = "/tmp/rvk2_executor_texture_replacement_unit.hts";
 	std::remove(cachePath);
 	expectTrue(
-		rvk2::writeTextureReplacementHTC(cachePath, store),
+		rvk2::writeTextureReplacementHTS(cachePath, store),
 		"executor texture replacement setup write should succeed");
 
 	const char * packDir = "/tmp/rvk2_executor_pack_unit";
@@ -2731,10 +2731,10 @@ void testExecutorTextureReplacementLifecycle()
 		image.pixels = {_color};
 		if (!store.insert(cacheKey, image))
 			return false;
-		return rvk2::writeTextureReplacementHTC(_path, store);
+		return rvk2::writeTextureReplacementHTS(_path, store);
 	};
 
-	const char * cachePath = "/tmp/rvk2_executor_lifecycle.htc";
+	const char * cachePath = "/tmp/rvk2_executor_lifecycle.hts";
 	std::remove(cachePath);
 	expectTrue(
 		writeSingleColorCache(cachePath, 0x001122FFU),
@@ -2799,7 +2799,7 @@ void testExecutorConfigTextureReplacementControlFile()
 
 	ScopedEnvVar envControl("REALITYVK_RVK2_TX_CONTROL_FILE");
 	ScopedEnvVar envEnable("REALITYVK_RVK2_TEX_REPLACEMENT");
-	ScopedEnvVar envCachePath("REALITYVK_RVK2_TX_HTC_PATH");
+	ScopedEnvVar envCachePath("REALITYVK_RVK2_TX_HTS_PATH");
 	ScopedEnvVar envPackPath("REALITYVK_RVK2_TX_PACK_PATH");
 	ScopedEnvVar envMaxEntries("REALITYVK_RVK2_TX_MAX_ENTRIES");
 	ScopedEnvVar envMaxPixels("REALITYVK_RVK2_TX_MAX_PIXELS");
@@ -2828,7 +2828,7 @@ void testExecutorConfigTextureReplacementControlFile()
 		expectTrue(control != nullptr, "control-file config test open failed");
 		if (control != nullptr) {
 			std::fprintf(control, "enable=0\n");
-			std::fprintf(control, "cache_path=/tmp/control_cache.htc\n");
+			std::fprintf(control, "cache_path=/tmp/control_cache.hts\n");
 			std::fprintf(control, "pack_path=/tmp/control_pack\n");
 			std::fprintf(control, "max_entries=17\n");
 			std::fprintf(control, "max_pixels=4096\n");
@@ -2846,7 +2846,7 @@ void testExecutorConfigTextureReplacementControlFile()
 		!config.textureReplacementEnable,
 		"control-file config should allow explicit disable even with cache/pack paths");
 	expectTrue(
-		config.textureReplacementCachePath == "/tmp/control_cache.htc",
+		config.textureReplacementCachePath == "/tmp/control_cache.hts",
 		"control-file config cache path mismatch");
 	expectTrue(
 		config.textureReplacementPackPath == "/tmp/control_pack",
@@ -2924,10 +2924,10 @@ void testExecutorTextureReplacementControlFileLifecycle()
 		image.pixels = {_color};
 		if (!store.insert(cacheKey, image))
 			return false;
-		return rvk2::writeTextureReplacementHTC(_path, store);
+		return rvk2::writeTextureReplacementHTS(_path, store);
 	};
 
-	const char * cachePath = "/tmp/rvk2_executor_control_lifecycle.htc";
+	const char * cachePath = "/tmp/rvk2_executor_control_lifecycle.hts";
 	const char * controlPath = "/tmp/rvk2_executor_control_lifecycle.txt";
 	std::remove(cachePath);
 	std::remove(controlPath);
@@ -2962,7 +2962,7 @@ void testExecutorTextureReplacementControlFileLifecycle()
 
 	ScopedEnvVar envControl("REALITYVK_RVK2_TX_CONTROL_FILE");
 	ScopedEnvVar envEnable("REALITYVK_RVK2_TEX_REPLACEMENT");
-	ScopedEnvVar envCachePath("REALITYVK_RVK2_TX_HTC_PATH");
+	ScopedEnvVar envCachePath("REALITYVK_RVK2_TX_HTS_PATH");
 	ScopedEnvVar envPackPath("REALITYVK_RVK2_TX_PACK_PATH");
 	ScopedEnvVar envReloadToken("REALITYVK_RVK2_TX_RELOAD_TOKEN");
 	ScopedEnvVar envInvalidateToken("REALITYVK_RVK2_TX_INVALIDATE_TOKEN");
