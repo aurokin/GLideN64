@@ -15,6 +15,7 @@
 namespace {
 
 thread_local const rvk2::TextureReplacementStore * gActiveTextureReplacementStore = nullptr;
+thread_local rvk2::ExecutorSummary * gActiveExecutorSummary = nullptr;
 
 inline bool envStringIsTrue(const char * _value)
 {
@@ -472,8 +473,17 @@ const rvk2::TextureReplacementImage * findTextureReplacementImage(
 	s32 _w,
 	bool _includeW)
 {
-	if (gActiveTextureReplacementStore == nullptr || gActiveTextureReplacementStore->empty())
+	if (gActiveExecutorSummary == nullptr
+		|| !gActiveExecutorSummary->textureReplacementEnabled) {
 		return nullptr;
+	}
+
+	++gActiveExecutorSummary->textureReplacementSampleCount;
+	if (gActiveTextureReplacementStore == nullptr || gActiveTextureReplacementStore->empty()) {
+		++gActiveExecutorSummary->textureReplacementMissCount;
+		return nullptr;
+	}
+
 	rvk2::TextureReplacementRequest request{};
 	request.work = &_work;
 	request.s = _s;
@@ -482,7 +492,12 @@ const rvk2::TextureReplacementImage * findTextureReplacementImage(
 	request.perspective = _includeW && isTexturePerspEnabled(_work);
 	const rvk2::TextureReplacementKey key = rvk2::buildTextureReplacementKey(request);
 	const rvk2::TextureReplacementCacheKey cacheKey = rvk2::buildTextureReplacementCacheKey(key);
-	return gActiveTextureReplacementStore->find(cacheKey);
+	const rvk2::TextureReplacementImage * image = gActiveTextureReplacementStore->find(cacheKey);
+	if (image != nullptr)
+		++gActiveExecutorSummary->textureReplacementHitCount;
+	else
+		++gActiveExecutorSummary->textureReplacementMissCount;
+	return image;
 }
 
 inline u32 samplePseudoTexelColor(
@@ -1952,6 +1967,11 @@ ExecutorOutput Executor::executeWithOutput(
 	ExecutorSummary & summary = output.summary;
 	summary.presentAspectX = m_config.presentAspectX;
 	summary.presentAspectY = m_config.presentAspectY;
+	summary.textureReplacementEnabled = m_config.textureReplacementEnable;
+	summary.textureReplacementEntryCount = static_cast<u64>(m_textureReplacementStore.entryCount());
+	summary.textureReplacementPixelCount = m_textureReplacementStore.totalPixels();
+	ExecutorSummary * previousExecutorSummary = gActiveExecutorSummary;
+	gActiveExecutorSummary = &summary;
 
 	VIRendererConfig viConfig{};
 	viConfig.aspectX = m_config.presentAspectX;
@@ -2052,6 +2072,7 @@ ExecutorOutput Executor::executeWithOutput(
 		output.presentFrame.width = viSummary.presentWidth;
 		output.presentFrame.height = viSummary.presentHeight;
 	}
+	gActiveExecutorSummary = previousExecutorSummary;
 	gActiveTextureReplacementStore = previousReplacementStore;
 	return output;
 }

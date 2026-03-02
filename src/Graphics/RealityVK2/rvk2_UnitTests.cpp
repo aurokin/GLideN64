@@ -2449,13 +2449,57 @@ void testExecutorTextureReplacementSampling()
 	expectTrue(
 		replacementOut.summary.colorWriteCount > 0ULL,
 		"executor replacement scene should write pixels");
+	expectTrue(
+		!baselineOut.summary.textureReplacementEnabled,
+		"executor baseline run should keep replacement disabled");
+	expectEq(
+		baselineOut.summary.textureReplacementEntryCount,
+		0ULL,
+		"executor baseline run should have zero replacement entries");
+	expectEq(
+		baselineOut.summary.textureReplacementSampleCount,
+		0ULL,
+		"executor baseline run should not sample replacement cache");
 	expectEq(
 		replacementOut.summary.colorWriteCount,
 		baselineOut.summary.colorWriteCount,
 		"executor replacement toggle should preserve write count");
 	expectTrue(
+		replacementOut.summary.textureReplacementEnabled,
+		"executor replacement run should report replacement enabled");
+	expectEq(
+		replacementOut.summary.textureReplacementEntryCount,
+		1ULL,
+		"executor replacement run should load one replacement entry");
+	expectEq(
+		replacementOut.summary.textureReplacementPixelCount,
+		1ULL,
+		"executor replacement run should report replacement pixel count");
+	expectTrue(
+		replacementOut.summary.textureReplacementSampleCount > 0ULL,
+		"executor replacement run should attempt replacement samples");
+	expectEq(
+		replacementOut.summary.textureReplacementHitCount,
+		replacementOut.summary.textureReplacementSampleCount,
+		"executor replacement run should hit replacement on each sample");
+	expectEq(
+		replacementOut.summary.textureReplacementMissCount,
+		0ULL,
+		"executor replacement run should not miss replacement lookups");
+	expectTrue(
 		replacementOut.summary.presentHash != baselineOut.summary.presentHash,
 		"executor replacement toggle should alter present hash");
+	expectEq(
+		packOut.summary.textureReplacementEntryCount,
+		1ULL,
+		"executor pack replacement run should load one replacement entry");
+	expectTrue(
+		packOut.summary.textureReplacementHitCount > 0ULL,
+		"executor pack replacement run should hit replacement lookups");
+	expectEq(
+		packOut.summary.textureReplacementMissCount,
+		0ULL,
+		"executor pack replacement run should not miss replacement lookups");
 	expectTrue(
 		packOut.summary.presentHash != baselineOut.summary.presentHash,
 		"executor pack replacement toggle should alter present hash");
@@ -2466,6 +2510,10 @@ void testExecutorTextureReplacementSampling()
 		bothOut.summary.presentHash,
 		packOut.summary.presentHash,
 		"executor pack replacement should override cache when both are provided");
+	expectEq(
+		bothOut.summary.textureReplacementEntryCount,
+		1ULL,
+		"executor combined cache+pack run should keep deterministic replacement cardinality");
 
 	std::remove(cachePath);
 	std::remove(packIndexPath);

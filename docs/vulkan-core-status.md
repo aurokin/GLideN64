@@ -54,6 +54,7 @@ This is the single execution tracker for the rewrite.
 48. Executor lifecycle now supports deterministic replacement reload/invalidation tokens and no longer reconstructs executor per present.
 49. Replacement store now supports deterministic bounds policy (`max entries` / `max pixels`) applied at load time.
 50. Texture-pack index tooling is now landed (`scripts/rvk2_texture_pack_index.py`) and local gate can validate pack indexes with opt-in knobs.
+51. Executor replacement observability now reports loaded entries/pixels and replacement sample hit/miss counters, with env-gated runtime summary logging.
 
 ## Phase Status
 
@@ -63,7 +64,7 @@ This is the single execution tracker for the rewrite.
 | B: Semantic Pipeline Backbone | In progress | Semantic/raster/render/submission/executor pipeline exists with expanded mode-bit behavior, but coverage is still incomplete. |
 | C: Core Rendering Correctness | In progress | Fill/texrect/triangle backbone exists with stronger blend/coverage semantics; full cycle-accurate closure is still open. |
 | D: VI and Presentation | Done | Register-driven source selection/scaling/filter/fail-safe behavior is implemented with unit + conformance + smoke coverage for current scoped contract. |
-| E: Texture Replacement | In progress | Deterministic key/cache contracts, store APIs, `.htc` IO, pack-index ingest, lifecycle controls, bounded load policy, optional executor sampling, and pack-index tooling are landed; runtime UX/observability and cutover wiring are still open. |
+| E: Texture Replacement | In progress | Deterministic key/cache contracts, store APIs, `.htc` IO, pack-index ingest, lifecycle controls, bounded load policy, optional executor sampling, pack-index tooling, and replacement observability counters are landed; runtime UX polish and cutover wiring are still open. |
 | F: Cutover and Deletion | Not started | `rvk2` is not default and legacy-derived paths still exist. |
 
 ## Completion Estimate
@@ -83,7 +84,7 @@ Estimated phase progress used:
 - B: 92%
 - C: 84%
 - D: 100%
-- E: 60%
+- E: 65%
 - F: 0%
 
 ## Completed Recently
@@ -264,21 +265,26 @@ Estimated phase progress used:
    - added canonical ordering, size-contract checks, duplicate-key detection, and optional full-pack coverage validation
    - integrated optional pack-index validation stage into `scripts/local_gate.sh` via `REALITYVK_GATE_TX_PACK_*` knobs
    - documented tooling + gate integration in maintainer docs
+42. Added Phase E replacement observability counters + runtime logging:
+   - executor summary now reports replacement enable state, loaded replacement entry/pixel counts, and per-frame sample/hit/miss counts
+   - replacement sample counters are wired directly at replacement lookup path for deterministic hit/miss accounting
+   - added runtime env knob `REALITYVK_RVK2_TX_LOG_SUMMARY=1` to emit per-frame replacement summary logs in rvk2 presenter path
+   - extended unit coverage to assert replacement summary counter behavior for baseline/cache/pack/combined replacement runs
 
 ## Current Bottlenecks
 
 1. Semantic completeness gap remains for cycle-accurate combiner/blender/depth/cvg behavior versus real RDP.
 2. Visual parity threshold still fails on maintained Paper Mario metric.
-3. Texture replacement runtime UX/observability is still open (debug stats rows, artist-facing reload flow, and deeper runtime visibility).
+3. Texture replacement runtime UX is still open (artist-facing reload flow and broader runtime visibility integration), though base replacement observability counters are now landed.
 4. Conformance matrix is broad, but additional hazard corners remain as semantic coverage expands.
 5. VI is closed for current scoped contract, but hardware-specific corner behavior beyond this scope may still be revisited later if parity data demands it.
 
 ## Next Coding Priorities
 
-1. Add runtime observability and UX for replacement state (stats/debug rows + artist-facing reload flow).
-2. Continue non-triangle semantic closure for remaining high-impact combiner/blender/depth/cvg interactions.
-3. Continue adding targeted hazard-corner conformance where semantic gaps are discovered.
-4. Keep reducing Paper Mario parity delta while preserving deterministic trace/replay contracts.
+1. Continue non-triangle semantic closure for remaining high-impact combiner/blender/depth/cvg interactions.
+2. Continue adding targeted hazard-corner conformance where semantic gaps are discovered.
+3. Keep reducing Paper Mario parity delta while preserving deterministic trace/replay contracts.
+4. Finish texture replacement runtime UX polish (artist-facing reload flow + broader visibility surfacing).
 5. Start early cutover/deletion prep for legacy-derived runtime branches that are no longer needed.
 
 ## Remaining Work Split (Approx)

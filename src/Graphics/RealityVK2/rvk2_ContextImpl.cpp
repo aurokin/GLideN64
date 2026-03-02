@@ -1,6 +1,7 @@
 #include "rvk2_ContextImpl.h"
 
 #include <algorithm>
+#include <cstdlib>
 
 #include <Log.h>
 #include <Graphics/Parameters.h>
@@ -41,6 +42,14 @@ rvk2::ExecutorConfig buildExecutorConfigFromVIRegisters()
 	config.viXScale = readRegValue(REG.VI_X_SCALE);
 	config.viYScale = readRegValue(REG.VI_Y_SCALE);
 	return config;
+}
+
+bool shouldLogTextureReplacementSummary()
+{
+	static int s_enabled = -1;
+	if (s_enabled < 0)
+		s_enabled = std::getenv("REALITYVK_RVK2_TX_LOG_SUMMARY") != nullptr ? 1 : 0;
+	return s_enabled == 1;
 }
 
 } // namespace
@@ -217,6 +226,16 @@ bool ContextImpl::present()
 	m_executor.updateConfig(buildExecutorConfigFromVIRegisters());
 	const ExecutorOutput output =
 		m_executor.executeWithOutput(runtime().renderPlan(), runtime().submissionPlan());
+	if (shouldLogTextureReplacementSummary() && output.summary.textureReplacementEnabled) {
+		LOG(
+			LOG_WARNING,
+			"rvk2 tx summary: enabled=1 entries=%llu pixels=%llu samples=%llu hits=%llu misses=%llu",
+			static_cast<unsigned long long>(output.summary.textureReplacementEntryCount),
+			static_cast<unsigned long long>(output.summary.textureReplacementPixelCount),
+			static_cast<unsigned long long>(output.summary.textureReplacementSampleCount),
+			static_cast<unsigned long long>(output.summary.textureReplacementHitCount),
+			static_cast<unsigned long long>(output.summary.textureReplacementMissCount));
+	}
 	if (output.summary.executedWorkCount == 0ULL) {
 		static bool warnedNoRvk2Work = false;
 		if (!warnedNoRvk2Work) {

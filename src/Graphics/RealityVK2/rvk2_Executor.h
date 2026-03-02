@@ -37,6 +37,12 @@ struct ExecutorSummary {
 	u64 executedBatchCount = 0ULL;
 	u64 colorWriteCount = 0ULL;
 	u64 surfaceCount = 0ULL;
+	bool textureReplacementEnabled = false;
+	u64 textureReplacementEntryCount = 0ULL;
+	u64 textureReplacementPixelCount = 0ULL;
+	u64 textureReplacementSampleCount = 0ULL;
+	u64 textureReplacementHitCount = 0ULL;
+	u64 textureReplacementMissCount = 0ULL;
 	u64 presentHash = 1469598103934665603ULL;
 	u32 presentWidth = 0U;
 	u32 presentHeight = 0U;

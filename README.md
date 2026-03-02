@@ -106,6 +106,13 @@ python3 scripts/rvk2_texture_pack_index.py generate --pack-dir /path/to/pack
 python3 scripts/rvk2_texture_pack_index.py validate --pack-dir /path/to/pack
 ```
 
+Runtime replacement observability:
+
+```bash
+# Per-frame replacement summary (entries/pixels/samples/hits/misses)
+REALITYVK_RVK2_TX_LOG_SUMMARY=1 <your-emulator-launch-command>
+```
+
 ## Key Paths
 
 1. `src/Graphics/RealityVK2/`: rvk2 rewrite modules.
