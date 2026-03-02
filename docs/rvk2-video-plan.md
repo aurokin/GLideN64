@@ -25,9 +25,9 @@ Accuracy-first. RVK2-only path. No legacy renderer fallback.
 10. Hidden coverage bit-plane is now persisted per surface and consumed by blender memory-coverage alpha paths.
 11. TEXEL1 now samples secondary tile descriptors (tile+1) for combiner inputs; cycle2 hazard override remains next-pixel TEX0.
 
-## Remaining Work Map (18%)
+## Remaining Work Map (17%)
 
-1. `P5` cycle semantics closure (combiner/blender/coverage/depth): **6%**
+1. `P5` cycle semantics closure (combiner/blender/coverage/depth): **5%**
 2. `P3` authoritative TMEM path closure (especially 32b): **5%**
 3. `P4` raster/coefficient edge behavior: **4%**
 4. `P2` present-source determinism polish: **2%**
@@ -40,8 +40,10 @@ Accuracy-first. RVK2-only path. No legacy renderer fallback.
 2. Added secondary-tile TEXEL1 sampling path:
    - combiner TEXEL1 input now samples tile+1 descriptors instead of aliasing TEXEL0.
    - cycle2 keeps next-pixel TEX0 hazard override for TEXEL1 when cycle2 selectors are active.
-3. Added conformance coverage for cycle1 TEXEL1 secondary-tile behavior.
-4. Kept local gate green after this batch.
+3. Tightened RDRAM texel row-stride selection:
+   - when tile/block/tlut load context is active and tile line is valid, RDRAM sampling now prefers tile-line stride over texture-image width stride.
+4. Added conformance coverage for cycle1 TEXEL1 secondary-tile behavior.
+5. Kept local gate green after this batch.
 
 ## What Deep-Dive Changed In Our Plan
 

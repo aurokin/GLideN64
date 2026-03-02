@@ -942,7 +942,14 @@ inline bool readTextureBitsAt(
 	const u32 rowBitsFromTileLine = _work.tileLine != 0U
 		? static_cast<u32>(_work.tileLine) * 64U
 		: 0U;
-	const u32 rowBits = rowBitsFromWidth != 0U ? rowBitsFromWidth : rowBitsFromTileLine;
+	const bool preferTileLineStride =
+		rowBitsFromTileLine != 0U
+		&& (_work.tmemLoadKind == static_cast<u8>(rvk2::TmemLoadKind::kTile)
+			|| _work.tmemLoadKind == static_cast<u8>(rvk2::TmemLoadKind::kBlock)
+			|| _work.tmemLoadKind == static_cast<u8>(rvk2::TmemLoadKind::kTLUT));
+	const u32 rowBits = preferTileLineStride
+		? rowBitsFromTileLine
+		: (rowBitsFromWidth != 0U ? rowBitsFromWidth : rowBitsFromTileLine);
 	if (rowBits == 0U)
 		return false;
 
