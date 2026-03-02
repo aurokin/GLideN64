@@ -571,9 +571,9 @@ void GraphicsDrawer::_dualSourceBlending() const
 	}
 }
 
-void GraphicsDrawer::setBlendMode(bool _forceLegacyBlending) const
+void GraphicsDrawer::setBlendMode(bool _forceBlendOverride) const
 {
-	(void)_forceLegacyBlending;
+	(void)_forceBlendOverride;
 
 	bool blastCorpsHack = (config.generalEmulation.hacks & hack_blastCorps) != 0 &&
 						  gSP.texture.on == 0 && gDP.otherMode.cycleType < G_CYC_COPY && currentCombiner()->usesTexture();
@@ -680,7 +680,7 @@ void GraphicsDrawer::_updateStates(DrawingState _drawingState) const
 		FrameBufferList & fbList = frameBufferList();
 
 		// The game copies content of depth buffer into current color buffer
-		// OpenGL has different format for color and depth buffers, so this trick can't be performed directly
+		// Color and depth buffers use different formats in this path, so this trick cannot be performed directly.
 		// To do that, depth buffer with address of current color buffer created and attached to the current FBO
 		// It will be copy depth buffer
 		dbList.saveBuffer(gDP.colorImage.address);

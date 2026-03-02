@@ -152,7 +152,7 @@ set(RealityVK_SOURCES
   uCodes/ZSortBOSS.cpp
 )
 
-message(STATUS "Legacy renderer sources: disabled (Vulkan-only branch)")
+message(STATUS "Non-RVK2 renderer sources: disabled (Vulkan-only branch)")
 
 # Build type
 

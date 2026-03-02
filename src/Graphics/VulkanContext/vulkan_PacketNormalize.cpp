@@ -14,7 +14,7 @@ namespace packet_normalize {
 
 namespace {
 
-void applyLegacyScreenTransform(f32 & _x, f32 & _y, f32 _w)
+void applyScreenTransform(f32 & _x, f32 & _y, f32 _w)
 {
 	constexpr f32 kHalfScreenSize = 320.0f;
 	_x -= kHalfScreenSize * _w;
@@ -107,7 +107,7 @@ bool normalizeRectWithColorImageSpace(const vulkan::DrawVertex & _src, vulkan::D
 
 } // namespace
 
-vulkan::DrawVertex normalizePacketVertex(const vulkan::DrawPacket & _packet, const vulkan::DrawVertex & _src)
+vulkan::DrawVertex normalizeFallbackVertex(const vulkan::DrawPacket & _packet, const vulkan::DrawVertex & _src)
 {
 	static const bool disablePositionNormalize = std::getenv("REALITYVK_VK_DISABLE_POSITION_NORMALIZE") != nullptr;
 	static const bool disableForceRasterRectTransform = std::getenv("REALITYVK_VK_DISABLE_FORCE_RASTER_RECT_TRANSFORM") != nullptr;
@@ -164,8 +164,8 @@ vulkan::DrawVertex normalizePacketVertex(const vulkan::DrawPacket & _packet, con
 		}
 		if (modifyZ)
 			dst.z = _src.z * _src.w;
-		applyLegacyScreenTransform(dst.x, dst.y, _src.w);
-		// Legacy triangle transform can occasionally explode when input vertices
+		applyScreenTransform(dst.x, dst.y, _src.w);
+		// Triangle screen transform can occasionally explode when input vertices
 		// are already close to window/clip space; fall back to viewport remap.
 		if (std::abs(dst.x) <= 8.0f && std::abs(dst.y) <= 8.0f)
 			return dst;
@@ -246,7 +246,7 @@ vulkan::DrawVertex normalizePacketVertex(const vulkan::DrawPacket & _packet, con
 					}
 					return dst;
 				}
-				applyLegacyScreenTransform(dst.x, dst.y, _src.w);
+				applyScreenTransform(dst.x, dst.y, _src.w);
 				if (debugRectNormalize && debugRectNormalizeCount < debugRectNormalizeLimit) {
 					LOG(LOG_WARNING, "VK rect normalize debug: branch=screen-transform-secondary result=[%0.3f,%0.3f]", dst.x, dst.y);
 					++debugRectNormalizeCount;
@@ -269,7 +269,7 @@ vulkan::DrawVertex normalizePacketVertex(const vulkan::DrawPacket & _packet, con
 				}
 				return dst;
 			}
-			applyLegacyScreenTransform(dst.x, dst.y, _src.w);
+			applyScreenTransform(dst.x, dst.y, _src.w);
 			if (debugRectNormalize && debugRectNormalizeCount < debugRectNormalizeLimit) {
 				LOG(LOG_WARNING, "VK rect normalize debug: branch=screen-transform result=[%0.3f,%0.3f]", dst.x, dst.y);
 				++debugRectNormalizeCount;
@@ -301,7 +301,7 @@ void normalizePacketPositions(vulkan::DrawPacket & _packet)
 	}
 
 	for (vulkan::DrawVertex & vertex : _packet.vertices)
-		vertex = normalizePacketVertex(_packet, vertex);
+		vertex = normalizeFallbackVertex(_packet, vertex);
 	_packet.positionsNormalized = true;
 
 	if (debugPositions && !_packet.vertices.empty()) {

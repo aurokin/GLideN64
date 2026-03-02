@@ -160,7 +160,7 @@ public:
 
 	void setBackgroundDrawingMode(bool _mode) { m_bBGMode = _mode; }
 
-	void setBlendMode(bool _forceLegacyBlending = false) const;
+	void setBlendMode(bool _forceBlendOverride = false) const;
 
 	void clearStatistics() { m_statistics.clear(); }
 

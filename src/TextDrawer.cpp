@@ -1,7 +1,6 @@
 /* Draw text on screen.
  * Requires freetype library.
- * Code is taken from "OpenGL source examples from the OpenGL Programming wikibook:
- * http://en.wikibooks.org/wiki/OpenGL_Programming"
+ * Text rasterization path adapted from public graphics programming examples.
  */
 
 #include <cstdio>
