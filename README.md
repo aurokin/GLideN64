@@ -24,7 +24,7 @@ Everything else is optional and must justify complexity against correctness.
 
 1. Vulkan-only branch for renderer execution paths.
 2. `rvk2` scaffolding, trace schema, replay validator, and local gate integration are active.
-3. Core semantic correctness is still in progress (combiner/blender/depth/hazard closure not finished).
+3. Phases A-E are landed; remaining roadmap work is cutover/deletion, parity closure, and strictness tightening.
 
 For live status, see:
 
@@ -109,8 +109,31 @@ python3 scripts/rvk2_texture_pack_index.py validate --pack-dir /path/to/pack
 Runtime replacement observability:
 
 ```bash
-# Per-frame replacement summary (entries/pixels/samples/hits/misses)
+# Optional log output (per-frame entries/pixels/samples/hits/misses)
 REALITYVK_RVK2_TX_LOG_SUMMARY=1 <your-emulator-launch-command>
+```
+
+Runtime replacement control (hot reload without emulator restart):
+
+```bash
+# 1) Point rvk2 at a runtime control file
+export REALITYVK_RVK2_TX_CONTROL_FILE=/tmp/rvk2_tx_control.txt
+
+# 2) Configure replacement sources + optional summary file output
+python3 scripts/rvk2_tx_control.py set \
+  --control-file /tmp/rvk2_tx_control.txt \
+  --enable 1 \
+  --cache-path /path/to/pack.htc \
+  --pack-path /path/to/pack \
+  --summary-path /tmp/rvk2_tx_summary.txt \
+  --log-summary 1
+
+# 3) Force reload after updating cache/pack content
+python3 scripts/rvk2_tx_control.py bump-reload --control-file /tmp/rvk2_tx_control.txt
+
+# 4) Force invalidate/disable if needed
+python3 scripts/rvk2_tx_control.py set --control-file /tmp/rvk2_tx_control.txt --enable 0
+python3 scripts/rvk2_tx_control.py bump-invalidate --control-file /tmp/rvk2_tx_control.txt
 ```
 
 ## Key Paths

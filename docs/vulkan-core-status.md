@@ -64,6 +64,8 @@ This is the single execution tracker for the rewrite.
 58. Executor coverage-gated write semantics now use cycle-aware destination alpha in cycle2 (using cycle1 output as coverage destination), with dedicated conformance coverage.
 59. Submission-plan split classification coverage is now explicit in unit tests (`start`/`barrier`/`phase`/`cycle`/`render-target`/`scissor` + non-submittable unknown-phase path), closing Phase B semantic-batching test gaps.
 60. Copy/fill phase behavior now bypasses alpha-compare and coverage-gated write suppression semantics (cycle-pipeline-only), with dedicated conformance coverage.
+61. Texture replacement runtime control file support is now landed (`REALITYVK_RVK2_TX_CONTROL_FILE`) for live enable/disable, reload/invalidate token updates, and pack/cache path overrides without emulator restart.
+62. Replacement visibility now supports stable per-frame summary file output (`REALITYVK_RVK2_TX_SUMMARY_PATH`) and maintainer control tooling (`scripts/rvk2_tx_control.py`).
 
 ## Phase Status
 
@@ -73,12 +75,12 @@ This is the single execution tracker for the rewrite.
 | B: Semantic Pipeline Backbone | Done | Draw semantic -> raster -> render-work -> submission -> executor path is deterministic and now has explicit split-classification coverage. |
 | C: Core Rendering Correctness | Done | Fill/copy/texrect/triangle/depth/coverage/blend hazard behavior is closed for the scoped synthetic contract and covered by conformance. |
 | D: VI and Presentation | Done | Register-driven source selection/scaling/filter/fail-safe behavior is implemented with unit + conformance + smoke coverage for current scoped contract. |
-| E: Texture Replacement | In progress | Deterministic key/cache contracts, store APIs, `.htc` IO, pack-index ingest, lifecycle controls, bounded load policy, optional executor sampling, pack-index tooling, and replacement observability counters are landed; runtime UX polish and cutover wiring are still open. |
+| E: Texture Replacement | Done | Deterministic key/cache contracts, store APIs, `.htc` IO, pack-index ingest, lifecycle controls, bounded load policy, optional executor sampling, runtime control-file UX, summary visibility, and maintainer tooling are landed. |
 | F: Cutover and Deletion | Not started | `rvk2` is not default and legacy-derived paths still exist. |
 
 ## Completion Estimate
 
-Estimated overall roadmap completion: **~92%**.
+Estimated overall roadmap completion: **~95%**.
 
 Heuristic phase weighting used for this estimate:
 - A: 20%
@@ -93,7 +95,7 @@ Estimated phase progress used:
 - B: 100%
 - C: 100%
 - D: 100%
-- E: 65%
+- E: 100%
 - F: 0%
 
 ## Completed Recently
@@ -313,40 +315,44 @@ Estimated phase progress used:
    - copy/fill phase write paths now bypass alpha-compare and coverage-gated write suppression behavior
    - conformance now includes copy/fill bypass validation under aggressive alpha/coverage mode settings
    - local gate remains clean across release/debug unit + conformance suites
+51. Closed Phase E runtime operator + visibility UX:
+   - landed control-file overrides for texture replacement (`REALITYVK_RVK2_TX_CONTROL_FILE`) consumed each present
+   - control file now supports live enable/disable, cache/pack path overrides, bounds, and reload/invalidate tokens
+   - landed stable per-frame replacement summary file output (`REALITYVK_RVK2_TX_SUMMARY_PATH`)
+   - added maintainer control utility (`scripts/rvk2_tx_control.py`) and unit coverage for control-file config + lifecycle behavior
 
 ## Current Bottlenecks
 
 1. Visual parity threshold still fails on maintained Paper Mario metric (`rmse=0.259169` vs `0.25` gate target).
-2. Texture replacement runtime UX is still open (operator-facing reload flow and broader runtime visibility integration), though base replacement observability counters are landed.
-3. `rvk2` is still not default; cutover and legacy-path deletion work has not started.
-4. Trace/replay still carries transitional compatibility paths that should be removed once cutover fixtures are refreshed.
+2. `rvk2` is still not default; cutover and legacy-path deletion work has not started.
+3. Trace/replay still carries transitional compatibility paths that should be removed once cutover fixtures are refreshed.
+4. Texture replacement is functionally closed, but pack/caching behavior still needs wider parity burn-in across additional title coverage.
 
 ## Next Coding Priorities
 
-1. Close Phase E: finish texture replacement runtime UX + visibility surfacing + maintainer docs for day-to-day pack/cache operations.
-2. Start Phase F: make `rvk2` default-on, keep a short-lived escape hatch, and begin deleting legacy-derived render paths.
-3. Continue parity reduction on maintained Paper Mario comparison while preserving deterministic trace/replay contracts.
-4. Tighten trace/replay strictness by retiring legacy row compatibility once smoke/parity fixtures are regenerated.
+1. Start Phase F: make `rvk2` default-on, keep a short-lived escape hatch, and begin deleting legacy-derived render paths.
+2. Continue parity reduction on maintained Paper Mario comparison while preserving deterministic trace/replay contracts.
+3. Tighten trace/replay strictness by retiring legacy row compatibility once smoke/parity fixtures are regenerated.
+4. Expand parity burn-in coverage for texture replacement packs/caches now that Phase E runtime UX is closed.
 
 ## Remaining Work Split (Approx)
 
-1. Phase E closure (`hi-res` + `.htc` runtime UX, visibility, operator flow hardening): **45%** of remaining work.
-2. Phase F cutover/deletion (`rvk2` default, legacy path removal): **30%**.
-3. Parity stabilization and metric closure: **15%**.
-4. Trace/replay strictness + schema tightening: **10%**.
+1. Phase F cutover/deletion (`rvk2` default, legacy path removal): **55%** of remaining work.
+2. Parity stabilization and metric closure: **25%**.
+3. Trace/replay strictness + schema tightening: **15%**.
+4. Post-closure texture replacement burn-in/coverage expansion: **5%**.
 
 ## Remaining Work by Phase
 
-1. **Phase E (Texture Replacement, in progress)**
-   - Complete runtime operator flow for replacement reload/invalidation in normal emulator runs.
-   - Surface replacement state/hit-rate visibility in a stable maintainer-facing path (beyond env-only logging).
-   - Add smoke/parity-side validation workflow for pack/cache behavior changes.
-   - Finalize maintainer docs for pack index generation + validation + rollout.
-2. **Phase F (Cutover and Deletion, not started)**
+1. **Phase F (Cutover and Deletion, not started)**
    - Flip default render path to `rvk2`.
    - Add temporary fallback switch for controlled bring-up only.
    - Remove legacy-derived Vulkan/GLideN64 render execution paths once gates are stable.
    - Prune transitional test/docs paths that only exist for dual-runtime support.
+2. **Cross-phase parity + strictness work**
+   - Reduce maintained Paper Mario parity metric to target threshold.
+   - Retire trace/replay compatibility handling for legacy semantic row widths after fixture refresh.
+   - Expand pack/cache replacement parity coverage beyond current maintained scenario set.
 
 ## Local Gate Contract
 

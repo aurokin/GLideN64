@@ -1,5 +1,6 @@
 #include <cstdio>
 #include <cerrno>
+#include <cstdlib>
 #include <string>
 #include <vector>
 #include <sys/stat.h>
@@ -34,6 +35,42 @@ void expectEq(const T & _lhs, const T & _rhs, const char * _message)
 {
 	expectTrue(_lhs == _rhs, _message);
 }
+
+struct ScopedEnvVar
+{
+	explicit ScopedEnvVar(const char * _key)
+		: key(_key != nullptr ? _key : "")
+		, hadValue(false)
+	{
+		const char * value = std::getenv(key.c_str());
+		if (value != nullptr) {
+			hadValue = true;
+			savedValue = value;
+		}
+	}
+
+	~ScopedEnvVar()
+	{
+		if (hadValue)
+			::setenv(key.c_str(), savedValue.c_str(), 1);
+		else
+			::unsetenv(key.c_str());
+	}
+
+	void set(const std::string & _value) const
+	{
+		::setenv(key.c_str(), _value.c_str(), 1);
+	}
+
+	void clear() const
+	{
+		::unsetenv(key.c_str());
+	}
+
+	std::string key;
+	bool hadValue;
+	std::string savedValue;
+};
 
 void testSchemaVersion()
 {
@@ -2755,6 +2792,233 @@ void testExecutorTextureReplacementLifecycle()
 	std::remove(cachePath);
 }
 
+void testExecutorConfigTextureReplacementControlFile()
+{
+	const char * controlPath = "/tmp/rvk2_tx_control_config_unit.txt";
+	std::remove(controlPath);
+
+	ScopedEnvVar envControl("REALITYVK_RVK2_TX_CONTROL_FILE");
+	ScopedEnvVar envEnable("REALITYVK_RVK2_TEX_REPLACEMENT");
+	ScopedEnvVar envCachePath("REALITYVK_RVK2_TX_HTC_PATH");
+	ScopedEnvVar envPackPath("REALITYVK_RVK2_TX_PACK_PATH");
+	ScopedEnvVar envMaxEntries("REALITYVK_RVK2_TX_MAX_ENTRIES");
+	ScopedEnvVar envMaxPixels("REALITYVK_RVK2_TX_MAX_PIXELS");
+	ScopedEnvVar envReloadToken("REALITYVK_RVK2_TX_RELOAD_TOKEN");
+	ScopedEnvVar envInvalidateToken("REALITYVK_RVK2_TX_INVALIDATE_TOKEN");
+	ScopedEnvVar envLogSummary("REALITYVK_RVK2_TX_LOG_SUMMARY");
+	ScopedEnvVar envSummaryPath("REALITYVK_RVK2_TX_SUMMARY_PATH");
+
+	envEnable.clear();
+	envCachePath.clear();
+	envPackPath.clear();
+	envMaxEntries.clear();
+	envMaxPixels.clear();
+	envReloadToken.clear();
+	envInvalidateToken.clear();
+	envLogSummary.clear();
+	envSummaryPath.clear();
+	envControl.clear();
+
+	envEnable.set("1");
+	envReloadToken.set("99");
+	envLogSummary.set("1");
+
+	{
+		std::FILE * control = std::fopen(controlPath, "wb");
+		expectTrue(control != nullptr, "control-file config test open failed");
+		if (control != nullptr) {
+			std::fprintf(control, "enable=0\n");
+			std::fprintf(control, "cache_path=/tmp/control_cache.htc\n");
+			std::fprintf(control, "pack_path=/tmp/control_pack\n");
+			std::fprintf(control, "max_entries=17\n");
+			std::fprintf(control, "max_pixels=4096\n");
+			std::fprintf(control, "reload_token=7\n");
+			std::fprintf(control, "invalidate_token=5\n");
+			std::fprintf(control, "log_summary=0\n");
+			std::fprintf(control, "summary_path=/tmp/rvk2_tx_summary_unit.txt\n");
+			std::fclose(control);
+		}
+	}
+	envControl.set(controlPath);
+
+	const rvk2::ExecutorConfig config = rvk2::loadExecutorConfigFromEnv();
+	expectTrue(
+		!config.textureReplacementEnable,
+		"control-file config should allow explicit disable even with cache/pack paths");
+	expectTrue(
+		config.textureReplacementCachePath == "/tmp/control_cache.htc",
+		"control-file config cache path mismatch");
+	expectTrue(
+		config.textureReplacementPackPath == "/tmp/control_pack",
+		"control-file config pack path mismatch");
+	expectEq(
+		config.textureReplacementMaxEntries,
+		17U,
+		"control-file config max entries mismatch");
+	expectEq(
+		config.textureReplacementMaxPixels,
+		4096ULL,
+		"control-file config max pixels mismatch");
+	expectEq(
+		config.textureReplacementReloadToken,
+		7ULL,
+		"control-file config reload token mismatch");
+	expectEq(
+		config.textureReplacementInvalidateToken,
+		5ULL,
+		"control-file config invalidate token mismatch");
+	expectTrue(
+		!config.textureReplacementLogSummary,
+		"control-file config should override env log summary");
+	expectTrue(
+		config.textureReplacementSummaryPath == "/tmp/rvk2_tx_summary_unit.txt",
+		"control-file config summary path mismatch");
+
+	std::remove(controlPath);
+}
+
+void testExecutorTextureReplacementControlFileLifecycle()
+{
+	rvk2::RenderWorkPacket work{};
+	work.sourcePacketId = 1ULL;
+	work.sourceOpcode = 0x24U;
+	work.opKind = static_cast<u8>(rvk2::RasterOpKind::kTexRect);
+	work.phase = static_cast<u8>(rvk2::RenderPhase::kCycle1);
+	work.cycleType = 0U;
+	work.textured = true;
+	work.rectULX = 0U;
+	work.rectULY = 0U;
+	work.rectLRX = 1U;
+	work.rectLRY = 1U;
+	work.colorImageFormat = 0U;
+	work.colorImageSize = 3U;
+	work.colorImageWidth = 4U;
+	work.colorImageAddress = 0x00332000U;
+	work.textureImageFormat = 0U;
+	work.textureImageSize = 2U;
+	work.textureImageWidth = 4U;
+	work.textureImageAddress = 0x00122000U;
+	work.tileFormat = 0U;
+	work.tileSize = 2U;
+	work.tileLine = 1U;
+	work.tileULS = 0U;
+	work.tileULT = 0U;
+	work.tileLRS = 4U;
+	work.tileLRT = 4U;
+
+	rvk2::TextureReplacementRequest request{};
+	request.work = &work;
+	request.s = 0;
+	request.t = 0;
+	request.w = 0;
+	request.perspective = false;
+	const rvk2::TextureReplacementCacheKey cacheKey =
+		rvk2::buildTextureReplacementCacheKey(
+			rvk2::buildTextureReplacementKey(request));
+
+	auto writeSingleColorCache = [&](const char * _path, u32 _color) -> bool {
+		rvk2::TextureReplacementStore store;
+		rvk2::TextureReplacementImage image{};
+		image.width = 1U;
+		image.height = 1U;
+		image.pixels = {_color};
+		if (!store.insert(cacheKey, image))
+			return false;
+		return rvk2::writeTextureReplacementHTC(_path, store);
+	};
+
+	const char * cachePath = "/tmp/rvk2_executor_control_lifecycle.htc";
+	const char * controlPath = "/tmp/rvk2_executor_control_lifecycle.txt";
+	std::remove(cachePath);
+	std::remove(controlPath);
+	expectTrue(
+		writeSingleColorCache(cachePath, 0x102030FFU),
+		"control lifecycle setup cache write A should succeed");
+
+	auto writeControlFile = [&](bool _enable, u64 _reloadToken, u64 _invalidateToken) -> bool {
+		std::FILE * control = std::fopen(controlPath, "wb");
+		if (control == nullptr)
+			return false;
+		std::fprintf(control, "enable=%u\n", _enable ? 1U : 0U);
+		std::fprintf(control, "cache_path=%s\n", cachePath);
+		std::fprintf(control, "reload_token=%llu\n", static_cast<unsigned long long>(_reloadToken));
+		std::fprintf(control, "invalidate_token=%llu\n", static_cast<unsigned long long>(_invalidateToken));
+		std::fclose(control);
+		return true;
+	};
+
+	expectTrue(
+		writeControlFile(true, 0ULL, 0ULL),
+		"control lifecycle setup control write A should succeed");
+
+	rvk2::SubmissionBatchPacket batch{};
+	batch.batchIndex = 0U;
+	batch.firstWorkIndex = 0U;
+	batch.lastWorkIndex = 0U;
+	batch.workCount = 1U;
+	batch.phase = static_cast<u8>(rvk2::RenderPhase::kCycle1);
+	const std::vector<rvk2::RenderWorkPacket> workPackets{work};
+	const std::vector<rvk2::SubmissionBatchPacket> batches{batch};
+
+	ScopedEnvVar envControl("REALITYVK_RVK2_TX_CONTROL_FILE");
+	ScopedEnvVar envEnable("REALITYVK_RVK2_TEX_REPLACEMENT");
+	ScopedEnvVar envCachePath("REALITYVK_RVK2_TX_HTC_PATH");
+	ScopedEnvVar envPackPath("REALITYVK_RVK2_TX_PACK_PATH");
+	ScopedEnvVar envReloadToken("REALITYVK_RVK2_TX_RELOAD_TOKEN");
+	ScopedEnvVar envInvalidateToken("REALITYVK_RVK2_TX_INVALIDATE_TOKEN");
+
+	envEnable.clear();
+	envCachePath.clear();
+	envPackPath.clear();
+	envReloadToken.clear();
+	envInvalidateToken.clear();
+	envControl.set(controlPath);
+
+	rvk2::Executor executor(rvk2::loadExecutorConfigFromEnv());
+	const rvk2::ExecutorOutput outA =
+		executor.executeWithOutput(workPackets, batches);
+	expectTrue(
+		outA.summary.textureReplacementEnabled,
+		"control lifecycle baseline should enable replacement from control file");
+
+	expectTrue(
+		writeSingleColorCache(cachePath, 0xFF0000FFU),
+		"control lifecycle setup cache write B should succeed");
+	expectTrue(
+		writeControlFile(true, 1ULL, 0ULL),
+		"control lifecycle setup control write B should succeed");
+	executor.updateConfig(rvk2::loadExecutorConfigFromEnv());
+	const rvk2::ExecutorOutput outReload =
+		executor.executeWithOutput(workPackets, batches);
+	expectTrue(
+		outReload.summary.presentHash != outA.summary.presentHash,
+		"control lifecycle reload token change should alter replacement output");
+
+	expectTrue(
+		writeControlFile(false, 1ULL, 1ULL),
+		"control lifecycle setup control write C should succeed");
+	executor.updateConfig(rvk2::loadExecutorConfigFromEnv());
+	const rvk2::ExecutorOutput outDisabled =
+		executor.executeWithOutput(workPackets, batches);
+	expectTrue(
+		!outDisabled.summary.textureReplacementEnabled,
+		"control lifecycle disable should deactivate replacement");
+	expectEq(
+		outDisabled.summary.textureReplacementEntryCount,
+		0ULL,
+		"control lifecycle disable should clear replacement entries");
+	expectEq(
+		outDisabled.summary.textureReplacementSampleCount,
+		0ULL,
+		"control lifecycle disable should stop replacement sampling");
+	expectTrue(
+		outDisabled.summary.presentHash != outReload.summary.presentHash,
+		"control lifecycle disable should alter output from replacement run");
+
+	std::remove(controlPath);
+	std::remove(cachePath);
+}
+
 } // namespace
 
 int main()
@@ -2781,6 +3045,8 @@ int main()
 	testTextureReplacementStoreLimits();
 	testExecutorTextureReplacementSampling();
 	testExecutorTextureReplacementLifecycle();
+	testExecutorConfigTextureReplacementControlFile();
+	testExecutorTextureReplacementControlFileLifecycle();
 
 	if (g_failures == 0) {
 		std::printf("rvk2 unit tests: PASS\n");

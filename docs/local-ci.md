@@ -94,6 +94,26 @@ python3 scripts/rvk2_texture_pack_index.py generate --pack-dir /path/to/pack
 python3 scripts/rvk2_texture_pack_index.py validate --pack-dir /path/to/pack --rewrite
 ```
 
+Texture replacement runtime controls (during emulator run):
+
+```bash
+# Runtime control file (read each present by rvk2)
+export REALITYVK_RVK2_TX_CONTROL_FILE=/tmp/rvk2_tx_control.txt
+
+# Configure replacement sources and optional summary sinks
+python3 scripts/rvk2_tx_control.py set \
+  --control-file /tmp/rvk2_tx_control.txt \
+  --enable 1 \
+  --cache-path /path/to/cache.htc \
+  --pack-path /path/to/pack \
+  --summary-path /tmp/rvk2_tx_summary.txt \
+  --log-summary 1
+
+# Trigger runtime reload/invalidate without restart
+python3 scripts/rvk2_tx_control.py bump-reload --control-file /tmp/rvk2_tx_control.txt
+python3 scripts/rvk2_tx_control.py bump-invalidate --control-file /tmp/rvk2_tx_control.txt
+```
+
 ## Smoke gate details
 
 Smoke checks are documented in [local-smoke.md](./local-smoke.md).

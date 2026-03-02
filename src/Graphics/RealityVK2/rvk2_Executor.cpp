@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cerrno>
+#include <cstdio>
 #include <cstdlib>
 #include <limits>
 #include <string>
@@ -40,6 +41,153 @@ inline bool parseEnvUnsigned(const char * _value, u64 & _out)
 		return false;
 	_out = static_cast<u64>(value);
 	return true;
+}
+
+inline std::string trimAsciiWhitespace(const std::string & _value)
+{
+	size_t begin = 0U;
+	while (begin < _value.size()) {
+		const char c = _value[begin];
+		if (c != ' ' && c != '\t' && c != '\r' && c != '\n')
+			break;
+		++begin;
+	}
+	size_t end = _value.size();
+	while (end > begin) {
+		const char c = _value[end - 1U];
+		if (c != ' ' && c != '\t' && c != '\r' && c != '\n')
+			break;
+		--end;
+	}
+	return _value.substr(begin, end - begin);
+}
+
+inline std::string toLowerAscii(std::string _value)
+{
+	for (char & c : _value) {
+		if (c >= 'A' && c <= 'Z')
+			c = static_cast<char>(c - 'A' + 'a');
+	}
+	return _value;
+}
+
+inline bool parseBooleanToken(const std::string & _token, bool & _out)
+{
+	const std::string token = toLowerAscii(trimAsciiWhitespace(_token));
+	if (token.empty())
+		return false;
+	if (token == "1" || token == "true" || token == "yes" || token == "on") {
+		_out = true;
+		return true;
+	}
+	if (token == "0" || token == "false" || token == "no" || token == "off") {
+		_out = false;
+		return true;
+	}
+	return false;
+}
+
+inline bool parseUnsignedToken(const std::string & _token, u64 & _out)
+{
+	const std::string token = trimAsciiWhitespace(_token);
+	if (token.empty())
+		return false;
+	char * end = nullptr;
+	errno = 0;
+	const unsigned long long value = std::strtoull(token.c_str(), &end, 0);
+	if (errno != 0 || end == nullptr || *end != '\0')
+		return false;
+	_out = static_cast<u64>(value);
+	return true;
+}
+
+void applyTextureReplacementControlFile(
+	const char * _path,
+	rvk2::ExecutorConfig & _config)
+{
+	if (_path == nullptr || _path[0] == '\0')
+		return;
+
+	std::FILE * file = std::fopen(_path, "rb");
+	if (file == nullptr)
+		return;
+
+	bool hasEnableOverride = false;
+	bool enableOverride = false;
+	char line[4096];
+	while (std::fgets(line, static_cast<int>(sizeof(line)), file) != nullptr) {
+		std::string raw(line);
+		raw = trimAsciiWhitespace(raw);
+		if (raw.empty() || raw[0] == '#')
+			continue;
+
+		size_t separatorPos = raw.find('=');
+		if (separatorPos == std::string::npos)
+			separatorPos = raw.find('\t');
+		if (separatorPos == std::string::npos)
+			continue;
+
+		const std::string key = toLowerAscii(trimAsciiWhitespace(raw.substr(0U, separatorPos)));
+		const std::string value = trimAsciiWhitespace(raw.substr(separatorPos + 1U));
+		u64 parsed = 0ULL;
+		bool parsedBool = false;
+
+		if (key == "enable" || key == "texture_replacement_enable") {
+			if (parseBooleanToken(value, parsedBool)) {
+				hasEnableOverride = true;
+				enableOverride = parsedBool;
+				_config.textureReplacementEnable = parsedBool;
+			}
+			continue;
+		}
+		if (key == "cache_path" || key == "htc_path") {
+			_config.textureReplacementCachePath = value;
+			continue;
+		}
+		if (key == "pack_path") {
+			_config.textureReplacementPackPath = value;
+			continue;
+		}
+		if (key == "summary_path") {
+			_config.textureReplacementSummaryPath = value;
+			continue;
+		}
+		if (key == "log_summary") {
+			if (parseBooleanToken(value, parsedBool))
+				_config.textureReplacementLogSummary = parsedBool;
+			continue;
+		}
+		if (key == "max_entries") {
+			if (parseUnsignedToken(value, parsed))
+				_config.textureReplacementMaxEntries = static_cast<u32>(std::min<u64>(parsed, 0xFFFFFFFFULL));
+			continue;
+		}
+		if (key == "max_pixels") {
+			if (parseUnsignedToken(value, parsed))
+				_config.textureReplacementMaxPixels = parsed;
+			continue;
+		}
+		if (key == "reload_token") {
+			if (parseUnsignedToken(value, parsed))
+				_config.textureReplacementReloadToken = parsed;
+			continue;
+		}
+		if (key == "invalidate_token") {
+			if (parseUnsignedToken(value, parsed))
+				_config.textureReplacementInvalidateToken = parsed;
+			continue;
+		}
+	}
+
+	std::fclose(file);
+
+	if (!hasEnableOverride
+		&& (!_config.textureReplacementCachePath.empty()
+			|| !_config.textureReplacementPackPath.empty())) {
+		_config.textureReplacementEnable = true;
+	}
+	if (hasEnableOverride && !enableOverride)
+		_config.textureReplacementEnable = false;
 }
 
 inline u32 clampU32(u32 _value, u32 _minimum, u32 _maximum)
@@ -2238,6 +2386,12 @@ ExecutorConfig loadExecutorConfigFromEnv()
 	const char * txEnable = std::getenv("REALITYVK_RVK2_TEX_REPLACEMENT");
 	if (envStringIsTrue(txEnable))
 		config.textureReplacementEnable = true;
+	const char * txLogSummary = std::getenv("REALITYVK_RVK2_TX_LOG_SUMMARY");
+	if (envStringIsTrue(txLogSummary))
+		config.textureReplacementLogSummary = true;
+	const char * txSummaryPath = std::getenv("REALITYVK_RVK2_TX_SUMMARY_PATH");
+	if (txSummaryPath != nullptr && txSummaryPath[0] != '\0')
+		config.textureReplacementSummaryPath = txSummaryPath;
 	const char * txCachePath = std::getenv("REALITYVK_RVK2_TX_HTC_PATH");
 	if (txCachePath != nullptr && txCachePath[0] != '\0') {
 		config.textureReplacementCachePath = txCachePath;
@@ -2257,6 +2411,9 @@ ExecutorConfig loadExecutorConfigFromEnv()
 		config.textureReplacementReloadToken = parsed;
 	if (parseEnvUnsigned(std::getenv("REALITYVK_RVK2_TX_INVALIDATE_TOKEN"), parsed))
 		config.textureReplacementInvalidateToken = parsed;
+	applyTextureReplacementControlFile(
+		std::getenv("REALITYVK_RVK2_TX_CONTROL_FILE"),
+		config);
 	return config;
 }
 

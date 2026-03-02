@@ -20,6 +20,8 @@ struct ExecutorConfig {
 	u64 textureReplacementMaxPixels = 0ULL;
 	u64 textureReplacementReloadToken = 0ULL;
 	u64 textureReplacementInvalidateToken = 0ULL;
+	bool textureReplacementLogSummary = false;
+	std::string textureReplacementSummaryPath{};
 	bool viRegistersValid = false;
 	u32 viStatus = 0U;
 	u32 viOrigin = 0U;

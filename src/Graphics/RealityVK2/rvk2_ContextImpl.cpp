@@ -1,6 +1,7 @@
 #include "rvk2_ContextImpl.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstdlib>
 
 #include <Log.h>
@@ -44,12 +45,35 @@ rvk2::ExecutorConfig buildExecutorConfigFromVIRegisters()
 	return config;
 }
 
-bool shouldLogTextureReplacementSummary()
+void writeTextureReplacementSummaryFile(
+	const rvk2::ExecutorConfig & _config,
+	const rvk2::ExecutorSummary & _summary)
 {
-	static int s_enabled = -1;
-	if (s_enabled < 0)
-		s_enabled = std::getenv("REALITYVK_RVK2_TX_LOG_SUMMARY") != nullptr ? 1 : 0;
-	return s_enabled == 1;
+	if (_config.textureReplacementSummaryPath.empty())
+		return;
+
+	std::FILE * file = std::fopen(_config.textureReplacementSummaryPath.c_str(), "wb");
+	if (file == nullptr)
+		return;
+
+	const double hitRate = _summary.textureReplacementSampleCount > 0ULL
+		? static_cast<double>(_summary.textureReplacementHitCount)
+			/ static_cast<double>(_summary.textureReplacementSampleCount)
+		: 0.0;
+	std::fprintf(
+		file,
+		"enabled=%u\nentries=%llu\npixels=%llu\nsamples=%llu\nhits=%llu\nmisses=%llu\nhit_rate=%.6f\npresent_hash=0x%016llX\npresent_width=%u\npresent_height=%u\n",
+		_summary.textureReplacementEnabled ? 1U : 0U,
+		static_cast<unsigned long long>(_summary.textureReplacementEntryCount),
+		static_cast<unsigned long long>(_summary.textureReplacementPixelCount),
+		static_cast<unsigned long long>(_summary.textureReplacementSampleCount),
+		static_cast<unsigned long long>(_summary.textureReplacementHitCount),
+		static_cast<unsigned long long>(_summary.textureReplacementMissCount),
+		hitRate,
+		static_cast<unsigned long long>(_summary.presentHash),
+		_summary.presentWidth,
+		_summary.presentHeight);
+	std::fclose(file);
 }
 
 } // namespace
@@ -223,10 +247,11 @@ void ContextImpl::renderPresentedFrame(const ExecutorOutput & _output)
 
 bool ContextImpl::present()
 {
-	m_executor.updateConfig(buildExecutorConfigFromVIRegisters());
+	const ExecutorConfig config = buildExecutorConfigFromVIRegisters();
+	m_executor.updateConfig(config);
 	const ExecutorOutput output =
 		m_executor.executeWithOutput(runtime().renderPlan(), runtime().submissionPlan());
-	if (shouldLogTextureReplacementSummary() && output.summary.textureReplacementEnabled) {
+	if (config.textureReplacementLogSummary && output.summary.textureReplacementEnabled) {
 		LOG(
 			LOG_WARNING,
 			"rvk2 tx summary: enabled=1 entries=%llu pixels=%llu samples=%llu hits=%llu misses=%llu",
@@ -236,6 +261,7 @@ bool ContextImpl::present()
 			static_cast<unsigned long long>(output.summary.textureReplacementHitCount),
 			static_cast<unsigned long long>(output.summary.textureReplacementMissCount));
 	}
+	writeTextureReplacementSummaryFile(config, output.summary);
 	if (output.summary.executedWorkCount == 0ULL) {
 		static bool warnedNoRvk2Work = false;
 		if (!warnedNoRvk2Work) {
