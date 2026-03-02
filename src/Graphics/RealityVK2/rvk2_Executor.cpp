@@ -2355,7 +2355,8 @@ inline u32 applySyntheticBlender(
 	u32 _y,
 	bool _cycle2Selectors = false,
 	u8 _shadeAlpha = 0xFFU,
-	rvk2::ExecutorSummary * _summary = nullptr)
+	rvk2::ExecutorSummary * _summary = nullptr,
+	u8 _shadeAlphaNext = 0xFFU)
 {
 	ColorRGBA src = unpackRGBA(_srcColor);
 	const ColorRGBA selector0 = unpackRGBA(_selector0Color);
@@ -2364,9 +2365,11 @@ inline u32 applySyntheticBlender(
 	const ColorRGBA fogState = unpackRGBA(_work.fogColor);
 	const bool aaEnable = isAAEnabled(_work);
 	const bool imageReadEnabled = isImageReadEnabled(_work);
+	const bool useCycle2Selectors =
+		_cycle2Selectors && _work.phase == static_cast<u8>(rvk2::RenderPhase::kCycle2);
 	const BlendMuxSelectors selectors = decodeBlendMuxSelectors(
 		_work,
-		_cycle2Selectors && _work.phase == static_cast<u8>(rvk2::RenderPhase::kCycle2));
+		useCycle2Selectors);
 	if (_summary != nullptr) {
 		++_summary->blenderOpCount;
 		++_summary->blendAlphaASelectorCount[selectors.m1b & 0x3U];
@@ -2453,11 +2456,15 @@ inline u32 applySyntheticBlender(
 	}
 	const u8 inputCoverageAlpha = static_cast<u8>(
 		(static_cast<u32>(coverage.input) * 255U + 3U) / 7U);
+	const u8 shadeAlphaInput =
+		(useCycle2Selectors && (selectors.m1b & 0x3U) == 2U)
+		? _shadeAlphaNext
+		: _shadeAlpha;
 	u8 alphaA = selectAlphaA(
 		selectors.m1b,
 		src.a,
 		fogState.a,
-		_shadeAlpha);
+		shadeAlphaInput);
 	if (_work.alphaCvgSel && (selectors.m1b & 0x3U) == 0U)
 		alphaA = inputCoverageAlpha;
 	const u8 memoryCoverageAlpha = [&]() -> u8 {
@@ -2896,6 +2903,7 @@ inline u32 runSyntheticPhasePipeline(
 	u32 _texel1Color,
 	u32 _texel0NextColor,
 	u32 _shadeColor,
+	u32 _shadeColorNext,
 	u32 _baseColor,
 	u32 _dstColor,
 	u8 _dstCoverage,
@@ -2914,6 +2922,7 @@ inline u32 runSyntheticPhasePipeline(
 	u32 combinerColor = _baseColor;
 	u32 blenderColor = _baseColor;
 	const u8 shadeAlpha = static_cast<u8>(_shadeColor & 0xFFU);
+	const u8 shadeAlphaNext = static_cast<u8>(_shadeColorNext & 0xFFU);
 	u8 coverageDestination = static_cast<u8>(std::min<u32>(7U, static_cast<u32>(_dstCoverage & 0x7U)));
 	const u8 phase = _work.phase;
 	if (phase == static_cast<u8>(rvk2::RenderPhase::kCopy)) {
@@ -2952,7 +2961,8 @@ inline u32 runSyntheticPhasePipeline(
 			_y,
 			false,
 			shadeAlpha,
-			_summary);
+			_summary,
+			shadeAlphaNext);
 		finalColor = blenderColor;
 	}
 	else {
@@ -2979,7 +2989,8 @@ inline u32 runSyntheticPhasePipeline(
 			_y,
 			false,
 			shadeAlpha,
-			_summary);
+			_summary,
+			shadeAlphaNext);
 		combinerColor = applySyntheticCombiner(
 			_work,
 			_texel0Color,
@@ -3003,7 +3014,8 @@ inline u32 runSyntheticPhasePipeline(
 			_y,
 			true,
 			shadeAlpha,
-			_summary);
+			_summary,
+			shadeAlphaNext);
 		finalColor = blenderColor;
 	}
 
@@ -3152,6 +3164,7 @@ void writeRect(
 					textureColor,
 					texel1Color,
 					texel0NextColor,
+					0xFFFFFFFFU,
 					0xFFFFFFFFU,
 					textureColor,
 					pipelineDstColor,
@@ -3372,6 +3385,10 @@ void writeTriangle(
 				false,
 				&textureSourceBits);
 			const u32 shadeColor = chooseTriangleShadeSourceColor(_work, x, y);
+			const u32 shadeColorNext = chooseTriangleShadeSourceColor(
+				_work,
+				std::min<u32>(x + 1U, bounds.x1),
+				y);
 			const u32 baseColor = chooseTriangleBaseColor(_work, textureColor, shadeColor);
 			u32 combinerColor = 0U;
 			u32 blenderColor = 0U;
@@ -3389,6 +3406,7 @@ void writeTriangle(
 				texel1Color,
 				texel0NextColor,
 				shadeColor,
+				shadeColorNext,
 				baseColor,
 				pipelineDstColor,
 				pipelineDstCoverage,

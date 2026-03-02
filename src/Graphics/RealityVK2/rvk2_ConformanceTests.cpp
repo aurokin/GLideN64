@@ -1675,6 +1675,85 @@ void testCycle2TexelNextPixelHazardConformance()
 		"cycle2 TEX1/TEX0 transition should alter presented pixels under next-pixel hazard semantics");
 }
 
+void testCycle2ShadeAlphaNextPixelHazardConformance()
+{
+	rvk2::Executor executor;
+	rvk2::RenderWorkPacket background = makeFillWork(520ULL, 0x00B4B000U, 0x202020FFU);
+	background.rectLRX = 7U;
+	background.rectLRY = 3U;
+
+	rvk2::RenderWorkPacket cycle2Tri = makeTriangleWork();
+	cycle2Tri.sourcePacketId = 521ULL;
+	cycle2Tri.colorImageAddress = background.colorImageAddress;
+	cycle2Tri.colorImageWidth = 8U;
+	cycle2Tri.rectULX = 0U;
+	cycle2Tri.rectULY = 0U;
+	cycle2Tri.rectLRX = 7U;
+	cycle2Tri.rectLRY = 3U;
+	cycle2Tri.phase = static_cast<u8>(rvk2::RenderPhase::kCycle2);
+	cycle2Tri.cycleType = 1U;
+	cycle2Tri.textured = false;
+	cycle2Tri.triangleTextureEnable = false;
+	cycle2Tri.triangleShadeEnable = true;
+	cycle2Tri.triangleYH = 0U;
+	cycle2Tri.triangleYM = 0U;
+	cycle2Tri.triangleYL = 16U;
+	cycle2Tri.triangleXH = 0x00000000U;
+	cycle2Tri.triangleXL = 0x00080000U;
+	cycle2Tri.triangleXM = 0x00000000U;
+	cycle2Tri.triangleDxHDY = 0x00000000U;
+	cycle2Tri.triangleDxLDY = 0x00000000U;
+	cycle2Tri.triangleDxMDY = 0x00000000U;
+	cycle2Tri.triangleShadeA = 0x0000;
+	cycle2Tri.triangleShadeDADX = 0x0000FF00;
+	cycle2Tri.triangleShadeDADY = 0x00000000;
+	cycle2Tri.triangleShadeDADE = 0x00000000;
+	cycle2Tri.otherModes = 0ULL;
+	cycle2Tri.otherModes |= (1ULL << 3U); // aa_en (enables divided blender path).
+	cycle2Tri.otherModes |= (1ULL << 6U); // image_read_en.
+	// Cycle-1 blender pass-through.
+	cycle2Tri.otherModes &= ~(
+		(0x3ULL << 30U)
+		| (0x3ULL << 26U)
+		| (0x3ULL << 22U)
+		| (0x3ULL << 18U));
+	cycle2Tri.otherModes |= (2ULL << 26U); // A = 1.0
+	cycle2Tri.otherModes |= (3ULL << 18U); // B = 0.0
+	// Cycle-2 blender uses shade alpha to mix blend color over memory color.
+	cycle2Tri.otherModes &= ~(
+		(0x3ULL << 28U)
+		| (0x3ULL << 24U)
+		| (0x3ULL << 20U)
+		| (0x3ULL << 16U));
+	cycle2Tri.otherModes |= (2ULL << 28U); // P = blend color
+	cycle2Tri.otherModes |= (2ULL << 24U); // A = shade alpha
+	cycle2Tri.otherModes |= (1ULL << 20U); // M = memory color
+	cycle2Tri.otherModes |= (0ULL << 16U); // B = 1.0 - A
+	cycle2Tri.blendColor = 0xE0E0E0FFU;
+
+	const std::vector<rvk2::SubmissionBatchPacket> bgBatch{makeBatchForWorkCount(1U)};
+	const std::vector<rvk2::SubmissionBatchPacket> twoWorkBatches{makeBatchForWorkCount(2U)};
+	const rvk2::ExecutorOutput bgOut = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background},
+		bgBatch);
+	const rvk2::ExecutorOutput hazardOut = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, cycle2Tri},
+		twoWorkBatches);
+
+	expectTrue(
+		hazardOut.summary.colorWriteCount > bgOut.summary.colorWriteCount,
+		"cycle2 shade-alpha hazard scene should add triangle writes");
+	expectTrue(
+		hazardOut.summary.presentHash != bgOut.summary.presentHash,
+		"cycle2 shade-alpha hazard scene should alter present output");
+	expectTrue(
+		hazardOut.presentFrame.pixels.size() >= 2U,
+		"cycle2 shade-alpha hazard scene should produce at least two present pixels");
+	expectTrue(
+		hazardOut.presentFrame.pixels[0] == hazardOut.presentFrame.pixels[1],
+		"cycle2 shade-alpha hazard should read next-pixel shade alpha in second blender cycle");
+}
+
 void testCycle1Texel1SecondaryTileConformance()
 {
 	rvk2::Executor executor;
@@ -3200,6 +3279,7 @@ int main()
 	testCycle2PhaseDistinctConformance();
 	testCycle2CombinerSelectorIsolationConformance();
 	testCycle2TexelNextPixelHazardConformance();
+	testCycle2ShadeAlphaNextPixelHazardConformance();
 	testCycle1Texel1SecondaryTileConformance();
 	testTMEM32AuthoritativePathConformance();
 	testFillPhaseIgnoresBlendCombinerConformance();

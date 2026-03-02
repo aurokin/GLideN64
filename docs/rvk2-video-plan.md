@@ -25,9 +25,9 @@ Accuracy-first. RVK2-only path. No legacy renderer fallback.
 10. Hidden coverage bit-plane is now persisted per surface and consumed by blender memory-coverage alpha paths.
 11. TEXEL1 now samples secondary tile descriptors (tile+1) for combiner inputs; cycle2 hazard override remains next-pixel TEX0.
 
-## Remaining Work Map (16%)
+## Remaining Work Map (15%)
 
-1. `P5` cycle semantics closure (combiner/blender/coverage/depth): **4%**
+1. `P5` cycle semantics closure (combiner/blender/coverage/depth): **3%**
 2. `P3` authoritative TMEM path closure (especially 32b): **5%**
 3. `P4` raster/coefficient edge behavior: **4%**
 4. `P2` present-source determinism polish: **2%**
@@ -47,6 +47,10 @@ Accuracy-first. RVK2-only path. No legacy renderer fallback.
    - copy/fill coverage now resolves to full coverage (`7`) and clears hidden coverage carry-through.
 6. Added conformance coverage for fill-seeded memory-coverage behavior in subsequent image-read blends.
 7. Kept local gate green after this batch.
+8. Re-validated 2-cycle blender hazards against n64brew command notes:
+   - retained previous-pixel memory color/coverage behavior for cycle1 of 2-cycle mode.
+9. Implemented second-cycle shade-alpha next-pixel hazard in synthetic blender path.
+10. Added conformance coverage for cycle2 shade-alpha next-pixel behavior and kept gate green.
 
 ## What Deep-Dive Changed In Our Plan
 
