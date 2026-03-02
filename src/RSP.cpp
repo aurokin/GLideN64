@@ -30,7 +30,7 @@ using namespace std;
 RSPInfo		RSP;
 
 static
-void _ProcessDList(bool _captureRvk2Trace, u64 _rvk2FrameId)
+void _ProcessDList(u64 _rvk2FrameId)
 {
 	while (!RSP.halt) {
 		if ((RSP.PC[RSP.PCi] + 8) > RDRAMSize) {
@@ -59,12 +59,10 @@ void _ProcessDList(bool _captureRvk2Trace, u64 _rvk2FrameId)
 		if (RSP.count == 1)
 			--pci;
 		RSP.nextCmd = _SHIFTR(*(u32*)&RDRAM[RSP.PC[pci]], 24, 8);
-		if (_captureRvk2Trace) {
-			rvk2::CommandProvenance provenance{};
-			provenance.taskId = static_cast<u32>(_rvk2FrameId);
-			provenance.microcode = static_cast<u16>(GBI.getMicrocodeType());
-			rvk2::runtime().submitRSPWord(commandAddress, RSP.w0, RSP.w1, provenance);
-		}
+		rvk2::CommandProvenance provenance{};
+		provenance.taskId = static_cast<u32>(_rvk2FrameId);
+		provenance.microcode = static_cast<u16>(GBI.getMicrocodeType());
+		rvk2::runtime().submitRSPWord(commandAddress, RSP.w0, RSP.w1, provenance);
 
 		GBI.cmd[RSP.cmd](RSP.w0, RSP.w1);
 		RSP_CheckDLCounter();
@@ -72,7 +70,7 @@ void _ProcessDList(bool _captureRvk2Trace, u64 _rvk2FrameId)
 }
 
 static
-void _ProcessDListFactor5(bool _captureRvk2Trace, u64 _rvk2FrameId)
+void _ProcessDListFactor5(u64 _rvk2FrameId)
 {
 	// Lemmy's note: read first 64 bits of this dlist
 	RSP.F5DL[0] = _SHIFTR(*(u32*)&RDRAM[RSP.PC[0]], 0, 24);
@@ -99,12 +97,10 @@ void _ProcessDListFactor5(bool _captureRvk2Trace, u64 _rvk2FrameId)
 #endif
 
 		RSP.nextCmd = _SHIFTR(*(u32*)&RDRAM[RSP.PC[RSP.PCi] + 8], 24, 8);
-		if (_captureRvk2Trace) {
-			rvk2::CommandProvenance provenance{};
-			provenance.taskId = static_cast<u32>(_rvk2FrameId);
-			provenance.microcode = static_cast<u16>(GBI.getMicrocodeType());
-			rvk2::runtime().submitRSPWord(commandAddress, RSP.w0, RSP.w1, provenance);
-		}
+		rvk2::CommandProvenance provenance{};
+		provenance.taskId = static_cast<u32>(_rvk2FrameId);
+		provenance.microcode = static_cast<u16>(GBI.getMicrocodeType());
+		rvk2::runtime().submitRSPWord(commandAddress, RSP.w0, RSP.w1, provenance);
 
 		GBI.cmd[RSP.cmd](RSP.w0, RSP.w1);
 		RSP.PC[RSP.PCi] += 8;
@@ -134,10 +130,8 @@ void RSP_ProcessDList()
 		return;
 	}
 
-	const bool captureRvk2Trace = rvk2::shouldCaptureRDPTrace();
-	const u64 rvk2FrameId = captureRvk2Trace ? rvk2::allocateTraceFrameId() : 0ULL;
-	if (captureRvk2Trace)
-		rvk2::runtime().beginFrame(rvk2FrameId);
+	const u64 rvk2FrameId = rvk2::allocateTraceFrameId();
+	rvk2::runtime().beginFrame(rvk2FrameId);
 
 	if (RSP.infloop) {
 		RSP.infloop = false;
@@ -200,15 +194,14 @@ void RSP_ProcessDList()
 		break;
 	case F5Rogue:
 	case F5Indi_Naboo:
-		_ProcessDListFactor5(captureRvk2Trace, rvk2FrameId);
+		_ProcessDListFactor5(rvk2FrameId);
 		break;
 	default:
-		_ProcessDList(captureRvk2Trace, rvk2FrameId);
+		_ProcessDList(rvk2FrameId);
 		break;
 	}
 
-	if (captureRvk2Trace)
-		rvk2::emitCapturedFrameTrace(static_cast<u32>(GBI.getMicrocodeType()));
+	rvk2::emitCapturedFrameTrace(static_cast<u32>(GBI.getMicrocodeType()));
 
 	if (RSP.infloop && REG.SP_STATUS) {
 		*REG.SP_STATUS &= ~(SP_STATUS_TASKDONE | SP_STATUS_HALT | SP_STATUS_BROKE);

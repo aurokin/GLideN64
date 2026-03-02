@@ -9,21 +9,6 @@ namespace {
 std::atomic<u64> g_traceFrameId{1ULL};
 } // namespace
 
-RuntimePath getRequestedRuntimePath()
-{
-	return RuntimePath::kRealityVK2;
-}
-
-bool isRealityVK2Requested()
-{
-	return true;
-}
-
-bool shouldCaptureRDPTrace()
-{
-	return true;
-}
-
 const char * getTraceOutputPath()
 {
 	return std::getenv("REALITYVK2_TRACE_FILE");

@@ -7,7 +7,6 @@
 #include "gDP.h"
 #include "DisplayWindow.h"
 #include "Graphics/RealityVK2/rvk2_Runtime.h"
-#include "Graphics/RealityVK2/rvk2_RuntimeSwitch.h"
 
 /******************T3DUX microcode*************************/
 
@@ -61,14 +60,6 @@ static u32 t32uxSetTileW0 = 0;
 static u32 t32uxSetTileW1 = 0;
 
 static
-bool shouldCaptureRvk2Trace()
-{
-	if (!rvk2::shouldCaptureRDPTrace())
-		return false;
-	return rvk2::runtime().commandStream().frameId() != 0ULL;
-}
-
-static
 void submitRvk2T3DUXRDPWord(u32 _address, u32 _w0, u32 _w1)
 {
 	rvk2::CommandProvenance provenance{};
@@ -92,7 +83,6 @@ void T3DUX_ProcessRDP(u32 _cmds)
 	u32 addr = RSP_SegmentToPhysical(_cmds);
 	if (addr != 0) {
 		RSP.LLE = true;
-		const bool captureRvk2Trace = shouldCaptureRvk2Trace();
 		while (true) {
 			const u32 w0 = *(u32*)&RDRAM[addr];
 			const u32 w1 = *(u32*)&RDRAM[addr + 4];
@@ -110,8 +100,7 @@ void T3DUX_ProcessRDP(u32 _cmds)
 				t32uxSetTileW1 = w1;
 				break;
 			}
-			if (captureRvk2Trace)
-				submitRvk2T3DUXRDPWord(addr, w0, w1);
+			submitRvk2T3DUXRDPWord(addr, w0, w1);
 			GBI.cmd[RSP.cmd]( w0, w1 );
 			addr += 8;
 			if (RSP.cmd == G_TEXRECT || RSP.cmd == G_TEXRECTFLIP)
@@ -246,7 +235,6 @@ void T3DUX_LoadObject(u32 pstate, u32 pvtx, u32 ptri, u32 pcol)
 
 void RunT3DUX()
 {
-	const bool captureRvk2Trace = shouldCaptureRvk2Trace();
 	while (true) {
 		const u32 commandAddress = RSP.PC[RSP.PCi];
 		u32 addr = commandAddress >> 2;
@@ -255,11 +243,9 @@ void RunT3DUX()
 		const u32 pvtx = ((u32*)RDRAM)[addr++];
 		const u32 ptri = ((u32*)RDRAM)[addr++];
 		const u32 pcol = ((u32*)RDRAM)[addr++];
-		if (captureRvk2Trace) {
-			submitRvk2T3DUXRSPWord(commandAddress, pgstate, pstate);
-			submitRvk2T3DUXRSPWord(commandAddress + 8U, pvtx, ptri);
-			submitRvk2T3DUXRSPWord(commandAddress + 16U, pcol, 0U);
-		}
+		submitRvk2T3DUXRSPWord(commandAddress, pgstate, pstate);
+		submitRvk2T3DUXRSPWord(commandAddress + 8U, pvtx, ptri);
+		submitRvk2T3DUXRSPWord(commandAddress + 16U, pcol, 0U);
 		//const u32 pstore = ((u32*)RDRAM)[addr];
 		if (pstate == 0) {
 			RSP.halt = true;

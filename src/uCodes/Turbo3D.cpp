@@ -7,7 +7,6 @@
 #include "gDP.h"
 #include "DisplayWindow.h"
 #include "Graphics/RealityVK2/rvk2_Runtime.h"
-#include "Graphics/RealityVK2/rvk2_RuntimeSwitch.h"
 
 /******************Turbo3D microcode*************************/
 
@@ -80,14 +79,6 @@ struct VtxOut {
 };
 
 static
-bool shouldCaptureRvk2Trace()
-{
-	if (!rvk2::shouldCaptureRDPTrace())
-		return false;
-	return rvk2::runtime().commandStream().frameId() != 0ULL;
-}
-
-static
 void submitRvk2TurboRDPWord(u32 _address, u32 _w0, u32 _w1)
 {
 	rvk2::CommandProvenance provenance{};
@@ -111,7 +102,6 @@ void Turbo3D_ProcessRDP(u32 _cmds)
 	u32 addr = RSP_SegmentToPhysical(_cmds);
 	if (addr != 0) {
 		RSP.LLE = true;
-		const bool captureRvk2Trace = shouldCaptureRvk2Trace();
 		while (true) {
 			const u32 w0 = *(u32*)&RDRAM[addr];
 			const u32 w1 = *(u32*)&RDRAM[addr + 4];
@@ -122,8 +112,7 @@ void Turbo3D_ProcessRDP(u32 _cmds)
 				RDP.w2 = *(u32*)&RDRAM[addr + 8];
 				RDP.w3 = *(u32*)&RDRAM[addr + 12];
 			}
-			if (captureRvk2Trace)
-				submitRvk2TurboRDPWord(addr, w0, w1);
+			submitRvk2TurboRDPWord(addr, w0, w1);
 			GBI.cmd[RSP.cmd]( w0, w1 );
 			addr += 8;
 			if (RSP.cmd == G_TEXRECT || RSP.cmd == G_TEXRECTFLIP)
@@ -215,7 +204,6 @@ void Turbo3D_LoadObject(u32 pstate, u32 pvtx, u32 ptri)
 
 void RunTurbo3D()
 {
-	const bool captureRvk2Trace = shouldCaptureRvk2Trace();
 	while (true) {
 		const u32 commandAddress = RSP.PC[RSP.PCi];
 		u32 addr = commandAddress >> 2;
@@ -223,10 +211,8 @@ void RunTurbo3D()
 		const u32 pstate = ((u32*)RDRAM)[addr++];
 		const u32 pvtx = ((u32*)RDRAM)[addr++];
 		const u32 ptri = ((u32*)RDRAM)[addr];
-		if (captureRvk2Trace) {
-			submitRvk2TurboRSPWord(commandAddress, pgstate, pstate);
-			submitRvk2TurboRSPWord(commandAddress + 8U, pvtx, ptri);
-		}
+		submitRvk2TurboRSPWord(commandAddress, pgstate, pstate);
+		submitRvk2TurboRSPWord(commandAddress + 8U, pvtx, ptri);
 		if (pstate == 0) {
 			RSP.halt = true;
 			break;

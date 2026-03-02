@@ -597,13 +597,12 @@ void RDP_ProcessRDPList()
 
 	const u32 length = dp_end - dp_current;
 
-	if (dp_end <= dp_current) return;
+	if (dp_end <= dp_current)
+		return;
 
 	const u32 listStart = dp_current;
-	const bool captureRvk2Trace = rvk2::shouldCaptureRDPTrace();
-	const u64 rvk2FrameId = captureRvk2Trace ? rvk2::allocateTraceFrameId() : 0ULL;
-	if (captureRvk2Trace)
-		rvk2::runtime().beginFrame(rvk2FrameId);
+	const u64 rvk2FrameId = rvk2::allocateTraceFrameId();
+	rvk2::runtime().beginFrame(rvk2FrameId);
 
 	RSP.LLE = true;
 
@@ -636,53 +635,51 @@ void RDP_ProcessRDPList()
 #ifdef DEBUG_DUMP
 		DebugMsg(DEBUG_LOW, "CMD=0x%02lX W0=0x%08lX W1=0x%08lX\n", cmd, RDP.w0, RDP.w1);
 #endif
-			if (captureRvk2Trace) {
-				rvk2::CommandProvenance provenance{};
-				provenance.taskId = static_cast<u32>(rvk2FrameId);
-				provenance.microcode = static_cast<u16>(GBI.getMicrocodeType());
-				const u32 commandWords = cmdLength / 4U;
-				const u32 commandPayloadWords = commandWords > 2U ? commandWords - 2U : 0U;
-				const u8 payloadWordCount = static_cast<u8>(
-					commandPayloadWords <= rvk2::kMaxCommandPayloadWords
-						? commandPayloadWords
-						: rvk2::kMaxCommandPayloadWords);
-				const u32 * payloadWords =
-					payloadWordCount > 0U ? &RDP.cmd_data[RDP.cmd_cur + 2U] : nullptr;
-				u8 extraWordCount = 0U;
-				if (commandWords > 2U) {
-					const u32 commandExtraWords = commandWords - 2U;
-					extraWordCount =
-						static_cast<u8>(commandExtraWords < kRvk2MaxCapturedExtraWords ? commandExtraWords : kRvk2MaxCapturedExtraWords);
-			}
+		rvk2::CommandProvenance provenance{};
+		provenance.taskId = static_cast<u32>(rvk2FrameId);
+		provenance.microcode = static_cast<u16>(GBI.getMicrocodeType());
+		const u32 commandWords = cmdLength / 4U;
+		const u32 commandPayloadWords = commandWords > 2U ? commandWords - 2U : 0U;
+		const u8 payloadWordCount = static_cast<u8>(
+			commandPayloadWords <= rvk2::kMaxCommandPayloadWords
+				? commandPayloadWords
+				: rvk2::kMaxCommandPayloadWords);
+		const u32 * payloadWords =
+			payloadWordCount > 0U ? &RDP.cmd_data[RDP.cmd_cur + 2U] : nullptr;
+		u8 extraWordCount = 0U;
+		if (commandWords > 2U) {
+			const u32 commandExtraWords = commandWords - 2U;
+			extraWordCount =
+				static_cast<u8>(commandExtraWords < kRvk2MaxCapturedExtraWords ? commandExtraWords : kRvk2MaxCapturedExtraWords);
+		}
 
-			const u32 w2 = commandWords > 2U ? RDP.cmd_data[RDP.cmd_cur + 2U] : 0U;
-			const u32 w3 = commandWords > 3U ? RDP.cmd_data[RDP.cmd_cur + 3U] : 0U;
-			const u32 w4 = commandWords > 4U ? RDP.cmd_data[RDP.cmd_cur + 4U] : 0U;
-			const u32 w5 = commandWords > 5U ? RDP.cmd_data[RDP.cmd_cur + 5U] : 0U;
-			const u32 w6 = commandWords > 6U ? RDP.cmd_data[RDP.cmd_cur + 6U] : 0U;
-			const u32 w7 = commandWords > 7U ? RDP.cmd_data[RDP.cmd_cur + 7U] : 0U;
+		const u32 w2 = commandWords > 2U ? RDP.cmd_data[RDP.cmd_cur + 2U] : 0U;
+		const u32 w3 = commandWords > 3U ? RDP.cmd_data[RDP.cmd_cur + 3U] : 0U;
+		const u32 w4 = commandWords > 4U ? RDP.cmd_data[RDP.cmd_cur + 4U] : 0U;
+		const u32 w5 = commandWords > 5U ? RDP.cmd_data[RDP.cmd_cur + 5U] : 0U;
+		const u32 w6 = commandWords > 6U ? RDP.cmd_data[RDP.cmd_cur + 6U] : 0U;
+		const u32 w7 = commandWords > 7U ? RDP.cmd_data[RDP.cmd_cur + 7U] : 0U;
 
-			u64 tailHash = kRvk2FnvOffset;
-			for (u32 wordIndex = 2U + extraWordCount; wordIndex < commandWords; ++wordIndex)
-				hashWord(tailHash, RDP.cmd_data[RDP.cmd_cur + wordIndex]);
+		u64 tailHash = kRvk2FnvOffset;
+		for (u32 wordIndex = 2U + extraWordCount; wordIndex < commandWords; ++wordIndex)
+			hashWord(tailHash, RDP.cmd_data[RDP.cmd_cur + wordIndex]);
 
-			rvk2::runtime().submitRDPWord(
-				listStart + commandByteOffset,
-				RDP.w0,
-				RDP.w1,
-				provenance,
-				extraWordCount,
-				w2,
-				w3,
-				w4,
-				w5,
-					w6,
-					w7,
-					static_cast<u16>(commandWords),
-					tailHash,
-					payloadWordCount,
-					payloadWords);
-			}
+		rvk2::runtime().submitRDPWord(
+			listStart + commandByteOffset,
+			RDP.w0,
+			RDP.w1,
+			provenance,
+			extraWordCount,
+			w2,
+			w3,
+			w4,
+			w5,
+			w6,
+			w7,
+			static_cast<u16>(commandWords),
+			tailHash,
+			payloadWordCount,
+			payloadWords);
 		LLETriangle::get().flush(cmd);
 		LLEcmd[cmd](RDP.w0, RDP.w1);
 
@@ -698,8 +695,7 @@ void RDP_ProcessRDPList()
 	gDP.changed |= CHANGED_COLORBUFFER;
 	gDP.changed &= ~CHANGED_CPU_FB_WRITE;
 
-	if (captureRvk2Trace)
-		rvk2::emitCapturedFrameTrace(static_cast<u32>(GBI.getMicrocodeType()));
+	rvk2::emitCapturedFrameTrace(static_cast<u32>(GBI.getMicrocodeType()));
 
 	dp_current = dp_end;
 }

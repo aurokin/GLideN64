@@ -23,7 +23,6 @@
 #include "DisplayWindow.h"
 #include <Graphics/Context.h>
 #include "Graphics/RealityVK2/rvk2_Runtime.h"
-#include "Graphics/RealityVK2/rvk2_RuntimeSwitch.h"
 
 using namespace std;
 
@@ -36,8 +35,6 @@ namespace {
 
 inline bool shouldSubmitRvk2SyntheticRdp()
 {
-	if (!rvk2::shouldCaptureRDPTrace())
-		return false;
 	if (RSP.LLE)
 		return false;
 	return rvk2::runtime().commandStream().frameId() != 0ULL;

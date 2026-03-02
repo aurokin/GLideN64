@@ -19,7 +19,6 @@
 #include "Log.h"
 #include "DisplayWindow.h"
 #include "Graphics/RealityVK2/rvk2_Runtime.h"
-#include "Graphics/RealityVK2/rvk2_RuntimeSwitch.h"
 #include "Graphics/RealityVK2/rvk2_SyntheticTriangle.h"
 
 using namespace std;
@@ -39,8 +38,6 @@ namespace {
 
 inline bool shouldSubmitRvk2SyntheticTriangle()
 {
-	if (!rvk2::shouldCaptureRDPTrace())
-		return false;
 	if (RSP.LLE)
 		return false;
 	return rvk2::runtime().commandStream().frameId() != 0ULL;
