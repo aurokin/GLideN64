@@ -18,6 +18,14 @@ namespace {
 
 thread_local const rvk2::TextureReplacementStore * gActiveTextureReplacementStore = nullptr;
 thread_local rvk2::ExecutorSummary * gActiveExecutorSummary = nullptr;
+constexpr u64 kFnvOffset = 1469598103934665603ULL;
+constexpr u64 kFnvPrime = 1099511628211ULL;
+
+inline void updateHashByte(u64 & _hash, u8 _value)
+{
+	_hash ^= static_cast<u64>(_value);
+	_hash *= kFnvPrime;
+}
 
 inline bool envStringIsTrue(const char * _value)
 {
@@ -98,6 +106,37 @@ bool tmem32CompareEnabled()
 {
 	static const bool enabled = envStringIsTrue(std::getenv("REALITYVK_RVK2_DEBUG_TMEM32_COMPARE"));
 	return enabled;
+}
+
+enum class DebugStageViewMode : u8
+{
+	kFinal = 0U,
+	kTexelRaw,
+	kCombinerOut,
+	kBlenderOut,
+	kVISource,
+};
+
+DebugStageViewMode debugStageViewMode()
+{
+	static const DebugStageViewMode mode = []() -> DebugStageViewMode {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_STAGE_VIEW");
+		if (raw == nullptr || raw[0] == '\0')
+			return DebugStageViewMode::kFinal;
+		const std::string token = toLowerAscii(trimAsciiWhitespace(raw));
+		if (token == "off" || token == "final")
+			return DebugStageViewMode::kFinal;
+		if (token == "texel_raw" || token == "texel")
+			return DebugStageViewMode::kTexelRaw;
+		if (token == "combiner_out" || token == "combiner")
+			return DebugStageViewMode::kCombinerOut;
+		if (token == "blender_out" || token == "blender")
+			return DebugStageViewMode::kBlenderOut;
+		if (token == "vi_source" || token == "source")
+			return DebugStageViewMode::kVISource;
+		return DebugStageViewMode::kFinal;
+	}();
+	return mode;
 }
 
 enum class ExperimentalTMEM32Mode : u8
@@ -2824,27 +2863,6 @@ inline u32 chooseTriangleBaseColor(
 	return modulateRGBA(texturedColor, evaluateTriangleShadeColor(_work, _x, _y));
 }
 
-inline u32 runSyntheticCycle1Pipeline(
-	const rvk2::RenderWorkPacket & _work,
-	u32 _textureColor,
-	u32 _shadeColor,
-	u32 _baseColor,
-	u32 _dstColor,
-	u32 _x,
-	u32 _y)
-{
-	const u32 combinedColor = applySyntheticCombiner(
-		_work,
-		_textureColor,
-		_shadeColor,
-		_baseColor,
-		_dstColor,
-		_x,
-		_y,
-		false);
-	return applySyntheticBlender(_work, combinedColor, _dstColor, _x, _y);
-}
-
 inline u32 runSyntheticPhasePipeline(
 	const rvk2::RenderWorkPacket & _work,
 	u32 _textureColor,
@@ -2853,60 +2871,106 @@ inline u32 runSyntheticPhasePipeline(
 	u32 _dstColor,
 	u32 _x,
 	u32 _y,
-	u32 * _coverageDestinationColor = nullptr)
+	u32 * _coverageDestinationColor = nullptr,
+	u32 * _combinerOutputColor = nullptr,
+	u32 * _blenderOutputColor = nullptr)
 {
+	u32 finalColor = _baseColor;
+	u32 combinerColor = _baseColor;
+	u32 blenderColor = _baseColor;
 	const u8 phase = _work.phase;
 	if (phase == static_cast<u8>(rvk2::RenderPhase::kCopy)) {
 		if (_coverageDestinationColor != nullptr)
 			*_coverageDestinationColor = _dstColor;
-		return _work.textured ? _textureColor : _baseColor;
+		finalColor = _work.textured ? _textureColor : _baseColor;
+		combinerColor = finalColor;
+		blenderColor = finalColor;
 	}
-	if (phase == static_cast<u8>(rvk2::RenderPhase::kFill)) {
+	else if (phase == static_cast<u8>(rvk2::RenderPhase::kFill)) {
 		if (_coverageDestinationColor != nullptr)
 			*_coverageDestinationColor = _dstColor;
-		return _baseColor;
+		finalColor = _baseColor;
+		combinerColor = finalColor;
+		blenderColor = finalColor;
 	}
-	if (phase != static_cast<u8>(rvk2::RenderPhase::kCycle2)) {
+	else if (phase != static_cast<u8>(rvk2::RenderPhase::kCycle2)) {
+		combinerColor = applySyntheticCombiner(
+			_work,
+			_textureColor,
+			_shadeColor,
+			_baseColor,
+			_dstColor,
+			_x,
+			_y,
+			false);
+		blenderColor = applySyntheticBlender(_work, combinerColor, _dstColor, _x, _y);
+		finalColor = blenderColor;
 		if (_coverageDestinationColor != nullptr)
 			*_coverageDestinationColor = _dstColor;
-		return runSyntheticCycle1Pipeline(_work, _textureColor, _shadeColor, _baseColor, _dstColor, _x, _y);
 	}
-
-	const u32 cycle1CombinedColor = applySyntheticCombiner(
-		_work,
-		_textureColor,
-		_shadeColor,
-		_baseColor,
-		_dstColor,
-		_x,
-		_y,
-		false);
-	const u32 cycle1Color = applySyntheticBlender(
-		_work,
-		cycle1CombinedColor,
-		_dstColor,
-		_x,
-		_y,
-		false);
-	const u32 stage2CombinedColor = applySyntheticCombiner(
-		_work,
-		_textureColor,
-		_shadeColor,
-		cycle1CombinedColor,
-		cycle1Color,
+	else {
+		const u32 cycle1CombinedColor = applySyntheticCombiner(
+			_work,
+			_textureColor,
+			_shadeColor,
+			_baseColor,
+			_dstColor,
+			_x,
+			_y,
+			false);
+		const u32 cycle1Color = applySyntheticBlender(
+			_work,
+			cycle1CombinedColor,
+			_dstColor,
+			_x,
+			_y,
+			false);
+		combinerColor = applySyntheticCombiner(
+			_work,
+			_textureColor,
+			_shadeColor,
+			cycle1CombinedColor,
+			cycle1Color,
 			_x,
 			_y,
 			true);
-	if (_coverageDestinationColor != nullptr)
-		*_coverageDestinationColor = cycle1Color;
-	return applySyntheticBlender(
-		_work,
-		_work.blendParams,
-		stage2CombinedColor,
-		cycle1Color,
-		_x,
-		_y,
-		true);
+		blenderColor = applySyntheticBlender(
+			_work,
+			_work.blendParams,
+			combinerColor,
+			cycle1Color,
+			_x,
+			_y,
+			true);
+		finalColor = blenderColor;
+		if (_coverageDestinationColor != nullptr)
+			*_coverageDestinationColor = cycle1Color;
+	}
+
+	if (_combinerOutputColor != nullptr)
+		*_combinerOutputColor = combinerColor;
+	if (_blenderOutputColor != nullptr)
+		*_blenderOutputColor = blenderColor;
+	return finalColor;
+}
+
+inline u32 selectDebugStageRasterColor(
+	DebugStageViewMode _mode,
+	u32 _texelColor,
+	u32 _combinerColor,
+	u32 _blenderColor,
+	u32 _finalColor)
+{
+	switch (_mode) {
+	case DebugStageViewMode::kTexelRaw:
+		return _texelColor;
+	case DebugStageViewMode::kCombinerOut:
+		return _combinerColor;
+	case DebugStageViewMode::kBlenderOut:
+		return _blenderColor;
+	default:
+		return _finalColor;
+	}
 }
 
 inline bool phaseUsesDepth(u8 _phase)
@@ -2921,6 +2985,7 @@ void writeRect(
 	const rvk2::ExecutorConfig & _config,
 	rvk2::ExecutorSummary & _summary)
 {
+	const DebugStageViewMode stageViewMode = debugStageViewMode();
 	const u32 ulx = std::min<u32>(_work.rectULX, _work.rectLRX);
 	const u32 uly = std::min<u32>(_work.rectULY, _work.rectLRY);
 	const u32 lrx = std::max<u32>(_work.rectULX, _work.rectLRX);
@@ -2938,30 +3003,48 @@ void writeRect(
 	for (u32 y = bounds.y0; y <= bounds.y1; ++y) {
 		if (!passesScissorFieldFilter(_work, y))
 			continue;
-			for (u32 x = bounds.x0; x <= bounds.x1; ++x) {
-				const size_t colorIdx = pixelIndex(_surface.width, static_cast<u16>(x), static_cast<u16>(y));
-				const u32 dstColor = _surface.pixels[colorIdx];
-				const u32 pipelineDstColor = isImageReadEnabled(_work) ? dstColor : 0x00000000U;
-				u32 coverageDestinationColor = pipelineDstColor;
-				const u32 rgba =
-					_work.opKind == static_cast<u8>(rvk2::RasterOpKind::kFillRect)
-					? decodeFillColor(_work.fillColor, _work.colorImageSize)
-					: runSyntheticPhasePipeline(
-						_work,
-					pseudoTexel(_work, x, y),
-						0xFFFFFFFFU,
-						pseudoTexel(_work, x, y),
-						pipelineDstColor,
-						x,
-						y,
-						&coverageDestinationColor);
-				if (!passesSyntheticAlphaCompare(_work, rgba, x, y))
-					continue;
-				if (!passesSyntheticCoverageWrite(_work, rgba, coverageDestinationColor, x, y))
-					continue;
-				_surface.pixels[colorIdx] = encodeSurfaceColor(rgba, _work.colorImageSize);
-				_summary.outputLumaSum += static_cast<u64>(lumaFromRGBA(rgba));
-				++_summary.colorWriteCount;
+		for (u32 x = bounds.x0; x <= bounds.x1; ++x) {
+			const size_t colorIdx = pixelIndex(_surface.width, static_cast<u16>(x), static_cast<u16>(y));
+			const u32 dstColor = _surface.pixels[colorIdx];
+			const u32 pipelineDstColor = isImageReadEnabled(_work) ? dstColor : 0x00000000U;
+			u32 coverageDestinationColor = pipelineDstColor;
+			u32 textureColor = 0U;
+			u32 combinerColor = 0U;
+			u32 blenderColor = 0U;
+			u32 finalColor = 0U;
+			if (_work.opKind == static_cast<u8>(rvk2::RasterOpKind::kFillRect)) {
+				finalColor = decodeFillColor(_work.fillColor, _work.colorImageSize);
+				textureColor = finalColor;
+				combinerColor = finalColor;
+				blenderColor = finalColor;
+			}
+			else {
+				textureColor = pseudoTexel(_work, x, y);
+				finalColor = runSyntheticPhasePipeline(
+					_work,
+					textureColor,
+					0xFFFFFFFFU,
+					textureColor,
+					pipelineDstColor,
+					x,
+					y,
+					&coverageDestinationColor,
+					&combinerColor,
+					&blenderColor);
+			}
+			if (!passesSyntheticAlphaCompare(_work, finalColor, x, y))
+				continue;
+			if (!passesSyntheticCoverageWrite(_work, finalColor, coverageDestinationColor, x, y))
+				continue;
+			const u32 writeColor = selectDebugStageRasterColor(
+				stageViewMode,
+				textureColor,
+				combinerColor,
+				blenderColor,
+				finalColor);
+			_surface.pixels[colorIdx] = encodeSurfaceColor(writeColor, _work.colorImageSize);
+			_summary.outputLumaSum += static_cast<u64>(lumaFromRGBA(writeColor));
+			++_summary.colorWriteCount;
 		}
 	}
 }
@@ -2973,6 +3056,7 @@ void writeTriangle(
 	const rvk2::ExecutorConfig & _config,
 	rvk2::ExecutorSummary & _summary)
 {
+	const DebugStageViewMode stageViewMode = debugStageViewMode();
 	const u32 ulx = std::min<u32>(_work.rectULX, _work.rectLRX);
 	const u32 uly = std::min<u32>(_work.rectULY, _work.rectLRY);
 	const u32 lrx = std::max<u32>(_work.rectULX, _work.rectLRX);
@@ -3025,26 +3109,30 @@ void writeTriangle(
 			if (!inside)
 				continue;
 
-				const size_t colorIdx = pixelIndex(_surface.width, static_cast<u16>(x), static_cast<u16>(y));
-				const u32 dstColor = _surface.pixels[colorIdx];
-				const u32 pipelineDstColor = isImageReadEnabled(_work) ? dstColor : 0x00000000U;
-				u32 coverageDestinationColor = pipelineDstColor;
-				const u32 textureColor = chooseTriangleTextureSourceColor(_work, x, y);
-				const u32 shadeColor = chooseTriangleShadeSourceColor(_work, x, y);
-				const u32 baseColor = chooseTriangleBaseColor(_work, x, y);
-			const u32 rgba = runSyntheticPhasePipeline(
+			const size_t colorIdx = pixelIndex(_surface.width, static_cast<u16>(x), static_cast<u16>(y));
+			const u32 dstColor = _surface.pixels[colorIdx];
+			const u32 pipelineDstColor = isImageReadEnabled(_work) ? dstColor : 0x00000000U;
+			u32 coverageDestinationColor = pipelineDstColor;
+			const u32 textureColor = chooseTriangleTextureSourceColor(_work, x, y);
+			const u32 shadeColor = chooseTriangleShadeSourceColor(_work, x, y);
+			const u32 baseColor = chooseTriangleBaseColor(_work, x, y);
+			u32 combinerColor = 0U;
+			u32 blenderColor = 0U;
+			const u32 finalColor = runSyntheticPhasePipeline(
 				_work,
 				textureColor,
-					shadeColor,
-					baseColor,
-					pipelineDstColor,
-					x,
-					y,
-					&coverageDestinationColor);
-				if (!passesSyntheticAlphaCompare(_work, rgba, x, y))
-					continue;
-				if (!passesSyntheticCoverageWrite(_work, rgba, coverageDestinationColor, x, y))
-					continue;
+				shadeColor,
+				baseColor,
+				pipelineDstColor,
+				x,
+				y,
+				&coverageDestinationColor,
+				&combinerColor,
+				&blenderColor);
+			if (!passesSyntheticAlphaCompare(_work, finalColor, x, y))
+				continue;
+			if (!passesSyntheticCoverageWrite(_work, finalColor, coverageDestinationColor, x, y))
+				continue;
 
 			if (_depthSurface != nullptr
 				&& phaseUsesDepth(_work.phase)
@@ -3062,8 +3150,14 @@ void writeTriangle(
 					_depthSurface->values[depthIdx] = z;
 			}
 
-			_surface.pixels[colorIdx] = encodeSurfaceColor(rgba, _work.colorImageSize);
-			_summary.outputLumaSum += static_cast<u64>(lumaFromRGBA(rgba));
+			const u32 writeColor = selectDebugStageRasterColor(
+				stageViewMode,
+				textureColor,
+				combinerColor,
+				blenderColor,
+				finalColor);
+			_surface.pixels[colorIdx] = encodeSurfaceColor(writeColor, _work.colorImageSize);
+			_summary.outputLumaSum += static_cast<u64>(lumaFromRGBA(writeColor));
 			++_summary.colorWriteCount;
 		}
 	}
@@ -3199,6 +3293,75 @@ ExecutorOutput Executor::executeWithOutput(
 	viConfig.maxOutputWidth = m_config.maxSurfaceWidth;
 	viConfig.maxOutputHeight = m_config.maxSurfaceHeight;
 	const VIRenderer viRenderer(viConfig);
+	const DebugStageViewMode stageViewMode = debugStageViewMode();
+	const auto presentSelectedFrame = [&](const VIFrameInput & _presentInput) {
+		const bool useDirectSource =
+			stageViewMode == DebugStageViewMode::kVISource
+			&& _presentInput.sourcePixels != nullptr
+			&& _presentInput.sourceWidth != 0U
+			&& _presentInput.sourceHeight != 0U;
+		if (useDirectSource) {
+			const size_t requiredPixelCount =
+				static_cast<size_t>(_presentInput.sourceWidth)
+				* static_cast<size_t>(_presentInput.sourceHeight);
+			if (_presentInput.sourcePixels->size() >= requiredPixelCount) {
+				output.presentFrame.width = _presentInput.sourceWidth;
+				output.presentFrame.height = _presentInput.sourceHeight;
+				output.presentFrame.pixels.assign(
+					_presentInput.sourcePixels->begin(),
+					_presentInput.sourcePixels->begin() + requiredPixelCount);
+				u64 hash = kFnvOffset;
+				u64 lumaSum = 0ULL;
+				u64 nonBlackCount = 0ULL;
+				for (u32 pixel : output.presentFrame.pixels) {
+					const u8 luma = lumaFromRGBA(pixel);
+					lumaSum += static_cast<u64>(luma);
+					if (((pixel >> 8U) & 0x00FFFFFFU) != 0U)
+						++nonBlackCount;
+					updateHashByte(hash, static_cast<u8>((pixel >> 0U) & 0xFFU));
+					updateHashByte(hash, static_cast<u8>((pixel >> 8U) & 0xFFU));
+					updateHashByte(hash, static_cast<u8>((pixel >> 16U) & 0xFFU));
+					updateHashByte(hash, static_cast<u8>((pixel >> 24U) & 0xFFU));
+				}
+				summary.presentHash = hash;
+				summary.presentWidth = _presentInput.sourceWidth;
+				summary.presentHeight = _presentInput.sourceHeight;
+				summary.viRejectReason = kVIRejectNone;
+				summary.viResolvedSourceWidth = _presentInput.sourceWidth;
+				summary.viResolvedSourceHeight = _presentInput.sourceHeight;
+				summary.viResolvedOutputWidth = _presentInput.sourceWidth;
+				summary.viResolvedOutputHeight = _presentInput.sourceHeight;
+				summary.viResolvedLineStride = _presentInput.sourceWidth;
+				summary.viSourceSampleCount = static_cast<u64>(requiredPixelCount);
+				summary.viSourceInvalidSampleCount = 0ULL;
+				summary.viSourceLumaSum = lumaSum;
+				summary.viOutputLumaSum = lumaSum;
+				summary.viOutputNonBlackCount = nonBlackCount;
+				summary.viResolvedType = _presentInput.sourceSize;
+				summary.viResolvedUsesRegisters = 0U;
+				return;
+			}
+		}
+		const VIFrameSummary viSummary = viRenderer.present(_presentInput, &output.presentFrame.pixels);
+		summary.presentHash = viSummary.presentHash;
+		summary.presentWidth = viSummary.presentWidth;
+		summary.presentHeight = viSummary.presentHeight;
+		summary.viRejectReason = viSummary.rejectReason;
+		summary.viResolvedSourceWidth = viSummary.resolvedSourceWidth;
+		summary.viResolvedSourceHeight = viSummary.resolvedSourceHeight;
+		summary.viResolvedOutputWidth = viSummary.resolvedOutputWidth;
+		summary.viResolvedOutputHeight = viSummary.resolvedOutputHeight;
+		summary.viResolvedLineStride = viSummary.resolvedLineStride;
+		summary.viSourceSampleCount = viSummary.sourceSampleCount;
+		summary.viSourceInvalidSampleCount = viSummary.sourceInvalidSampleCount;
+		summary.viSourceLumaSum = viSummary.sourceLumaSum;
+		summary.viOutputLumaSum = viSummary.outputLumaSum;
+		summary.viOutputNonBlackCount = viSummary.outputNonBlackCount;
+		summary.viResolvedType = viSummary.resolvedType;
+		summary.viResolvedUsesRegisters = viSummary.usesRegisters;
+		output.presentFrame.width = viSummary.presentWidth;
+		output.presentFrame.height = viSummary.presentHeight;
+	};
 
 	std::unordered_map<u32, ColorSurface> surfaces;
 	std::unordered_map<u32, DepthSurface> depthSurfaces;
@@ -3395,25 +3558,7 @@ ExecutorOutput Executor::executeWithOutput(
 		presentInput.registers.vStart = m_config.viVStart;
 		presentInput.registers.xScale = m_config.viXScale;
 		presentInput.registers.yScale = m_config.viYScale;
-		const VIFrameSummary viSummary = viRenderer.present(presentInput, &output.presentFrame.pixels);
-		summary.presentHash = viSummary.presentHash;
-		summary.presentWidth = viSummary.presentWidth;
-		summary.presentHeight = viSummary.presentHeight;
-		summary.viRejectReason = viSummary.rejectReason;
-		summary.viResolvedSourceWidth = viSummary.resolvedSourceWidth;
-		summary.viResolvedSourceHeight = viSummary.resolvedSourceHeight;
-		summary.viResolvedOutputWidth = viSummary.resolvedOutputWidth;
-		summary.viResolvedOutputHeight = viSummary.resolvedOutputHeight;
-		summary.viResolvedLineStride = viSummary.resolvedLineStride;
-		summary.viSourceSampleCount = viSummary.sourceSampleCount;
-		summary.viSourceInvalidSampleCount = viSummary.sourceInvalidSampleCount;
-		summary.viSourceLumaSum = viSummary.sourceLumaSum;
-		summary.viOutputLumaSum = viSummary.outputLumaSum;
-		summary.viOutputNonBlackCount = viSummary.outputNonBlackCount;
-		summary.viResolvedType = viSummary.resolvedType;
-		summary.viResolvedUsesRegisters = viSummary.usesRegisters;
-		output.presentFrame.width = viSummary.presentWidth;
-		output.presentFrame.height = viSummary.presentHeight;
+		presentSelectedFrame(presentInput);
 		m_lastSelectedSurface.valid = true;
 		m_lastSelectedSurface.address = presentSurfaceAddress;
 		m_lastSelectedSurface.format = it->second.format;
@@ -3460,25 +3605,7 @@ ExecutorOutput Executor::executeWithOutput(
 		presentInput.registers.vStart = m_config.viVStart;
 		presentInput.registers.xScale = m_config.viXScale;
 		presentInput.registers.yScale = m_config.viYScale;
-		const VIFrameSummary viSummary = viRenderer.present(presentInput, &output.presentFrame.pixels);
-		summary.presentHash = viSummary.presentHash;
-		summary.presentWidth = viSummary.presentWidth;
-		summary.presentHeight = viSummary.presentHeight;
-		summary.viRejectReason = viSummary.rejectReason;
-		summary.viResolvedSourceWidth = viSummary.resolvedSourceWidth;
-		summary.viResolvedSourceHeight = viSummary.resolvedSourceHeight;
-		summary.viResolvedOutputWidth = viSummary.resolvedOutputWidth;
-		summary.viResolvedOutputHeight = viSummary.resolvedOutputHeight;
-		summary.viResolvedLineStride = viSummary.resolvedLineStride;
-		summary.viSourceSampleCount = viSummary.sourceSampleCount;
-		summary.viSourceInvalidSampleCount = viSummary.sourceInvalidSampleCount;
-		summary.viSourceLumaSum = viSummary.sourceLumaSum;
-		summary.viOutputLumaSum = viSummary.outputLumaSum;
-		summary.viOutputNonBlackCount = viSummary.outputNonBlackCount;
-		summary.viResolvedType = viSummary.resolvedType;
-		summary.viResolvedUsesRegisters = viSummary.usesRegisters;
-		output.presentFrame.width = viSummary.presentWidth;
-		output.presentFrame.height = viSummary.presentHeight;
+		presentSelectedFrame(presentInput);
 		m_lastSelectedSurface = cached;
 		m_lastSelectedSurface.lastTouched = frameStamp;
 	}
@@ -3524,25 +3651,7 @@ ExecutorOutput Executor::executeWithOutput(
 		presentInput.registers.vStart = m_config.viVStart;
 		presentInput.registers.xScale = m_config.viXScale;
 		presentInput.registers.yScale = m_config.viYScale;
-		const VIFrameSummary viSummary = viRenderer.present(presentInput, &output.presentFrame.pixels);
-		summary.presentHash = viSummary.presentHash;
-		summary.presentWidth = viSummary.presentWidth;
-		summary.presentHeight = viSummary.presentHeight;
-		summary.viRejectReason = viSummary.rejectReason;
-		summary.viResolvedSourceWidth = viSummary.resolvedSourceWidth;
-		summary.viResolvedSourceHeight = viSummary.resolvedSourceHeight;
-		summary.viResolvedOutputWidth = viSummary.resolvedOutputWidth;
-		summary.viResolvedOutputHeight = viSummary.resolvedOutputHeight;
-		summary.viResolvedLineStride = viSummary.resolvedLineStride;
-		summary.viSourceSampleCount = viSummary.sourceSampleCount;
-		summary.viSourceInvalidSampleCount = viSummary.sourceInvalidSampleCount;
-		summary.viSourceLumaSum = viSummary.sourceLumaSum;
-		summary.viOutputLumaSum = viSummary.outputLumaSum;
-		summary.viOutputNonBlackCount = viSummary.outputNonBlackCount;
-		summary.viResolvedType = viSummary.resolvedType;
-		summary.viResolvedUsesRegisters = viSummary.usesRegisters;
-		output.presentFrame.width = viSummary.presentWidth;
-		output.presentFrame.height = viSummary.presentHeight;
+		presentSelectedFrame(presentInput);
 	}
 	else {
 		summary.presentSelectionReason = kExecutorPresentSelectionNoSurface;
