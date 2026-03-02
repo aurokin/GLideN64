@@ -25,7 +25,7 @@ Estimated total completion: **~99%**.
 
 ## Remaining Work
 
-1. Debug and fix RVK2 present output instability (black/noise).
+1. Debug and fix RVK2 present output instability (black/noise), tracked in `docs/rvk2-image-bringup-plan.md`.
 2. Refresh maintained parity/trace fixtures after the strict single-path cleanup.
 3. Remove any additional dead code found during output-debug pass.
 
