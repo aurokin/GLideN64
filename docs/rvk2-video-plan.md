@@ -37,6 +37,7 @@ Accuracy-first. RVK2-only path. No legacy renderer fallback.
 2. Added conformance coverage for shade-alpha selector behavior:
    - shade-alpha transition now asserts present-frame changes under destination-sensitive blending.
 3. Replaced random synthetic texel fallback with a stable coordinate/state pattern to improve visual signal while preserving state sensitivity checks.
+   - texture seed mix now includes texrect/triangle texture coefficient fields to keep fallback responses coupled to texture-coordinate state.
 4. Kept local gate green after this batch.
 
 ## What Deep-Dive Changed In Our Plan

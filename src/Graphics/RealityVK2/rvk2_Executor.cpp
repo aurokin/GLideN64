@@ -503,6 +503,25 @@ inline u64 buildTextureSeedBase(const rvk2::RenderWorkPacket & _work)
 	mixTextureSeed(seed, static_cast<u64>(_work.tmemLoadLRS));
 	mixTextureSeed(seed, static_cast<u64>(_work.tmemLoadLRT));
 	mixTextureSeed(seed, static_cast<u64>(_work.tmemLoadDXT));
+	mixTextureSeed(seed, static_cast<u64>(_work.textured ? 1U : 0U));
+	mixTextureSeed(seed, static_cast<u64>(_work.texRectFlip ? 1U : 0U));
+	mixTextureSeed(seed, static_cast<u64>(static_cast<u32>(_work.texS)));
+	mixTextureSeed(seed, static_cast<u64>(static_cast<u32>(_work.texT)));
+	mixTextureSeed(seed, static_cast<u64>(static_cast<u32>(_work.texDSDX)));
+	mixTextureSeed(seed, static_cast<u64>(static_cast<u32>(_work.texDTDY)));
+	mixTextureSeed(seed, static_cast<u64>(_work.triangleTextureEnable ? 1U : 0U));
+	mixTextureSeed(seed, static_cast<u64>(static_cast<u32>(_work.triangleTexS)));
+	mixTextureSeed(seed, static_cast<u64>(static_cast<u32>(_work.triangleTexT)));
+	mixTextureSeed(seed, static_cast<u64>(static_cast<u32>(_work.triangleTexW)));
+	mixTextureSeed(seed, static_cast<u64>(static_cast<u32>(_work.triangleTexDSDX)));
+	mixTextureSeed(seed, static_cast<u64>(static_cast<u32>(_work.triangleTexDTDX)));
+	mixTextureSeed(seed, static_cast<u64>(static_cast<u32>(_work.triangleTexDWDX)));
+	mixTextureSeed(seed, static_cast<u64>(static_cast<u32>(_work.triangleTexDSDY)));
+	mixTextureSeed(seed, static_cast<u64>(static_cast<u32>(_work.triangleTexDTDY)));
+	mixTextureSeed(seed, static_cast<u64>(static_cast<u32>(_work.triangleTexDWDY)));
+	mixTextureSeed(seed, static_cast<u64>(static_cast<u32>(_work.triangleTexDSDE)));
+	mixTextureSeed(seed, static_cast<u64>(static_cast<u32>(_work.triangleTexDTDE)));
+	mixTextureSeed(seed, static_cast<u64>(static_cast<u32>(_work.triangleTexDWDE)));
 	return seed;
 }
 
