@@ -2643,7 +2643,7 @@ inline bool passesSyntheticCoverageWrite(
 	if (_work.phase == static_cast<u8>(rvk2::RenderPhase::kCopy)
 		|| _work.phase == static_cast<u8>(rvk2::RenderPhase::kFill)) {
 		if (_resolvedCoverage != nullptr)
-			*_resolvedCoverage = _dstCoverage;
+			*_resolvedCoverage = 7U;
 		if (_resolvedOverflow != nullptr)
 			*_resolvedOverflow = false;
 		return true;
@@ -2917,11 +2917,13 @@ inline u32 runSyntheticPhasePipeline(
 	u8 coverageDestination = static_cast<u8>(std::min<u32>(7U, static_cast<u32>(_dstCoverage & 0x7U)));
 	const u8 phase = _work.phase;
 	if (phase == static_cast<u8>(rvk2::RenderPhase::kCopy)) {
+		coverageDestination = 7U;
 		finalColor = _work.textured ? _texel0Color : _baseColor;
 		combinerColor = finalColor;
 		blenderColor = finalColor;
 	}
 	else if (phase == static_cast<u8>(rvk2::RenderPhase::kFill)) {
+		coverageDestination = 7U;
 		finalColor = _baseColor;
 		combinerColor = finalColor;
 		blenderColor = finalColor;
@@ -3210,7 +3212,7 @@ void writeRect(
 					&coverageOverflow,
 					&_summary))
 				continue;
-			bool resolvedHiddenCoverage = pipelineDstHiddenCoverage;
+			bool resolvedHiddenCoverage = false;
 			if (_work.phase != static_cast<u8>(rvk2::RenderPhase::kCopy)
 				&& _work.phase != static_cast<u8>(rvk2::RenderPhase::kFill)) {
 				if (_work.cvgDest == 3U)
@@ -3446,7 +3448,7 @@ void writeTriangle(
 					&coverageOverflow,
 					&_summary))
 				continue;
-			bool resolvedHiddenCoverage = pipelineDstHiddenCoverage;
+			bool resolvedHiddenCoverage = false;
 			if (_work.phase != static_cast<u8>(rvk2::RenderPhase::kCopy)
 				&& _work.phase != static_cast<u8>(rvk2::RenderPhase::kFill)) {
 				if (_work.cvgDest == 3U)

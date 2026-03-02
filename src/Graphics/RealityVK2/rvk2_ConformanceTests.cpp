@@ -1914,6 +1914,104 @@ void testCopyFillBypassAlphaCoverageConformance()
 		"fill phase alpha/coverage controls should not alter present hash");
 }
 
+void testFillSeedsCoverageForImageReadBlendConformance()
+{
+	constexpr u32 kTarget = 0x00A0B000U;
+	rvk2::RenderWorkPacket fill =
+		makeFillWork(75ULL, kTarget, 0xFFFFFFFFU);
+	fill.colorImageWidth = 4U;
+	fill.rectULX = 0U;
+	fill.rectULY = 0U;
+	fill.rectLRX = 3U;
+	fill.rectLRY = 2U;
+	fill.phase = static_cast<u8>(rvk2::RenderPhase::kFill);
+	fill.cycleType = 3U;
+
+	rvk2::RenderWorkPacket blend = makeTexRectWork(false);
+	blend.sourcePacketId = 76ULL;
+	blend.colorImageAddress = kTarget;
+	blend.colorImageWidth = 4U;
+	blend.rectULX = 0U;
+	blend.rectULY = 0U;
+	blend.rectLRX = 3U;
+	blend.rectLRY = 2U;
+	blend.phase = static_cast<u8>(rvk2::RenderPhase::kCycle1);
+	blend.cycleType = 0U;
+	blend.textured = false;
+	blend.otherModes = 0ULL;
+	blend.otherModes |= (1ULL << 6U);  // image_read_en
+	blend.otherModes |= (1ULL << 14U); // force_blend
+	blend.otherModes &= ~(
+		(0x3ULL << 30U)
+		| (0x3ULL << 26U)
+		| (0x3ULL << 22U)
+		| (0x3ULL << 18U));
+	blend.otherModes |= (2ULL << 30U); // P = blend color
+	blend.otherModes |= (2ULL << 26U); // A = 1.0
+	blend.otherModes |= (1ULL << 22U); // M = memory color
+	blend.otherModes |= (1ULL << 18U); // B = memory coverage
+	blend.blendColor = 0x000000FFU;
+	blend.primColor = 0xFFFFFFFFU;
+
+	constexpr u64 kCycle1ColorAMask = 0xFULL << (32U + 20U);
+	constexpr u64 kCycle1ColorBMask = 0xFULL << 28U;
+	constexpr u64 kCycle1ColorCMask = 0x1FULL << (32U + 15U);
+	constexpr u64 kCycle1ColorDMask = 0x7ULL << 15U;
+	constexpr u64 kCycle1AlphaAMask = 0x7ULL << (32U + 12U);
+	constexpr u64 kCycle1AlphaBMask = 0x7ULL << 12U;
+	constexpr u64 kCycle1AlphaCMask = 0x7ULL << (32U + 9U);
+	constexpr u64 kCycle1AlphaDMask = 0x7ULL << 9U;
+	constexpr u64 kCycle1SelectorMask =
+		kCycle1ColorAMask
+		| kCycle1ColorBMask
+		| kCycle1ColorCMask
+		| kCycle1ColorDMask
+		| kCycle1AlphaAMask
+		| kCycle1AlphaBMask
+		| kCycle1AlphaCMask
+		| kCycle1AlphaDMask;
+	blend.combineMux &= ~kCycle1SelectorMask;
+	blend.combineMux |=
+		(0ULL << (32U + 20U))
+		| (0ULL << 28U)
+		| (0ULL << (32U + 15U))
+		| (3ULL << 15U) // color D: PRIMITIVE
+		| (0ULL << (32U + 12U))
+		| (0ULL << 12U)
+		| (0ULL << (32U + 9U))
+		| (3ULL << 9U); // alpha D: PRIMITIVE
+
+	rvk2::RenderWorkPacket unseededBlend = blend;
+	unseededBlend.sourcePacketId = 77ULL;
+
+	const std::vector<rvk2::SubmissionBatchPacket> seededBatches{makeBatchForWorkCount(2U)};
+	const std::vector<rvk2::SubmissionBatchPacket> unseededBatches{makeSingleBatch()};
+
+	rvk2::Executor seededExecutor;
+	const rvk2::ExecutorOutput seededOut =
+		seededExecutor.executeWithOutput(
+			std::vector<rvk2::RenderWorkPacket>{fill, blend},
+			seededBatches);
+	rvk2::Executor unseededExecutor;
+	const rvk2::ExecutorOutput unseededOut =
+		unseededExecutor.executeWithOutput(
+			std::vector<rvk2::RenderWorkPacket>{unseededBlend},
+			unseededBatches);
+
+	expectTrue(
+		seededOut.summary.colorWriteCount > 0ULL,
+		"fill-seeded coverage baseline should write pixels");
+	expectTrue(
+		unseededOut.summary.colorWriteCount > 0ULL,
+		"fill-seeded coverage variant should write pixels");
+	expectTrue(
+		seededOut.summary.blendAlphaBSelectorCount[1] > 0ULL,
+		"fill-seeded coverage scene should exercise memory-coverage alpha selector");
+	expectTrue(
+		seededOut.summary.blendCoverageOverflowCount > unseededOut.summary.blendCoverageOverflowCount,
+		"fill should seed memory coverage for subsequent image-read blend overflow behavior");
+}
+
 void testTexRectFlipConformance()
 {
 	rvk2::Executor executor;
@@ -3106,6 +3204,7 @@ int main()
 	testTMEM32AuthoritativePathConformance();
 	testFillPhaseIgnoresBlendCombinerConformance();
 	testCopyFillBypassAlphaCoverageConformance();
+	testFillSeedsCoverageForImageReadBlendConformance();
 	testTexRectFlipConformance();
 	testTexRectStateSensitivityConformance();
 	testRenderStateInputSensitivityConformance();
