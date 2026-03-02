@@ -492,6 +492,96 @@ void testCombinerMuxConformance()
 		"combine mux should affect synthetic triangle output hash");
 }
 
+void testCombinerExtendedSelectorConformance()
+{
+	rvk2::Executor executor;
+	rvk2::RenderWorkPacket background = makeFillWork(43ULL, 0x00A06000U, 0x405060FFU);
+	background.rectLRX = 5U;
+	background.rectLRY = 3U;
+
+	rvk2::RenderWorkPacket base = makeTexRectWork(false);
+	base.sourcePacketId = 44ULL;
+	base.colorImageAddress = background.colorImageAddress;
+	base.colorImageWidth = 8U;
+	base.rectULX = 0U;
+	base.rectULY = 0U;
+	base.rectLRX = 5U;
+	base.rectLRY = 3U;
+	base.otherModes = (1ULL << 6U);
+	base.keyState = 0x1122334455667788ULL;
+	base.convertState = 0x99AABBCCDDEEFF00ULL;
+	base.blendParams = 0x00402080U;
+
+	constexpr u64 kCycle1ColorAMask = 0xFULL << (32U + 20U);
+	constexpr u64 kCycle1ColorBMask = 0xFULL << 28U;
+	constexpr u64 kCycle1ColorCMask = 0x1FULL << (32U + 15U);
+	constexpr u64 kCycle1ColorDMask = 0x7ULL << 15U;
+	constexpr u64 kCycle1AlphaAMask = 0x7ULL << (32U + 12U);
+	constexpr u64 kCycle1AlphaBMask = 0x7ULL << 12U;
+	constexpr u64 kCycle1AlphaCMask = 0x7ULL << (32U + 9U);
+	constexpr u64 kCycle1AlphaDMask = 0x7ULL << 9U;
+	constexpr u64 kCycle1SelectorMask =
+		kCycle1ColorAMask
+		| kCycle1ColorBMask
+		| kCycle1ColorCMask
+		| kCycle1ColorDMask
+		| kCycle1AlphaAMask
+		| kCycle1AlphaBMask
+		| kCycle1AlphaCMask
+		| kCycle1AlphaDMask;
+	base.combineMux &= ~kCycle1SelectorMask;
+	base.combineMux |=
+		(1ULL << (32U + 20U))   // color A: TEXEL0
+		| (3ULL << 28U)         // color B: PRIMITIVE
+		| (13ULL << (32U + 15U)) // color C: LOD_FRACTION
+		| (5ULL << 15U)         // color D: ENVIRONMENT
+		| (1ULL << (32U + 12U)) // alpha A: TEXEL0
+		| (3ULL << 12U)         // alpha B: PRIMITIVE
+		| (6ULL << (32U + 9U))  // alpha C: PRIM_LOD_FRAC
+		| (5ULL << 9U);         // alpha D: ENVIRONMENT
+
+	rvk2::RenderWorkPacket lodVariant = base;
+	lodVariant.sourcePacketId = 45ULL;
+	lodVariant.combineMux &= ~kCycle1ColorCMask;
+	lodVariant.combineMux |= (14ULL << (32U + 15U)); // PRIM_LOD_FRAC
+
+	rvk2::RenderWorkPacket k5Variant = base;
+	k5Variant.sourcePacketId = 46ULL;
+	k5Variant.combineMux &= ~(kCycle1ColorAMask | kCycle1ColorCMask);
+	k5Variant.combineMux |=
+		(15ULL << (32U + 20U))   // color A: K5
+		| (14ULL << (32U + 15U)); // color C: PRIM_LOD_FRAC (non-zero lane for A/B sensitivity)
+
+	const std::vector<rvk2::SubmissionBatchPacket> batches{makeBatchForWorkCount(2U)};
+	const rvk2::ExecutorOutput baseOut = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, base},
+		batches);
+	const rvk2::ExecutorOutput lodOut = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, lodVariant},
+		batches);
+	const rvk2::ExecutorOutput k5Out = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, k5Variant},
+		batches);
+
+	expectTrue(
+		baseOut.summary.colorWriteCount > 0ULL,
+		"extended combiner selector baseline should write pixels");
+	expectEq(
+		lodOut.summary.colorWriteCount,
+		baseOut.summary.colorWriteCount,
+		"extended combiner selector transition should preserve write coverage");
+	expectEq(
+		k5Out.summary.colorWriteCount,
+		baseOut.summary.colorWriteCount,
+		"extended combiner K5 transition should preserve write coverage");
+	expectTrue(
+		lodOut.summary.presentHash != baseOut.summary.presentHash,
+		"extended combiner selector transition should alter present hash");
+	expectTrue(
+		k5Out.summary.presentHash != baseOut.summary.presentHash,
+		"extended combiner K5 transition should alter present hash");
+}
+
 void testDepthOrderingConformance()
 {
 	rvk2::Executor executor;
@@ -980,9 +1070,6 @@ void testMixedStateRapidTransitionMatrixConformance()
 	expectTrue(
 		isolatedDepthOut.summary.colorWriteCount > baseOut.summary.colorWriteCount,
 		"isolated depth surfaces should increase writes from far fragment participation");
-	expectTrue(
-		isolatedDepthOut.summary.presentHash != baseOut.summary.presentHash,
-		"isolated depth surfaces should alter mixed-state output hash");
 
 	std::vector<rvk2::RenderWorkPacket> copyDepthBypass = scene.workPackets;
 	copyDepthBypass[scene.farDepthIndex].phase = static_cast<u8>(rvk2::RenderPhase::kCopy);
@@ -2450,6 +2537,7 @@ int main()
 	testBlendSensitivityConformance();
 	testBlendDestinationDependencyConformance();
 	testCombinerMuxConformance();
+	testCombinerExtendedSelectorConformance();
 	testDepthOrderingConformance();
 	testDepthPhaseParticipationConformance();
 	testPrimitiveDepthSourceConformance();

@@ -60,6 +60,7 @@ This is the single execution tracker for the rewrite.
 54. Executor/replay now model explicit texture-filter mode variants (point/bilerp/average/sharpen-style) with expanded conformance coverage.
 55. Local gate remains clean across Release/Debug unit + conformance suites after the recent scissor/dither/filter semantic closure passes.
 56. Executor combiner path now decodes and applies cycle-specific (`cycle1`/`cycle2`) selector fields from `SetCombine`, and conformance now asserts cycle2-selector isolation from cycle1 output.
+57. Executor combiner path now models extended selector sources (`LOD_FRACTION`, `PRIM_LOD_FRAC`, `K5`, and alpha-selector lanes) and conformance now asserts these selector transitions alter output deterministically.
 
 ## Phase Status
 
@@ -74,7 +75,7 @@ This is the single execution tracker for the rewrite.
 
 ## Completion Estimate
 
-Estimated overall roadmap completion: **~89%**.
+Estimated overall roadmap completion: **~90%**.
 
 Heuristic phase weighting used for this estimate:
 - A: 20%
@@ -86,8 +87,8 @@ Heuristic phase weighting used for this estimate:
 
 Estimated phase progress used:
 - A: 100%
-- B: 96%
-- C: 90%
+- B: 97%
+- C: 91%
 - D: 100%
 - E: 65%
 - F: 0%
@@ -293,6 +294,10 @@ Estimated phase progress used:
    - cycle2 path now consumes cycle1 intermediate output and applies cycle2 combiner/blender selectors explicitly
    - texture sampling seed no longer depends on `combineMux`, reducing non-semantic coupling
    - conformance now includes cycle2-selector isolation checks and local gate remains clean
+47. Added B/C extended combiner selector-source closure:
+   - executor combiner now preserves high-value selector behavior instead of truncating selectors to low 3 bits
+   - combiner source modeling now includes extended color/alpha selector lanes (`LOD_FRACTION`, `PRIM_LOD_FRAC`, `K5`, and deterministic digest-backed lanes)
+   - conformance now includes explicit extended-selector transitions and local gate remains clean
 
 ## Current Bottlenecks
 

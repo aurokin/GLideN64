@@ -911,6 +911,20 @@ inline u8 clampU8FromS32(s32 _value)
 	return static_cast<u8>(_value);
 }
 
+inline u8 mixU8WithWeight(u8 _base, u8 _target, u8 _mix)
+{
+	const u32 invMix = static_cast<u32>(255U - _mix);
+	const u32 value =
+		static_cast<u32>(_base) * invMix
+		+ static_cast<u32>(_target) * static_cast<u32>(_mix);
+	return static_cast<u8>((value + 127U) / 255U);
+}
+
+inline u8 laneByteFromDigest(u64 _value, u32 _lane)
+{
+	return static_cast<u8>((_value >> ((_lane & 0x7U) * 8U)) & 0xFFULL);
+}
+
 struct CombinerCycleSelectors
 {
 	u8 colorA = 0U;
@@ -965,51 +979,148 @@ inline u64 packCombinerCycleSelectors(const CombinerCycleSelectors & _selectors)
 		| (static_cast<u64>(_selectors.alphaD) << 29U);
 }
 
-inline u8 selectCombinerInput(
-	u8 _selector,
-	u8 _tex,
-	u8 _shade,
-	u8 _base,
-	u8 _constant,
-	u8 _noise,
-	u8 _dst)
+struct CombinerColorInputs
 {
-	switch (_selector & 0x7U) {
+	u8 combined = 0U;
+	u8 texel0 = 0U;
+	u8 texel1 = 0U;
+	u8 primitive = 0U;
+	u8 shade = 0U;
+	u8 environment = 0U;
+	u8 center = 0U;
+	u8 scale = 0U;
+	u8 combinedAlpha = 0U;
+	u8 texel0Alpha = 0U;
+	u8 texel1Alpha = 0U;
+	u8 primitiveAlpha = 0U;
+	u8 shadeAlpha = 0U;
+	u8 environmentAlpha = 0U;
+	u8 lodFraction = 0U;
+	u8 primLodFrac = 0U;
+	u8 noise = 0U;
+	u8 k4 = 0U;
+	u8 k5 = 0U;
+	u8 one = 255U;
+	u8 zero = 0U;
+};
+
+struct CombinerAlphaInputs
+{
+	u8 combined = 0U;
+	u8 texel0 = 0U;
+	u8 texel1 = 0U;
+	u8 primitive = 0U;
+	u8 shade = 0U;
+	u8 environment = 0U;
+	u8 primLodFrac = 0U;
+	u8 one = 255U;
+	u8 zero = 0U;
+};
+
+inline u8 selectSyntheticCombinerColorInput(
+	u8 _selector,
+	const CombinerColorInputs & _in)
+{
+	switch (_selector & 0x1FU) {
 	case 0U:
-		return _tex;
+		return _in.combined;
 	case 1U:
-		return _shade;
+		return _in.texel0;
 	case 2U:
-		return _base;
+		return _in.texel1;
 	case 3U:
-		return _constant;
+		return _in.primitive;
 	case 4U:
-		return static_cast<u8>(255U - _tex);
+		return _in.shade;
 	case 5U:
-		return static_cast<u8>(255U - _shade);
+		return _in.environment;
 	case 6U:
-		return _dst;
+		return _in.one;
+	case 7U:
+		return _in.combinedAlpha;
+	case 8U:
+		return _in.texel0Alpha;
+	case 9U:
+		return _in.texel1Alpha;
+	case 10U:
+		return _in.primitiveAlpha;
+	case 11U:
+		return _in.shadeAlpha;
+	case 12U:
+		return _in.environmentAlpha;
+	case 13U:
+		return _in.lodFraction;
+	case 14U:
+		return _in.primLodFrac;
+	case 15U:
+		return _in.k5;
+	case 16U:
+		return _in.noise;
+	case 17U:
+		return _in.k4;
+	case 18U:
+		return _in.k5;
+	case 19U:
+		return _in.one;
+	case 20U:
+		return _in.zero;
+	case 31U:
+		return _in.zero;
 	default:
-		return _noise;
+		return static_cast<u8>(_in.noise ^ _in.center ^ _in.scale);
 	}
 }
 
-inline u8 evalSyntheticCombinerChannel(
+inline u8 selectSyntheticCombinerAlphaInput(
+	u8 _selector,
+	const CombinerAlphaInputs & _in)
+{
+	switch (_selector & 0x7U) {
+	case 0U:
+		return _in.combined;
+	case 1U:
+		return _in.texel0;
+	case 2U:
+		return _in.texel1;
+	case 3U:
+		return _in.primitive;
+	case 4U:
+		return _in.shade;
+	case 5U:
+		return _in.environment;
+	case 6U:
+		return _in.primLodFrac;
+	default:
+		return _in.zero;
+	}
+}
+
+inline u8 evalSyntheticCombinerColorChannel(
 	u8 _aSel,
 	u8 _bSel,
 	u8 _cSel,
 	u8 _dSel,
-	u8 _tex,
-	u8 _shade,
-	u8 _base,
-	u8 _constant,
-	u8 _noise,
-	u8 _dst)
+	const CombinerColorInputs & _in)
 {
-	const s32 a = static_cast<s32>(selectCombinerInput(_aSel, _tex, _shade, _base, _constant, _noise, _dst));
-	const s32 b = static_cast<s32>(selectCombinerInput(_bSel, _tex, _shade, _base, _constant, _noise, _dst));
-	const s32 c = static_cast<s32>(selectCombinerInput(_cSel, _tex, _shade, _base, _constant, _noise, _dst));
-	const s32 d = static_cast<s32>(selectCombinerInput(_dSel, _tex, _shade, _base, _constant, _noise, _dst));
+	const s32 a = static_cast<s32>(selectSyntheticCombinerColorInput(_aSel, _in));
+	const s32 b = static_cast<s32>(selectSyntheticCombinerColorInput(_bSel, _in));
+	const s32 c = static_cast<s32>(selectSyntheticCombinerColorInput(_cSel, _in));
+	const s32 d = static_cast<s32>(selectSyntheticCombinerColorInput(_dSel, _in));
+	const s32 value = ((a - b) * c + 127) / 255 + d;
+	return clampU8FromS32(value);
+}
+
+inline u8 evalSyntheticCombinerAlphaChannel(
+	u8 _aSel,
+	u8 _bSel,
+	u8 _cSel,
+	u8 _dSel,
+	const CombinerAlphaInputs & _in)
+{
+	const s32 a = static_cast<s32>(selectSyntheticCombinerAlphaInput(_aSel, _in));
+	const s32 b = static_cast<s32>(selectSyntheticCombinerAlphaInput(_bSel, _in));
+	const s32 c = static_cast<s32>(selectSyntheticCombinerAlphaInput(_cSel, _in));
+	const s32 d = static_cast<s32>(selectSyntheticCombinerAlphaInput(_dSel, _in));
 	const s32 value = ((a - b) * c + 127) / 255 + d;
 	return clampU8FromS32(value);
 }
@@ -1106,32 +1217,95 @@ inline u32 applySyntheticCombiner(
 	const u8 alphaBSel = selectors.alphaB;
 	const u8 alphaCSel = selectors.alphaC;
 	const u8 alphaDSel = selectors.alphaD;
+	const u8 lodFraction = laneByteFromDigest(_work.convertState, 0U);
+	const u8 primLodFrac = laneByteFromDigest(_work.convertState, 1U);
+	const u8 k4 = laneByteFromDigest(_work.convertState, 2U);
+	const u8 k5 = laneByteFromDigest(_work.convertState, 3U);
+	const ColorRGBA texel1{
+		mixU8WithWeight(tex.r, env.r, 96U),
+		mixU8WithWeight(tex.g, env.g, 96U),
+		mixU8WithWeight(tex.b, env.b, 96U),
+		mixU8WithWeight(tex.a, env.a, 96U)
+	};
+
+	const auto makeColorInputs = [&](
+		u8 _combined,
+		u8 _tex0,
+		u8 _tex1,
+		u8 _primitive,
+		u8 _shade,
+		u8 _environment,
+		u8 _constant,
+		u8 _noise,
+		u8 _dst,
+		u8 _lane) -> CombinerColorInputs {
+		CombinerColorInputs in{};
+		in.combined = _combined;
+		in.texel0 = _tex0;
+		in.texel1 = _tex1;
+		in.primitive = _primitive;
+		in.shade = _shade;
+		in.environment = _environment;
+		in.center = laneByteFromDigest(_work.keyState, _lane);
+		in.scale = laneByteFromDigest(_work.keyState, _lane + 3U);
+		in.combinedAlpha = base.a;
+		in.texel0Alpha = tex.a;
+		in.texel1Alpha = texel1.a;
+		in.primitiveAlpha = prim.a;
+		in.shadeAlpha = shade.a;
+		in.environmentAlpha = env.a;
+		in.lodFraction = lodFraction;
+		in.primLodFrac = primLodFrac;
+		in.noise = _noise;
+		in.k4 = k4;
+		in.k5 = k5;
+		in.one = 255U;
+		in.zero = 0U;
+		// Blend destination and constant term are folded in to preserve strong destination/constant sensitivity.
+		in.combined = mixU8WithWeight(in.combined, _dst, 28U);
+		in.primitive = mixU8WithWeight(in.primitive, _constant, 20U);
+		return in;
+	};
+
+	const auto makeAlphaInputs = [&](u8 _noise) -> CombinerAlphaInputs {
+		CombinerAlphaInputs in{};
+		in.combined = base.a;
+		in.texel0 = tex.a;
+		in.texel1 = texel1.a;
+		in.primitive = prim.a;
+		in.shade = shade.a;
+		in.environment = env.a;
+		in.primLodFrac = primLodFrac ^ _noise;
+		in.one = 255U;
+		in.zero = 0U;
+		return in;
+	};
+	const CombinerColorInputs colorInputsR =
+		makeColorInputs(base.r, tex.r, texel1.r, prim.r, shade.r, env.r, constant.r, noise.r, dst.r, 0U);
+	const CombinerColorInputs colorInputsG =
+		makeColorInputs(base.g, tex.g, texel1.g, prim.g, shade.g, env.g, constant.g, noise.g, dst.g, 1U);
+	const CombinerColorInputs colorInputsB =
+		makeColorInputs(base.b, tex.b, texel1.b, prim.b, shade.b, env.b, constant.b, noise.b, dst.b, 2U);
+	const CombinerAlphaInputs alphaInputs = makeAlphaInputs(noise.a);
 
 	const ColorRGBA out{
-		evalSyntheticCombinerChannel(colorASel, colorBSel, colorCSel, colorDSel, tex.r, shade.r, base.r, constant.r, noise.r, dst.r),
-		evalSyntheticCombinerChannel(colorASel, colorBSel, colorCSel, colorDSel, tex.g, shade.g, base.g, constant.g, noise.g, dst.g),
-		evalSyntheticCombinerChannel(colorASel, colorBSel, colorCSel, colorDSel, tex.b, shade.b, base.b, constant.b, noise.b, dst.b),
-		evalSyntheticCombinerChannel(alphaASel, alphaBSel, alphaCSel, alphaDSel, tex.a, shade.a, base.a, constant.a, noise.a, dst.a)
+		evalSyntheticCombinerColorChannel(colorASel, colorBSel, colorCSel, colorDSel, colorInputsR),
+		evalSyntheticCombinerColorChannel(colorASel, colorBSel, colorCSel, colorDSel, colorInputsG),
+		evalSyntheticCombinerColorChannel(colorASel, colorBSel, colorCSel, colorDSel, colorInputsB),
+		evalSyntheticCombinerAlphaChannel(alphaASel, alphaBSel, alphaCSel, alphaDSel, alphaInputs)
 	};
 	ColorRGBA resolved = out;
-	const auto mixChannel = [](u8 _base, u8 _target, u8 _mix) -> u8 {
-		const u32 invMix = static_cast<u32>(255U - _mix);
-		const u32 value =
-			static_cast<u32>(_base) * invMix
-			+ static_cast<u32>(_target) * static_cast<u32>(_mix);
-		return static_cast<u8>((value + 127U) / 255U);
-	};
 	if (_work.textured) {
 		const u8 textureInfluence = static_cast<u8>(24U + ((colorASel ^ colorCSel) & 0x1FU));
-		resolved.r = mixChannel(resolved.r, tex.r, textureInfluence);
-		resolved.g = mixChannel(resolved.g, tex.g, textureInfluence);
-		resolved.b = mixChannel(resolved.b, tex.b, textureInfluence);
+		resolved.r = mixU8WithWeight(resolved.r, tex.r, textureInfluence);
+		resolved.g = mixU8WithWeight(resolved.g, tex.g, textureInfluence);
+		resolved.b = mixU8WithWeight(resolved.b, tex.b, textureInfluence);
 	}
 	if (isImageReadEnabled(_work)) {
 		const u8 dstInfluence = static_cast<u8>(16U + ((colorDSel ^ alphaDSel) & 0x1FU));
-		resolved.r = mixChannel(resolved.r, dst.r, dstInfluence);
-		resolved.g = mixChannel(resolved.g, dst.g, dstInfluence);
-		resolved.b = mixChannel(resolved.b, dst.b, dstInfluence);
+		resolved.r = mixU8WithWeight(resolved.r, dst.r, dstInfluence);
+		resolved.g = mixU8WithWeight(resolved.g, dst.g, dstInfluence);
+		resolved.b = mixU8WithWeight(resolved.b, dst.b, dstInfluence);
 	}
 	const u8 textureDetailMode = decodeTextureDetailMode(_work);
 	if (textureDetailMode == 1U) {
@@ -1144,14 +1318,14 @@ inline u32 applySyntheticCombiner(
 		resolved.b = stretch(resolved.b);
 	}
 	else if (textureDetailMode == 2U) {
-		resolved.r = mixChannel(resolved.r, tex.r, 48U);
-		resolved.g = mixChannel(resolved.g, tex.g, 48U);
-		resolved.b = mixChannel(resolved.b, tex.b, 48U);
+		resolved.r = mixU8WithWeight(resolved.r, tex.r, 48U);
+		resolved.g = mixU8WithWeight(resolved.g, tex.g, 48U);
+		resolved.b = mixU8WithWeight(resolved.b, tex.b, 48U);
 	}
 	else if (textureDetailMode == 3U) {
-		resolved.r = mixChannel(resolved.r, noise.r, 40U);
-		resolved.g = mixChannel(resolved.g, noise.g, 40U);
-		resolved.b = mixChannel(resolved.b, noise.b, 40U);
+		resolved.r = mixU8WithWeight(resolved.r, noise.r, 40U);
+		resolved.g = mixU8WithWeight(resolved.g, noise.g, 40U);
+		resolved.b = mixU8WithWeight(resolved.b, noise.b, 40U);
 	}
 	if (isCombineKeyEnabled(_work)) {
 		const u32 laneShift = static_cast<u32>((_x + _y) & 0x7U) * 8U;
