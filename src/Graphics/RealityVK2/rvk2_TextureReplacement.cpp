@@ -382,6 +382,16 @@ size_t TextureReplacementStore::entryCount() const
 	return m_entries.size();
 }
 
+u64 TextureReplacementStore::totalPixels() const
+{
+	u64 pixels = 0ULL;
+	for (const auto & it : m_entries) {
+		const TextureReplacementImage & image = it.second;
+		pixels += static_cast<u64>(image.width) * static_cast<u64>(image.height);
+	}
+	return pixels;
+}
+
 bool TextureReplacementStore::insert(
 	const TextureReplacementCacheKey & _cacheKey,
 	const TextureReplacementImage & _image)
@@ -411,6 +421,37 @@ std::vector<TextureReplacementCacheKey> TextureReplacementStore::keys() const
 		return _a.lo < _b.lo;
 	});
 	return keys;
+}
+
+void TextureReplacementStore::applyLimits(size_t _maxEntries, u64 _maxPixels)
+{
+	if (m_entries.empty())
+		return;
+	if (_maxEntries == 0U && _maxPixels == 0ULL)
+		return;
+
+	const std::vector<TextureReplacementCacheKey> orderedKeys = keys();
+	size_t keptEntries = 0U;
+	u64 keptPixels = 0ULL;
+	for (const TextureReplacementCacheKey & key : orderedKeys) {
+		const auto it = m_entries.find(key);
+		if (it == m_entries.end())
+			continue;
+		const TextureReplacementImage & image = it->second;
+		const u64 imagePixels =
+			static_cast<u64>(image.width) * static_cast<u64>(image.height);
+		const bool overEntryLimit =
+			(_maxEntries > 0U) && (keptEntries >= _maxEntries);
+		const bool overPixelLimit =
+			(_maxPixels > 0ULL)
+			&& (keptPixels + imagePixels > _maxPixels);
+		if (overEntryLimit || overPixelLimit) {
+			m_entries.erase(it);
+			continue;
+		}
+		++keptEntries;
+		keptPixels += imagePixels;
+	}
 }
 
 u32 sampleTextureReplacementImage(const TextureReplacementImage & _image, s32 _s, s32 _t)

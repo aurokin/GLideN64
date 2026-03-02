@@ -214,7 +214,7 @@ void ContextImpl::renderPresentedFrame(const ExecutorOutput & _output)
 
 bool ContextImpl::present()
 {
-	m_executor = Executor(buildExecutorConfigFromVIRegisters());
+	m_executor.updateConfig(buildExecutorConfigFromVIRegisters());
 	const ExecutorOutput output =
 		m_executor.executeWithOutput(runtime().renderPlan(), runtime().submissionPlan());
 	if (output.summary.executedWorkCount == 0ULL) {

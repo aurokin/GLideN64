@@ -46,9 +46,11 @@ public:
 	void clear();
 	bool empty() const;
 	size_t entryCount() const;
+	u64 totalPixels() const;
 	bool insert(const TextureReplacementCacheKey & _cacheKey, const TextureReplacementImage & _image);
 	const TextureReplacementImage * find(const TextureReplacementCacheKey & _cacheKey) const;
 	std::vector<TextureReplacementCacheKey> keys() const;
+	void applyLimits(size_t _maxEntries, u64 _maxPixels);
 
 private:
 	struct KeyHash {

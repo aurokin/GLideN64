@@ -16,6 +16,10 @@ struct ExecutorConfig {
 	bool textureReplacementEnable = false;
 	std::string textureReplacementCachePath{};
 	std::string textureReplacementPackPath{};
+	u32 textureReplacementMaxEntries = 0U;
+	u64 textureReplacementMaxPixels = 0ULL;
+	u64 textureReplacementReloadToken = 0ULL;
+	u64 textureReplacementInvalidateToken = 0ULL;
 	bool viRegistersValid = false;
 	u32 viStatus = 0U;
 	u32 viOrigin = 0U;
@@ -55,6 +59,7 @@ class Executor
 {
 public:
 	explicit Executor(const ExecutorConfig & _config = ExecutorConfig{});
+	void updateConfig(const ExecutorConfig & _config);
 
 	ExecutorOutput executeWithOutput(
 		const std::vector<RenderWorkPacket> & _workPackets,

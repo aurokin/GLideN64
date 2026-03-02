@@ -3,8 +3,10 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cerrno>
 #include <cstdlib>
 #include <limits>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -24,6 +26,19 @@ inline bool envStringIsTrue(const char * _value)
 	if ((c0 == 'o') && ((_value[1] | 0x20) == 'n'))
 		return true;
 	return false;
+}
+
+inline bool parseEnvUnsigned(const char * _value, u64 & _out)
+{
+	if (_value == nullptr || _value[0] == '\0')
+		return false;
+	char * end = nullptr;
+	errno = 0;
+	const unsigned long long value = std::strtoull(_value, &end, 0);
+	if (errno != 0 || end == nullptr || *end != '\0')
+		return false;
+	_out = static_cast<u64>(value);
+	return true;
 }
 
 inline u32 clampU32(u32 _value, u32 _minimum, u32 _maximum)
@@ -1857,12 +1872,45 @@ ExecutorConfig loadExecutorConfigFromEnv()
 		config.textureReplacementPackPath = txPackPath;
 		config.textureReplacementEnable = true;
 	}
+	u64 parsed = 0ULL;
+	if (parseEnvUnsigned(std::getenv("REALITYVK_RVK2_TX_MAX_ENTRIES"), parsed))
+		config.textureReplacementMaxEntries = static_cast<u32>(std::min<u64>(parsed, 0xFFFFFFFFULL));
+	if (parseEnvUnsigned(std::getenv("REALITYVK_RVK2_TX_MAX_PIXELS"), parsed))
+		config.textureReplacementMaxPixels = parsed;
+	if (parseEnvUnsigned(std::getenv("REALITYVK_RVK2_TX_RELOAD_TOKEN"), parsed))
+		config.textureReplacementReloadToken = parsed;
+	if (parseEnvUnsigned(std::getenv("REALITYVK_RVK2_TX_INVALIDATE_TOKEN"), parsed))
+		config.textureReplacementInvalidateToken = parsed;
 	return config;
 }
 
 Executor::Executor(const ExecutorConfig & _config)
 	: m_config(_config)
 {
+}
+
+void Executor::updateConfig(const ExecutorConfig & _config)
+{
+	const bool replacementConfigChanged =
+		m_config.textureReplacementEnable != _config.textureReplacementEnable
+		|| m_config.textureReplacementCachePath != _config.textureReplacementCachePath
+		|| m_config.textureReplacementPackPath != _config.textureReplacementPackPath
+		|| m_config.textureReplacementMaxEntries != _config.textureReplacementMaxEntries
+		|| m_config.textureReplacementMaxPixels != _config.textureReplacementMaxPixels;
+	const bool reloadTokenChanged =
+		m_config.textureReplacementReloadToken != _config.textureReplacementReloadToken;
+	const bool invalidateTokenChanged =
+		m_config.textureReplacementInvalidateToken != _config.textureReplacementInvalidateToken;
+
+	m_config = _config;
+
+	if (!_config.textureReplacementEnable
+		|| invalidateTokenChanged
+		|| replacementConfigChanged
+		|| reloadTokenChanged) {
+		m_textureReplacementStore.clear();
+		m_textureReplacementLoaded = false;
+	}
 }
 
 void Executor::ensureTextureReplacementLoaded()
@@ -1872,16 +1920,21 @@ void Executor::ensureTextureReplacementLoaded()
 	m_textureReplacementLoaded = true;
 	if (!m_config.textureReplacementEnable)
 		return;
+	TextureReplacementStore loadedStore{};
 	if (!m_config.textureReplacementCachePath.empty()) {
 		rvk2::loadTextureReplacementHTC(
 			m_config.textureReplacementCachePath.c_str(),
-			m_textureReplacementStore);
+			loadedStore);
 	}
 	if (!m_config.textureReplacementPackPath.empty()) {
 		rvk2::loadTextureReplacementPack(
 			m_config.textureReplacementPackPath.c_str(),
-			m_textureReplacementStore);
+			loadedStore);
 	}
+	loadedStore.applyLimits(
+		static_cast<size_t>(m_config.textureReplacementMaxEntries),
+		m_config.textureReplacementMaxPixels);
+	m_textureReplacementStore = std::move(loadedStore);
 }
 
 ExecutorOutput Executor::executeWithOutput(

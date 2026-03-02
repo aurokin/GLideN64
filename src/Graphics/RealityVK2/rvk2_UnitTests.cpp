@@ -2258,6 +2258,64 @@ void testTextureReplacementPackIngest()
 	std::remove(packDir);
 }
 
+void testTextureReplacementStoreLimits()
+{
+	rvk2::TextureReplacementStore store;
+	for (u32 i = 0U; i < 4U; ++i) {
+		rvk2::TextureReplacementCacheKey key{
+			0x1000ULL + static_cast<u64>(i),
+			0x2000ULL + static_cast<u64>(i)
+		};
+		rvk2::TextureReplacementImage image{};
+		image.width = static_cast<u16>(i + 1U);
+		image.height = 1U;
+		image.pixels.resize(static_cast<size_t>(image.width), 0x10203040U + i);
+		expectTrue(
+			store.insert(key, image),
+			"texture replacement limit setup insert should succeed");
+	}
+	expectEq(
+		store.entryCount(),
+		static_cast<size_t>(4U),
+		"texture replacement limit setup entry count mismatch");
+	expectEq(
+		store.totalPixels(),
+		static_cast<u64>(10ULL),
+		"texture replacement limit setup pixel count mismatch");
+
+	store.applyLimits(2U, 0ULL);
+	expectEq(
+		store.entryCount(),
+		static_cast<size_t>(2U),
+		"texture replacement entry limit should cap entries");
+	expectEq(
+		store.totalPixels(),
+		static_cast<u64>(3ULL),
+		"texture replacement entry limit should keep deterministic earliest keys");
+
+	store.clear();
+	for (u32 i = 0U; i < 4U; ++i) {
+		rvk2::TextureReplacementCacheKey key{
+			0x1000ULL + static_cast<u64>(i),
+			0x2000ULL + static_cast<u64>(i)
+		};
+		rvk2::TextureReplacementImage image{};
+		image.width = static_cast<u16>(i + 1U);
+		image.height = 1U;
+		image.pixels.resize(static_cast<size_t>(image.width), 0x55667788U + i);
+		store.insert(key, image);
+	}
+	store.applyLimits(0U, 5ULL);
+	expectEq(
+		store.entryCount(),
+		static_cast<size_t>(2U),
+		"texture replacement pixel limit should cap entries by accumulated pixels");
+	expectEq(
+		store.totalPixels(),
+		static_cast<u64>(3ULL),
+		"texture replacement pixel limit should keep deterministic earliest keys");
+}
+
 void testExecutorTextureReplacementSampling()
 {
 	rvk2::RenderWorkPacket work{};
@@ -2415,6 +2473,114 @@ void testExecutorTextureReplacementSampling()
 	std::remove(packDir);
 }
 
+void testExecutorTextureReplacementLifecycle()
+{
+	rvk2::RenderWorkPacket work{};
+	work.sourcePacketId = 1ULL;
+	work.sourceOpcode = 0x24U;
+	work.opKind = static_cast<u8>(rvk2::RasterOpKind::kTexRect);
+	work.phase = static_cast<u8>(rvk2::RenderPhase::kCycle1);
+	work.cycleType = 0U;
+	work.textured = true;
+	work.rectULX = 0U;
+	work.rectULY = 0U;
+	work.rectLRX = 1U;
+	work.rectLRY = 1U;
+	work.colorImageFormat = 0U;
+	work.colorImageSize = 3U;
+	work.colorImageWidth = 4U;
+	work.colorImageAddress = 0x00331000U;
+	work.textureImageFormat = 0U;
+	work.textureImageSize = 2U;
+	work.textureImageWidth = 4U;
+	work.textureImageAddress = 0x00121000U;
+	work.tileFormat = 0U;
+	work.tileSize = 2U;
+	work.tileLine = 1U;
+	work.tileULS = 0U;
+	work.tileULT = 0U;
+	work.tileLRS = 4U;
+	work.tileLRT = 4U;
+
+	rvk2::TextureReplacementRequest request{};
+	request.work = &work;
+	request.s = 0;
+	request.t = 0;
+	request.w = 0;
+	request.perspective = false;
+	const rvk2::TextureReplacementCacheKey cacheKey =
+		rvk2::buildTextureReplacementCacheKey(
+			rvk2::buildTextureReplacementKey(request));
+
+	auto writeSingleColorCache = [&](const char * _path, u32 _color) -> bool {
+		rvk2::TextureReplacementStore store;
+		rvk2::TextureReplacementImage image{};
+		image.width = 1U;
+		image.height = 1U;
+		image.pixels = {_color};
+		if (!store.insert(cacheKey, image))
+			return false;
+		return rvk2::writeTextureReplacementHTC(_path, store);
+	};
+
+	const char * cachePath = "/tmp/rvk2_executor_lifecycle.htc";
+	std::remove(cachePath);
+	expectTrue(
+		writeSingleColorCache(cachePath, 0x001122FFU),
+		"executor lifecycle setup cache write A should succeed");
+
+	rvk2::SubmissionBatchPacket batch{};
+	batch.batchIndex = 0U;
+	batch.firstWorkIndex = 0U;
+	batch.lastWorkIndex = 0U;
+	batch.workCount = 1U;
+	batch.phase = static_cast<u8>(rvk2::RenderPhase::kCycle1);
+	const std::vector<rvk2::RenderWorkPacket> workPackets{work};
+	const std::vector<rvk2::SubmissionBatchPacket> batches{batch};
+
+	rvk2::ExecutorConfig config{};
+	config.textureReplacementEnable = true;
+	config.textureReplacementCachePath = cachePath;
+	rvk2::Executor executor(config);
+	const rvk2::ExecutorOutput outA =
+		executor.executeWithOutput(workPackets, batches);
+	expectTrue(
+		outA.summary.presentHash != 1469598103934665603ULL,
+		"executor lifecycle baseline should produce a present hash");
+
+	expectTrue(
+		writeSingleColorCache(cachePath, 0xFF0000FFU),
+		"executor lifecycle setup cache write B should succeed");
+	executor.updateConfig(config);
+	const rvk2::ExecutorOutput outNoReload =
+		executor.executeWithOutput(workPackets, batches);
+	expectEq(
+		outNoReload.summary.presentHash,
+		outA.summary.presentHash,
+		"executor lifecycle should not reload cache without reload token change");
+
+	rvk2::ExecutorConfig reloadConfig = config;
+	reloadConfig.textureReplacementReloadToken = 1ULL;
+	executor.updateConfig(reloadConfig);
+	const rvk2::ExecutorOutput outReload =
+		executor.executeWithOutput(workPackets, batches);
+	expectTrue(
+		outReload.summary.presentHash != outA.summary.presentHash,
+		"executor lifecycle reload token should force cache reload");
+
+	rvk2::ExecutorConfig invalidateConfig = reloadConfig;
+	invalidateConfig.textureReplacementInvalidateToken = 1ULL;
+	invalidateConfig.textureReplacementCachePath.clear();
+	executor.updateConfig(invalidateConfig);
+	const rvk2::ExecutorOutput outInvalidate =
+		executor.executeWithOutput(workPackets, batches);
+	expectTrue(
+		outInvalidate.summary.presentHash != outReload.summary.presentHash,
+		"executor lifecycle invalidate should clear replacement participation");
+
+	std::remove(cachePath);
+}
+
 } // namespace
 
 int main()
@@ -2437,7 +2603,9 @@ int main()
 	testTextureReplacementContract();
 	testTextureReplacementCacheIO();
 	testTextureReplacementPackIngest();
+	testTextureReplacementStoreLimits();
 	testExecutorTextureReplacementSampling();
+	testExecutorTextureReplacementLifecycle();
 
 	if (g_failures == 0) {
 		std::printf("rvk2 unit tests: PASS\n");
