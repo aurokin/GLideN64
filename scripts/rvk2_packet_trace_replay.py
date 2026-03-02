@@ -5799,19 +5799,19 @@ def replay_frame(frame: FrameRecord) -> FrameCheck:
         check.errors.append(
             f"executor_present_aspect_y mismatch: declared={frame.executor_present_aspect_y} computed={executor_summary.present_aspect_y}"
         )
-    if len(frame.semantics) > 0 and (not frame.legacy_semantic_rows) and frame.semantics != computed_semantics:
+    if len(frame.semantics) > 0 and frame.semantics != computed_semantics:
         check.errors.append(
             f"semantic row mismatch: declared_rows={len(frame.semantics)} computed_rows={len(computed_semantics)}"
         )
-    if len(frame.raster_ops) > 0 and (not frame.legacy_raster_rows) and frame.raster_ops != computed_raster_ops:
+    if len(frame.raster_ops) > 0 and frame.raster_ops != computed_raster_ops:
         check.errors.append(
             f"raster row mismatch: declared_rows={len(frame.raster_ops)} computed_rows={len(computed_raster_ops)}"
         )
-    if len(frame.render_work) > 0 and (not frame.legacy_render_work_rows) and frame.render_work != computed_render_work:
+    if len(frame.render_work) > 0 and frame.render_work != computed_render_work:
         check.errors.append(
             f"render-work row mismatch: declared_rows={len(frame.render_work)} computed_rows={len(computed_render_work)}"
         )
-    if len(frame.submission_batches) > 0 and (not frame.legacy_submission_rows) and frame.submission_batches != computed_submission_batches:
+    if len(frame.submission_batches) > 0 and frame.submission_batches != computed_submission_batches:
         check.errors.append(
             f"submission-batch row mismatch: declared_rows={len(frame.submission_batches)} computed_rows={len(computed_submission_batches)}"
         )

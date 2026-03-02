@@ -71,6 +71,7 @@ This is the single execution tracker for the rewrite.
 65. Legacy present fallback injection path is deleted from Vulkan present, and stale runtime-switch naming/config surfaces were renamed to trace-config (`rvk2_TraceConfig`) for rvk2-only operation clarity.
 66. `rvk2::ContextImpl` now hard-noops high-frequency legacy draw-state mutators (`enable`, cull/depth/blend/viewport/scissor/polygon-offset setters), reducing dead legacy draw-recorder churn while preserving base-qualified presenter operations.
 67. Replay strictness tightened for current schema-v1 render-work rows: 109-column `W` rows are no longer marked legacy and now participate in full declared-vs-computed mismatch checks.
+68. Replay validator no longer bypasses declared-vs-computed row mismatch checks based on legacy-row flags; semantic/raster/render-work/submission rows are always compared.
 
 ## Phase Status
 
@@ -346,6 +347,10 @@ Estimated phase progress used:
    - parser no longer tags 109-column `W` rows as legacy compatibility rows
    - declared render-work rows now hard-compare against computed replay output for current schema-v1 traces
    - local gate and python syntax checks remain clean after strictness tightening
+57. Removed legacy-row mismatch bypass in replay checks:
+   - row comparison no longer skips when legacy-row flags are set on a frame
+   - declared semantic/raster/render-work/submission rows now always validate against replay-computed rows
+   - this keeps parser compatibility while enforcing strict contract validation
 
 ## Current Bottlenecks
 
