@@ -1803,7 +1803,6 @@ def parse_packet_trace(path: Path) -> List[FrameRecord]:
                         f"line {line_no}: render-work row encountered before first frame row"
                     )
                 if len(fields) == 109:
-                    current_frame.legacy_render_work_rows = True
                     current_frame.render_work.append(
                         RenderWorkRecord(
                             source_packet_id=_parse_uint(fields[1], "source_packet_id", line_no, 64),

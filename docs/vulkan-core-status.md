@@ -70,6 +70,7 @@ This is the single execution tracker for the rewrite.
 64. Command ingest is now unconditional on rvk2 path (RSP/RDP/HLE/Turbo3D/T3DUX no longer guard on runtime-switch capture checks), and dead runtime-switch selector APIs were removed.
 65. Legacy present fallback injection path is deleted from Vulkan present, and stale runtime-switch naming/config surfaces were renamed to trace-config (`rvk2_TraceConfig`) for rvk2-only operation clarity.
 66. `rvk2::ContextImpl` now hard-noops high-frequency legacy draw-state mutators (`enable`, cull/depth/blend/viewport/scissor/polygon-offset setters), reducing dead legacy draw-recorder churn while preserving base-qualified presenter operations.
+67. Replay strictness tightened for current schema-v1 render-work rows: 109-column `W` rows are no longer marked legacy and now participate in full declared-vs-computed mismatch checks.
 
 ## Phase Status
 
@@ -341,6 +342,10 @@ Estimated phase progress used:
    - `rvk2::ContextImpl` now overrides high-frequency draw-state mutators to explicit no-op for runtime-facing calls
    - rvk2 presenter path remains intact via explicit base-qualified Vulkan calls in present/upload steps
    - local gate remains clean after this cutover-focused API behavior narrowing
+56. Tightened replay validation for current render-work schema rows:
+   - parser no longer tags 109-column `W` rows as legacy compatibility rows
+   - declared render-work rows now hard-compare against computed replay output for current schema-v1 traces
+   - local gate and python syntax checks remain clean after strictness tightening
 
 ## Current Bottlenecks
 
