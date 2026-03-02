@@ -116,6 +116,8 @@ struct ExecutorSummary {
 	u64 blenderEnabledOpCount = 0ULL;
 	u64 blenderForceOpCount = 0ULL;
 	u64 blenderAAOpCount = 0ULL;
+	u64 blenderColorPMemorySelectorCount = 0ULL;
+	u64 blenderColorMMemorySelectorCount = 0ULL;
 	u64 blenderDivideOpCount = 0ULL;
 	u64 blenderNoDivideOpCount = 0ULL;
 	u64 alphaCompareTestCount = 0ULL;
@@ -137,6 +139,8 @@ struct ExecutorSummary {
 	u64 convertOneAlphaForceCount = 0ULL;
 	std::array<u64, 4> blendAlphaASelectorCount{};
 	std::array<u64, 4> blendAlphaBSelectorCount{};
+	std::array<u64, 4> blendColorPSelectorCount{};
+	std::array<u64, 4> blendColorMSelectorCount{};
 	u64 stageTexelToCombinerDeltaCount = 0ULL;
 	u64 stageCombinerToBlenderDeltaCount = 0ULL;
 	u64 stageBlenderToFinalDeltaCount = 0ULL;
@@ -144,6 +148,7 @@ struct ExecutorSummary {
 	u64 stageTexturedWriteCount = 0ULL;
 	u64 stageTexturedRectWriteCount = 0ULL;
 	u64 stageTexturedTriangleWriteCount = 0ULL;
+	u64 stageImageReadWriteCount = 0ULL;
 	u64 stageTexelSourceReplacementWriteCount = 0ULL;
 	u64 stageTexelSourceTMEMWriteCount = 0ULL;
 	u64 stageTexelSourceRdramWriteCount = 0ULL;
@@ -158,6 +163,9 @@ struct ExecutorSummary {
 	std::array<u64, kExecutorStageDeltaClassBuckets> stageWriteClassCount{};
 	std::array<u64, kExecutorStageDeltaClassBuckets> stageTexelToFinalDeltaClassCount{};
 	std::array<u64, kExecutorStageDeltaClassBuckets> stageCombinerToBlenderDeltaClassCount{};
+	std::array<u64, kExecutorStageDeltaClassBuckets> stageBlendPUsesMemoryClassCount{};
+	std::array<u64, kExecutorStageDeltaClassBuckets> stageBlendMUsesMemoryClassCount{};
+	std::array<u64, kExecutorStageDeltaClassBuckets> stageImageReadClassCount{};
 	std::array<u64, kExecutorStageDeltaClassBuckets> stageTexelSourceReplacementClassCount{};
 	std::array<u64, kExecutorStageDeltaClassBuckets> stageTexelSourceTMEMClassCount{};
 	std::array<u64, kExecutorStageDeltaClassBuckets> stageTexelSourceRdramClassCount{};

@@ -46,8 +46,8 @@ Total remaining work represented here: 100%.
 
 ## Progress Snapshot
 
-- Overall completion: **~67%**
-- Active focus: **P5 blender/coverage closure with class-bucket guidance**
+- Overall completion: **~69%**
+- Active focus: **P5 cycle2 blender/coverage closure with class-bucket guidance**
 - Blockers: none (debug debt only)
 
 ## Latest Pipeline Class Signal (Paper Mario)
@@ -81,19 +81,24 @@ Using rebuilt `build/release-vulkan-smoke` plugin + `REALITYVK2_FRAME_FORENSICS_
 
 ## Latest Forensics Signal (Blender/Coverage Telemetry)
 
-Using `REALITYVK2_FRAME_FORENSICS_FILE` + `scripts/rvk2_forensics_summary.py` on Paper Mario:
+Using rebuilt `build/release-vulkan-smoke` + `REALITYVK2_FRAME_FORENSICS_FILE` + `scripts/rvk2_forensics_summary.py`:
 
 - `blend_enabled_rate = 1.0`
 - `blend_force_rate = 1.0`
-- `blend_coverage_zero_rate ≈ 0.560`
-- `blend_coverage_overflow_rate ≈ 0.113`
+- `blend_m_memory_selector_rate = 0.170`
+- `blend_coverage_zero_rate = 0.0127`
+- `blend_coverage_overflow_rate = 0.9169`
+- `coverage_reject_rate = 0.0`
+- `coverage_write_zero_rate = 0.5409`
+- `coverage_write_overflow_rate = 0.4280`
 - Dominant alpha selector distribution:
-  - A selector: `s0 ≈ 0.709`, `s3 ≈ 0.291`
-  - B selector: `s0 ≈ 0.709`, `s2 ≈ 0.291`
+  - A selector: `s0 = 0.170`, `s3 = 0.830`
+  - B selector: `s0 = 0.170`, `s2 = 0.830`
 
 Implication:
-- Blender path is always active in this capture, and force-blend + coverage classes dominate final writes.
-- Immediate debugging should stay focused on coverage/blender semantics in classes `b10` and `b11`, with TMEM/RDRAM split validation per class.
+- Cycle2 second-cycle blender routing is now separated (`selector0` vs memory), and conformance has a dedicated memory-selector test.
+- Coverage rejection now uses input coverage (alpha-fixup domain) rather than destination-resolved coverage.
+- Parity metric remains unchanged, so the remaining gap is still policy-level semantics in dominant classes `b10`/`b11`.
 
 ## Latest Blender Semantics Pass
 
@@ -114,16 +119,18 @@ Implication:
 
 ## Immediate Work Queue
 
-1. Close class `b10` (`force_blend|coverage`) coverage destination semantics in texrect path.
-2. Close class `b11` (`cycle2|force_blend|coverage`) cycle2 coverage handoff semantics for triangles.
-3. Reconcile TMEM vs RDRAM source influence by class to prevent policy drift between texrect and triangle paths.
+1. Add explicit class-targeted conformance probes for `b10/b11` alpha-fixup and coverage-write semantics (`alpha_cvg_sel`, `cvg_x_alpha`, `cvg_dest` combinations).
+2. Validate cycle2 class `b11` second-cycle selector behavior under mixed TMEM/RDRAM source conditions with focused micro-scenes.
+3. Implement/document remaining cycle2 hazards still missing in executor policy (notably TEX0/TEX1 second-cycle hazard handling).
 4. Keep TMEM32 experimental modes opt-in until class `b11` parity improves.
-5. Re-run full stage sweep (`final/texel_raw/combiner_out/blender_out/vi_source`) after each major coverage policy change.
+5. Re-run full stage sweep (`final/texel_raw/combiner_out/blender_out/vi_source`) after each major policy change.
 
 ## Update Log
 
 | Date | Change | Notes |
 | --- | --- | --- |
+| 2026-03-02 | Fixed cycle2 blender input routing and added memory-selector conformance coverage. | Second-cycle blender now distinguishes selector0 (cycle1 blender output) from selector1 (framebuffer memory color/coverage); local gate stays green and destination-sensitive memory path is explicitly tested. |
+| 2026-03-02 | Corrected coverage rejection domain to input coverage (post alpha-fixup). | Coverage rejection now follows AA/non-AA rules on input coverage while resolved coverage is retained for writeback semantics; parity capture no longer hits mostly-black retry path after this correction. |
 | 2026-03-02 | Added class-bucket pipeline diagnostics and texel-source attribution for active writes. | New forensics fields now report stage deltas by packet class, textured work/write shares, texel source split (`TMEM` vs `RDRAM`) by class, and op-kind work/write distributions. |
 | 2026-03-02 | Landed per-surface 3-bit coverage buffer in executor path (conformance-compatible defaults). | Coverage destination no longer derives from destination alpha color directly; local gate remains green and telemetry now reflects coverage policy changes in dominant force-blend classes. |
 | 2026-03-02 | Removed semantic gate that forcibly disabled textured draws on zeroed tile descriptor. | Texture intent now follows opcode/packet semantics; telemetry confirms active textured work/write paths in Paper Mario capture. |

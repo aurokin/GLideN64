@@ -127,6 +127,8 @@ def main() -> int:
     blend_enabled = sum_field(records, "blend_enabled_ops")
     blend_force = sum_field(records, "blend_force_ops")
     blend_aa = sum_field(records, "blend_aa_ops")
+    blend_p_mem = sum_field(records, "blend_p_mem_ops")
+    blend_m_mem = sum_field(records, "blend_m_mem_ops")
     blend_divide = sum_field(records, "blend_divide_ops")
     blend_nodivide = sum_field(records, "blend_nodivide_ops")
     blend_cvg_eval = sum_field(records, "blend_cvg_eval")
@@ -142,6 +144,7 @@ def main() -> int:
     stage_textured_writes = sum_field(records, "stage_textured_writes")
     stage_textured_rect = sum_field(records, "stage_textured_rect")
     stage_textured_tri = sum_field(records, "stage_textured_tri")
+    stage_imread = sum_field(records, "stage_imread")
     stage_tx_repl = sum_field(records, "stage_tx_repl")
     stage_tx_tmem = sum_field(records, "stage_tx_tmem")
     stage_tx_rdram = sum_field(records, "stage_tx_rdram")
@@ -163,6 +166,15 @@ def main() -> int:
     stage_cls_c2b = [
         sum_field(records, f"stage_cls{i}_c2b") for i in range(STAGE_CLASS_BUCKETS)
     ]
+    stage_cls_bpmem = [
+        sum_field(records, f"stage_cls{i}_bpmem") for i in range(STAGE_CLASS_BUCKETS)
+    ]
+    stage_cls_bmmem = [
+        sum_field(records, f"stage_cls{i}_bmmem") for i in range(STAGE_CLASS_BUCKETS)
+    ]
+    stage_cls_imread = [
+        sum_field(records, f"stage_cls{i}_imrd") for i in range(STAGE_CLASS_BUCKETS)
+    ]
     stage_cls_tx_repl = [
         sum_field(records, f"stage_cls{i}_txrepl") for i in range(STAGE_CLASS_BUCKETS)
     ]
@@ -178,6 +190,8 @@ def main() -> int:
 
     blend_a_sel = [sum_field(records, f"blend_a_sel{i}") for i in range(4)]
     blend_b_sel = [sum_field(records, f"blend_b_sel{i}") for i in range(4)]
+    blend_p_sel = [sum_field(records, f"blend_p_sel{i}") for i in range(4)]
+    blend_m_sel = [sum_field(records, f"blend_m_sel{i}") for i in range(4)]
 
     print(f"records={len(records)} active_only={1 if args.active_only else 0}")
     print(f"writes={out_writes}")
@@ -188,6 +202,8 @@ def main() -> int:
     print(f"blend_enabled_rate={fmt_ratio(blend_enabled, blend_ops)}")
     print(f"blend_force_rate={fmt_ratio(blend_force, blend_ops)}")
     print(f"blend_aa_rate={fmt_ratio(blend_aa, blend_ops)}")
+    print(f"blend_p_memory_selector_rate={fmt_ratio(blend_p_mem, blend_ops)}")
+    print(f"blend_m_memory_selector_rate={fmt_ratio(blend_m_mem, blend_ops)}")
     print(f"blend_divide_rate={fmt_ratio(blend_divide, blend_ops)}")
     print(f"blend_nodivide_rate={fmt_ratio(blend_nodivide, blend_ops)}")
     print(f"blend_coverage_zero_rate={fmt_ratio(blend_cvg_zero, blend_cvg_eval)}")
@@ -201,6 +217,7 @@ def main() -> int:
     print(f"stage_textured_write_rate={fmt_ratio(stage_textured_writes, out_writes)}")
     print(f"stage_textured_rect_share={fmt_ratio(stage_textured_rect, stage_textured_writes)}")
     print(f"stage_textured_triangle_share={fmt_ratio(stage_textured_tri, stage_textured_writes)}")
+    print(f"stage_image_read_write_rate={fmt_ratio(stage_imread, out_writes)}")
     print(f"stage_texel_source_replacement_rate={fmt_ratio(stage_tx_repl, out_writes)}")
     print(f"stage_texel_source_tmem_rate={fmt_ratio(stage_tx_tmem, out_writes)}")
     print(f"stage_texel_source_rdram_rate={fmt_ratio(stage_tx_rdram, out_writes)}")
@@ -219,6 +236,18 @@ def main() -> int:
     print(
         "stage_combiner_to_blender_top_classes="
         + format_stage_top(stage_cls_c2b, stage_cls_writes)
+    )
+    print(
+        "stage_blend_p_memory_top_classes="
+        + format_stage_top(stage_cls_bpmem, stage_cls_writes)
+    )
+    print(
+        "stage_blend_m_memory_top_classes="
+        + format_stage_top(stage_cls_bmmem, stage_cls_writes)
+    )
+    print(
+        "stage_image_read_top_classes="
+        + format_stage_top(stage_cls_imread, stage_cls_writes)
     )
     print(
         "stage_texel_source_replacement_top_classes="
@@ -246,6 +275,18 @@ def main() -> int:
         "blend_alpha_b_selector_share="
         + ",".join(
             f"s{i}:{ratio(blend_b_sel[i], sum(blend_b_sel)):.6f}" for i in range(4)
+        )
+    )
+    print(
+        "blend_color_p_selector_share="
+        + ",".join(
+            f"s{i}:{ratio(blend_p_sel[i], sum(blend_p_sel)):.6f}" for i in range(4)
+        )
+    )
+    print(
+        "blend_color_m_selector_share="
+        + ",".join(
+            f"s{i}:{ratio(blend_m_sel[i], sum(blend_m_sel)):.6f}" for i in range(4)
         )
     )
     return 0

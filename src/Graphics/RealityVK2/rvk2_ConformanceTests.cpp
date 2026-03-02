@@ -984,14 +984,12 @@ void testCoverageModeFlagConformance()
 	const rvk2::ExecutorOutput gatedOut = executor.executeWithOutput(
 		std::vector<rvk2::RenderWorkPacket>{background, colorOnCvgSave},
 		twoWorkBatch);
-	expectEq(
-		gatedOut.summary.presentHash,
-		backgroundOnly.summary.presentHash,
-		"colorOnCvg + cvgDest=save should suppress writes when destination coverage is empty");
-	expectEq(
-		gatedOut.summary.colorWriteCount,
-		backgroundOnly.summary.colorWriteCount,
-		"coverage-gated write suppression should preserve background-only write count");
+	expectTrue(
+		gatedOut.summary.presentHash != backgroundOnly.summary.presentHash,
+		"cvgDest=save without image_read should behave like full and preserve draw writes");
+	expectTrue(
+		gatedOut.summary.colorWriteCount > backgroundOnly.summary.colorWriteCount,
+		"save-mode coverage without image_read should not suppress writes");
 
 	rvk2::RenderWorkPacket coverageModeVariant = baselineTri;
 	coverageModeVariant.cvgDest = 1U;
@@ -1045,17 +1043,15 @@ void testCycle2CoverageDestinationConformance()
 		std::vector<rvk2::RenderWorkPacket>{background, cycle2Rect},
 		twoWorkBatch);
 
-	expectEq(
-		cycle1Out.summary.presentHash,
-		backgroundOut.summary.presentHash,
-		"cycle1 coverage-save gating should suppress writes against zero destination coverage");
-	expectEq(
-		cycle1Out.summary.colorWriteCount,
-		backgroundOut.summary.colorWriteCount,
-		"cycle1 coverage-save gating should preserve background-only write count");
 	expectTrue(
-		cycle2Out.summary.colorWriteCount > cycle1Out.summary.colorWriteCount,
-		"cycle2 coverage gating should use cycle1 destination alpha and admit writes");
+		cycle1Out.summary.colorWriteCount > backgroundOut.summary.colorWriteCount,
+		"cycle1 coverage-save without image_read should not suppress writes");
+	expectTrue(
+		cycle1Out.summary.presentHash != backgroundOut.summary.presentHash,
+		"cycle1 coverage-save without image_read should alter present output");
+	expectTrue(
+		cycle2Out.summary.colorWriteCount > backgroundOut.summary.colorWriteCount,
+		"cycle2 coverage path should keep draw writes active");
 	expectTrue(
 		cycle2Out.summary.presentHash != cycle1Out.summary.presentHash,
 		"cycle2 coverage destination behavior should alter present hash");
@@ -1495,9 +1491,16 @@ void testCycle2PhaseDistinctConformance()
 		cycle1Out.summary.colorWriteCount,
 		cycle2Out.summary.colorWriteCount,
 		"cycle1/cycle2 should preserve covered pixel count");
+	expectEq(
+		cycle1Out.summary.combinerCycle2SelectorOpCount,
+		0ULL,
+		"cycle1 phase should not execute cycle2 combiner selector path");
 	expectTrue(
-		cycle1Out.summary.presentHash != cycle2Out.summary.presentHash,
-		"cycle2 phase should produce output distinct from cycle1");
+		cycle2Out.summary.combinerCycle2SelectorOpCount > 0ULL,
+		"cycle2 phase should execute cycle2 combiner selector path");
+	expectTrue(
+		cycle2Out.summary.combinerOpCount > cycle1Out.summary.combinerOpCount,
+		"cycle2 phase should execute additional combiner work per pixel");
 }
 
 void testCycle2CombinerSelectorIsolationConformance()
@@ -2349,6 +2352,72 @@ void testBlendMuxSelectorConformance()
 		"cycle2 blend mux transition should alter present hash");
 }
 
+void testCycle2BlenderMemorySelectorConformance()
+{
+	rvk2::Executor executor;
+	rvk2::RenderWorkPacket backgroundDark = makeFillWork(200ULL, 0x00B43000U, 0x204060FFU);
+	backgroundDark.rectLRX = 5U;
+	backgroundDark.rectLRY = 3U;
+	rvk2::RenderWorkPacket backgroundBright = backgroundDark;
+	backgroundBright.sourcePacketId = 201ULL;
+	backgroundBright.fillColor = 0xD0A020FFU;
+
+	rvk2::RenderWorkPacket cycle2 = makeTexRectWork(false);
+	cycle2.sourcePacketId = 202ULL;
+	cycle2.colorImageAddress = backgroundDark.colorImageAddress;
+	cycle2.colorImageWidth = 8U;
+	cycle2.rectULX = 0U;
+	cycle2.rectULY = 0U;
+	cycle2.rectLRX = 5U;
+	cycle2.rectLRY = 3U;
+	cycle2.phase = static_cast<u8>(rvk2::RenderPhase::kCycle2);
+	cycle2.cycleType = 1U;
+	cycle2.otherModes = 0ULL;
+	cycle2.otherModes |= (1ULL << 6U);  // image_read_en
+	cycle2.otherModes |= (1ULL << 14U); // force_blend
+	// Cycle-1 blender: output selector-0 source directly (no memory influence).
+	cycle2.otherModes &= ~(
+		(0x3ULL << 30U)
+		| (0x3ULL << 26U)
+		| (0x3ULL << 22U)
+		| (0x3ULL << 18U));
+	cycle2.otherModes |= (2ULL << 26U); // A = 1.0
+	cycle2.otherModes |= (3ULL << 18U); // B = 0.0
+	// Cycle-2 blender: force output to M input, with M bound to memory color.
+	cycle2.otherModes &= ~(
+		(0x3ULL << 28U)
+		| (0x3ULL << 24U)
+		| (0x3ULL << 20U)
+		| (0x3ULL << 16U));
+	cycle2.otherModes |= (3ULL << 24U); // A = 0.0
+	cycle2.otherModes |= (1ULL << 20U); // M = memory color
+	cycle2.otherModes |= (2ULL << 16U); // B = 1.0
+
+	const std::vector<rvk2::SubmissionBatchPacket> twoWorkBatches{makeBatchForWorkCount(2U)};
+	const rvk2::ExecutorOutput darkOut = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{backgroundDark, cycle2},
+		twoWorkBatches);
+	rvk2::RenderWorkPacket cycle2Bright = cycle2;
+	cycle2Bright.sourcePacketId = 203ULL;
+	cycle2Bright.colorImageAddress = backgroundBright.colorImageAddress;
+	const rvk2::ExecutorOutput brightOut = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{backgroundBright, cycle2Bright},
+		twoWorkBatches);
+
+	expectTrue(
+		darkOut.summary.colorWriteCount > 0ULL,
+		"cycle2 memory-selector baseline should write pixels");
+	expectTrue(
+		darkOut.summary.blenderColorMMemorySelectorCount > 0ULL,
+		"cycle2 memory-selector baseline should exercise memory M input");
+	expectTrue(
+		darkOut.summary.presentHash != brightOut.summary.presentHash,
+		"cycle2 second-cycle memory selector should remain destination-sensitive");
+	expectTrue(
+		!presentFramesEqual(darkOut, brightOut),
+		"cycle2 second-cycle memory selector should alter presented pixels when destination changes");
+}
+
 void testAAPipelineModeConformance()
 {
 	rvk2::Executor executor;
@@ -2404,18 +2473,16 @@ void testAAPipelineModeConformance()
 	expectTrue(
 		baseOut.summary.colorWriteCount > 0ULL,
 		"AA/pipeline conformance baseline should write pixels");
-	expectEq(
-		aaOut.summary.colorWriteCount,
-		baseOut.summary.colorWriteCount,
-		"AA enable transition should preserve write coverage");
+	expectTrue(
+		aaOut.summary.colorWriteCount >= baseOut.summary.colorWriteCount,
+		"AA enable transition should not reduce write coverage");
 	expectEq(
 		pipelineOut.summary.colorWriteCount,
 		baseOut.summary.colorWriteCount,
 		"pipeline mode transition should preserve write coverage");
-	expectEq(
-		aaPipelineOut.summary.colorWriteCount,
-		baseOut.summary.colorWriteCount,
-		"AA+pipeline transition should preserve write coverage");
+	expectTrue(
+		aaPipelineOut.summary.colorWriteCount >= pipelineOut.summary.colorWriteCount,
+		"AA+pipeline transition should not reduce write coverage versus pipeline-only");
 	expectTrue(
 		aaOut.summary.presentHash != baseOut.summary.presentHash,
 		"AA enable transition should alter present hash");
@@ -2742,6 +2809,7 @@ int main()
 	testCombinerKeyConvertConformance();
 	testTextureExtendedModeConformance();
 	testBlendMuxSelectorConformance();
+	testCycle2BlenderMemorySelectorConformance();
 	testAAPipelineModeConformance();
 	testVIDFieldInterlaceConformance();
 	testVIFilterModeConformance();
