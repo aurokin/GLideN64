@@ -20,6 +20,7 @@ Accuracy-first. RVK2-only path. No legacy renderer fallback.
 5. Cycle2 hazard approximations now include TEX1 next-pixel combiner sourcing and cycle2 alpha-compare next-pixel combiner lookahead.
 6. TMEM32 sampling now uses a single authoritative split-word decode path (no experimental mode matrix).
 7. Blender selector `A=shade alpha` now consumes interpolated shade alpha instead of combiner-alpha approximation.
+8. Synthetic texel fallback now renders a stable coordinate/state pattern instead of random noise.
 
 ## Remaining Work Map (24%)
 
@@ -35,7 +36,7 @@ Accuracy-first. RVK2-only path. No legacy renderer fallback.
    - selector `A=shade` now reads triangle shade alpha rather than approximating with combiner alpha.
 2. Added conformance coverage for shade-alpha selector behavior:
    - shade-alpha transition now asserts present-frame changes under destination-sensitive blending.
-3. Kept TMEM32 authoritative-path conformance coverage active from the previous batch.
+3. Replaced random synthetic texel fallback with a stable coordinate/state pattern to improve visual signal while preserving state sensitivity checks.
 4. Kept local gate green after this batch.
 
 ## What Deep-Dive Changed In Our Plan

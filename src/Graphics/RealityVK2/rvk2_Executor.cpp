@@ -1255,10 +1255,30 @@ inline u32 samplePseudoTexelColor(
 	if (_sourceBits != nullptr)
 		*_sourceBits |= kTexelSourceSyntheticBit;
 
-	seed *= 0x9E3779B97F4A7C15ULL;
-	const u8 r = static_cast<u8>((seed >> 8) & 0xFFU);
-	const u8 g = static_cast<u8>((seed >> 24) & 0xFFU);
-	const u8 b = static_cast<u8>((seed >> 40) & 0xFFU);
+	// Keep synthetic fallback spatially coherent so missing-texture regions
+	// present as a stable debug pattern instead of random noise.
+	const u32 sPattern = static_cast<u32>(absS64(static_cast<s64>(_s)));
+	const u32 tPattern = static_cast<u32>(absS64(static_cast<s64>(_t)));
+	const bool checker = (((sPattern >> 2U) ^ (tPattern >> 2U)) & 0x1U) != 0U;
+	const u32 coordHash =
+		(sPattern * 0x9E3779B1U)
+		^ (tPattern * 0x85EBCA6BU)
+		^ ((sPattern >> 11U) | (tPattern << 7U));
+	const u8 coordR = static_cast<u8>((coordHash >> 0U) & 0xFFU);
+	const u8 coordG = static_cast<u8>((coordHash >> 8U) & 0xFFU);
+	const u8 coordB = static_cast<u8>((coordHash >> 16U) & 0xFFU);
+	const u64 fallbackSeed = buildTextureSeedBase(_work);
+	const u8 stateR = static_cast<u8>((fallbackSeed >> 8U) & 0xFFU);
+	const u8 stateG = static_cast<u8>((fallbackSeed >> 24U) & 0xFFU);
+	const u8 stateB = static_cast<u8>((fallbackSeed >> 40U) & 0xFFU);
+	const u8 tag = static_cast<u8>(
+		(((_work.tile & 0x7U) << 5U)
+			| ((_work.tileSize & 0x3U) << 3U)
+			| (_work.tileFormat & 0x7U))
+		& 0xFFU);
+	const u8 r = static_cast<u8>((checker ? 0xB0U : 0x30U) ^ (stateR & 0x30U) ^ (coordR & 0x3FU));
+	const u8 g = static_cast<u8>((checker ? 0x50U : 0xD0U) ^ (stateG & 0x30U) ^ (coordG & 0x3FU) ^ tag);
+	const u8 b = static_cast<u8>((checker ? 0x30U : 0x90U) ^ (stateB & 0x30U) ^ (coordB & 0x3FU) ^ static_cast<u8>(tag << 1U));
 	const u8 a = 255U;
 	u32 rgba = (static_cast<u32>(r) << 24)
 		| (static_cast<u32>(g) << 16)
