@@ -112,6 +112,23 @@ rvk2::RenderWorkPacket makeFillWork(
 	return work;
 }
 
+rvk2::RenderWorkPacket makePixelFillWork(
+	u64 _packetId,
+	u32 _colorAddress,
+	u16 _colorWidth,
+	u32 _x,
+	u32 _y,
+	u32 _fillColor)
+{
+	rvk2::RenderWorkPacket work = makeFillWork(_packetId, _colorAddress, _fillColor);
+	work.colorImageWidth = _colorWidth;
+	work.rectULX = _x;
+	work.rectULY = _y;
+	work.rectLRX = _x;
+	work.rectLRY = _y;
+	return work;
+}
+
 rvk2::RenderWorkPacket makeTexRectWork(bool _flip)
 {
 	rvk2::RenderWorkPacket work{};
@@ -1370,6 +1387,143 @@ void testRenderTargetIsolationConformance()
 		"changes on non-presented render target should not affect present hash");
 }
 
+void testVIFilterModeConformance()
+{
+	const u32 colorAddress = 0x00AB0000U;
+	constexpr u16 colorWidth = 4U;
+	std::vector<rvk2::RenderWorkPacket> workPackets;
+	workPackets.reserve(16U);
+	static constexpr u32 pattern[16] = {
+		0x707070FFU, 0x808080FFU, 0x707070FFU, 0x808080FFU,
+		0x808080FFU, 0x707070FFU, 0x808080FFU, 0x707070FFU,
+		0x707070FFU, 0x808080FFU, 0x707070FFU, 0x808080FFU,
+		0x808080FFU, 0x707070FFU, 0x808080FFU, 0x707070FFU
+	};
+	for (u32 y = 0U; y < 4U; ++y) {
+		for (u32 x = 0U; x < 4U; ++x) {
+			const u32 idx = y * 4U + x;
+			workPackets.push_back(
+				makePixelFillWork(
+					200ULL + static_cast<u64>(idx),
+					colorAddress,
+					colorWidth,
+					x,
+					y,
+					pattern[idx]));
+		}
+	}
+	const std::vector<rvk2::SubmissionBatchPacket> batches{
+		makeBatchForWorkCount(static_cast<u32>(workPackets.size()))
+	};
+
+	rvk2::ExecutorConfig viConfig{};
+	viConfig.presentAspectX = 1U;
+	viConfig.presentAspectY = 1U;
+	viConfig.viRegistersValid = true;
+	viConfig.viStatus = 2U | (3U << 8U);
+	viConfig.viOrigin = colorAddress;
+	viConfig.viWidth = 4U;
+	viConfig.viVSync = 525U;
+	viConfig.viHStart = (0U << 16U) | 4U;
+	viConfig.viVStart = (0U << 16U) | 8U;
+	viConfig.viXScale = 1024U;
+	viConfig.viYScale = 1024U;
+
+	rvk2::Executor replicateExecutor(viConfig);
+	const rvk2::ExecutorOutput replicateOut =
+		replicateExecutor.executeWithOutput(workPackets, batches);
+	expectTrue(
+		!replicateOut.presentFrame.pixels.empty(),
+		"VI filter conformance replicate scene should produce present pixels");
+
+	rvk2::ExecutorConfig deditherConfig = viConfig;
+	deditherConfig.viStatus |= 0x010000U;
+	rvk2::Executor deditherExecutor(deditherConfig);
+	const rvk2::ExecutorOutput deditherOut =
+		deditherExecutor.executeWithOutput(workPackets, batches);
+	expectEq(
+		deditherOut.summary.colorWriteCount,
+		replicateOut.summary.colorWriteCount,
+		"VI dedither should preserve covered pixel count");
+	expectTrue(
+		deditherOut.summary.presentHash != replicateOut.summary.presentHash,
+		"VI dedither should alter present hash in compatible AA mode");
+
+	rvk2::ExecutorConfig aaNeededConfig = viConfig;
+	aaNeededConfig.viStatus = 2U | (1U << 8U);
+	rvk2::Executor aaNeededExecutor(aaNeededConfig);
+	const rvk2::ExecutorOutput aaNeededNoDeditherOut =
+		aaNeededExecutor.executeWithOutput(workPackets, batches);
+
+	rvk2::ExecutorConfig aaNeededDeditherConfig = aaNeededConfig;
+	aaNeededDeditherConfig.viStatus |= 0x010000U;
+	rvk2::Executor aaNeededDeditherExecutor(aaNeededDeditherConfig);
+	const rvk2::ExecutorOutput aaNeededWithDeditherOut =
+		aaNeededDeditherExecutor.executeWithOutput(workPackets, batches);
+	expectEq(
+		aaNeededWithDeditherOut.summary.presentHash,
+		aaNeededNoDeditherOut.summary.presentHash,
+		"VI dedither should be inactive in AA-needed mode");
+	expectTrue(
+		presentFramesEqual(aaNeededWithDeditherOut, aaNeededNoDeditherOut),
+		"VI dedither should not alter present frame in AA-needed mode");
+}
+
+void testVIFailSafeConformance()
+{
+	const rvk2::RenderWorkPacket fillWork =
+		makePixelFillWork(250ULL, 0x00AC0000U, 2U, 0U, 0U, 0x203040FFU);
+	const std::vector<rvk2::RenderWorkPacket> workPackets{fillWork};
+	const std::vector<rvk2::SubmissionBatchPacket> batches{makeSingleBatch()};
+
+	rvk2::ExecutorConfig validConfig{};
+	validConfig.presentAspectX = 1U;
+	validConfig.presentAspectY = 1U;
+	validConfig.viRegistersValid = true;
+	validConfig.viStatus = 3U | (3U << 8U);
+	validConfig.viOrigin = fillWork.colorImageAddress;
+	validConfig.viWidth = 2U;
+	validConfig.viVSync = 525U;
+	validConfig.viHStart = (0U << 16U) | 2U;
+	validConfig.viVStart = (0U << 16U) | 4U;
+	validConfig.viXScale = 1024U;
+	validConfig.viYScale = 1024U;
+	rvk2::Executor validExecutor(validConfig);
+	const rvk2::ExecutorOutput validOut =
+		validExecutor.executeWithOutput(workPackets, batches);
+	expectTrue(
+		validOut.presentFrame.width > 0U && validOut.presentFrame.height > 0U,
+		"VI fail-safe baseline should produce non-empty present frame");
+
+	rvk2::ExecutorConfig reservedTypeConfig = validConfig;
+	reservedTypeConfig.viStatus = 1U | (3U << 8U);
+	rvk2::Executor reservedTypeExecutor(reservedTypeConfig);
+	const rvk2::ExecutorOutput reservedTypeOut =
+		reservedTypeExecutor.executeWithOutput(workPackets, batches);
+	expectEq(
+		reservedTypeOut.presentFrame.width,
+		0U,
+		"VI reserved type should blank present width");
+	expectEq(
+		reservedTypeOut.presentFrame.height,
+		0U,
+		"VI reserved type should blank present height");
+
+	rvk2::ExecutorConfig zeroWidthConfig = validConfig;
+	zeroWidthConfig.viWidth = 0U;
+	rvk2::Executor zeroWidthExecutor(zeroWidthConfig);
+	const rvk2::ExecutorOutput zeroWidthOut =
+		zeroWidthExecutor.executeWithOutput(workPackets, batches);
+	expectEq(
+		zeroWidthOut.presentFrame.width,
+		0U,
+		"VI zero width should blank present width");
+	expectEq(
+		zeroWidthOut.presentFrame.height,
+		0U,
+		"VI zero width should blank present height");
+}
+
 } // namespace
 
 int main()
@@ -1396,6 +1550,8 @@ int main()
 	testTexRectStateSensitivityConformance();
 	testRenderStateInputSensitivityConformance();
 	testRenderTargetIsolationConformance();
+	testVIFilterModeConformance();
+	testVIFailSafeConformance();
 
 	if (g_failures == 0) {
 		std::printf("rvk2 conformance tests: PASS\n");
