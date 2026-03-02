@@ -671,6 +671,24 @@ inline u16 readRdramU16Wrapped(u32 _address)
 	return static_cast<u16>((static_cast<u16>(hi) << 8U) | static_cast<u16>(lo));
 }
 
+inline u8 readTmem4BitPaletteColor(u16 _offset, u16 _x, u16 _i)
+{
+	const u8 * tmem8 = reinterpret_cast<const u8 *>(TMEM);
+	return tmem8[((static_cast<u32>(_offset) << 3U) + (((static_cast<u32>(_x) >> 1U) ^ (static_cast<u32>(_i) << 1U)))) & 0xFFFU];
+}
+
+inline u8 readTmem8BitColor(u16 _offset, u16 _x, u16 _i)
+{
+	const u8 * tmem8 = reinterpret_cast<const u8 *>(TMEM);
+	return tmem8[((static_cast<u32>(_offset) << 3U) + (static_cast<u32>(_x) ^ (static_cast<u32>(_i) << 1U))) & 0xFFFU];
+}
+
+inline u16 readTmem16BitColor(u16 _offset, u16 _x, u16 _i)
+{
+	const u16 * tmem16 = reinterpret_cast<const u16 *>(TMEM);
+	return tmem16[((static_cast<u32>(_offset) << 2U) + (static_cast<u32>(_x) ^ static_cast<u32>(_i))) & 0x7FFU];
+}
+
 inline u32 bitsPerTexelFromSize(u8 _size)
 {
 	switch (_size & 0x3U) {
@@ -871,6 +889,135 @@ inline bool sampleTextureFromRdram(
 	}
 }
 
+inline bool sampleCITextureFromTMEM(
+	const rvk2::RenderWorkPacket & _work,
+	s32 _s,
+	s32 _t,
+	u32 & _outRgba,
+	bool & _outNeedsLUT,
+	u8 & _outRejectReason)
+{
+	_outRejectReason = 0U;
+	const u8 format = (_work.tileFormat & 0x7U) <= 4U
+		? (_work.tileFormat & 0x7U)
+		: (_work.textureImageFormat & 0x7U);
+	const u8 size = _work.tileSize & 0x3U;
+	if (size == 3U) {
+		_outRejectReason = 2U;
+		return false;
+	}
+
+	const s32 tileBaseS = static_cast<s32>(_work.tileULS >> 2U);
+	const s32 tileBaseT = static_cast<s32>(_work.tileULT >> 2U);
+	const s32 texelS = _s - tileBaseS;
+	const s32 texelT = _t - tileBaseT;
+	if (texelS < 0 || texelT < 0) {
+		_outRejectReason = 3U;
+		return false;
+	}
+
+	const u8 lutMode = decodeTextureLUTMode(_work);
+	const u32 tMemMask = lutMode == 0U ? 0x1FFU : 0xFFU;
+	const u16 t = static_cast<u16>(texelT & 0xFFFF);
+	const u16 s = static_cast<u16>(texelS & 0xFFFF);
+	const u16 tmemOffset = static_cast<u16>(
+		(_work.tileTmem + static_cast<u16>(_work.tileLine * t)) & tMemMask);
+	const u16 i = static_cast<u16>((t & 1U) << 1U);
+
+	_outNeedsLUT = false;
+	switch (size) {
+	case 0U: { // 4b
+		const u8 packed = readTmem4BitPaletteColor(tmemOffset, s, i);
+		const u8 value4 = (s & 1U) != 0U ? (packed & 0x0FU) : ((packed >> 4U) & 0x0FU);
+		switch (format) {
+		case 2U: { // CI4
+			u8 index = value4;
+			if (lutMode != 0U) {
+				index = static_cast<u8>((_work.tilePalette << 4U) | index);
+				_outNeedsLUT = true;
+			}
+			_outRgba = packRgba8(index, index, index, 255U);
+			return true;
+		}
+		case 3U: { // IA3/1
+			const u8 intensity = expand3To8(static_cast<u8>((value4 >> 1U) & 0x07U));
+			const u8 alpha = (value4 & 0x1U) != 0U ? 255U : 0U;
+			_outRgba = packRgba8(intensity, intensity, intensity, alpha);
+			return true;
+		}
+		case 4U: { // I4
+			const u8 intensity = expand4To8(value4);
+			_outRgba = packRgba8(intensity, intensity, intensity, 255U);
+			return true;
+		}
+		default:
+			_outRejectReason = 1U;
+			return false;
+		}
+	}
+
+	case 1U: { // 8b
+		const u8 value8 = readTmem8BitColor(tmemOffset, s, i);
+		switch (format) {
+		case 2U: { // CI8
+			u8 index = value8;
+			if (lutMode != 0U)
+				_outNeedsLUT = true;
+			_outRgba = packRgba8(index, index, index, 255U);
+			return true;
+		}
+		case 3U: { // IA4/4
+			const u8 intensity = expand4To8(static_cast<u8>((value8 >> 4U) & 0x0FU));
+			const u8 alpha = expand4To8(static_cast<u8>(value8 & 0x0FU));
+			_outRgba = packRgba8(intensity, intensity, intensity, alpha);
+			return true;
+		}
+		case 4U: { // I8
+			_outRgba = packRgba8(value8, value8, value8, 255U);
+			return true;
+		}
+		default:
+			_outRejectReason = 1U;
+			return false;
+		}
+	}
+
+	case 2U: { // 16b
+		const u16 value16 = readTmem16BitColor(tmemOffset, s, i);
+		switch (format) {
+		case 0U: { // RGBA16
+			const u8 r5 = static_cast<u8>((value16 >> 11U) & 0x1FU);
+			const u8 g5 = static_cast<u8>((value16 >> 6U) & 0x1FU);
+			const u8 b5 = static_cast<u8>((value16 >> 1U) & 0x1FU);
+			const u8 a = (value16 & 0x1U) != 0U ? 255U : 0U;
+			_outRgba = packRgba8(expand5To8(r5), expand5To8(g5), expand5To8(b5), a);
+			return true;
+		}
+		case 2U: { // CI16 (low 8-bit index)
+			u8 index = static_cast<u8>(value16 & 0xFFU);
+			if (lutMode != 0U)
+				_outNeedsLUT = true;
+			_outRgba = packRgba8(index, index, index, 255U);
+			return true;
+		}
+		case 3U: { // IA8/8
+			const u8 intensity = static_cast<u8>((value16 >> 8U) & 0xFFU);
+			const u8 alpha = static_cast<u8>(value16 & 0xFFU);
+			_outRgba = packRgba8(intensity, intensity, intensity, alpha);
+			return true;
+		}
+		default:
+			_outRejectReason = 1U;
+			return false;
+		}
+	}
+
+	default:
+		_outRejectReason = 2U;
+		return false;
+	}
+}
+
 const rvk2::TextureReplacementImage * findTextureReplacementImage(
 	const rvk2::RenderWorkPacket & _work,
 	s32 _s,
@@ -933,6 +1080,27 @@ inline u32 samplePseudoTexelColor(
 
 	u32 sampledColor = 0U;
 	bool needsLUT = false;
+	u8 tmemReject = 0U;
+	if (gActiveExecutorSummary != nullptr)
+		++gActiveExecutorSummary->textureTmemAttemptCount;
+	if (sampleCITextureFromTMEM(_work, _s, _t, sampledColor, needsLUT, tmemReject)) {
+		if (gActiveExecutorSummary != nullptr) {
+			++gActiveExecutorSummary->textureTmemSampleCount;
+			if (needsLUT)
+				++gActiveExecutorSummary->textureLUTSampleCount;
+		}
+		if (needsLUT)
+			sampledColor = applyTextureLUTModeColor(_work, seed, sampledColor);
+		return applyTextureDetailModeColor(_work, seed, sampledColor);
+	}
+	if (gActiveExecutorSummary != nullptr) {
+		if (tmemReject == 1U)
+			++gActiveExecutorSummary->textureTmemRejectFormatCount;
+		else if (tmemReject == 2U)
+			++gActiveExecutorSummary->textureTmemRejectSizeCount;
+		else if (tmemReject == 3U)
+			++gActiveExecutorSummary->textureTmemRejectCoordCount;
+	}
 	if (sampleTextureFromRdram(_work, _s, _t, sampledColor, needsLUT)) {
 		if (gActiveExecutorSummary != nullptr) {
 			++gActiveExecutorSummary->textureRdramSampleCount;

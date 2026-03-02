@@ -155,9 +155,9 @@ Implication:
 - P4/P5 changes resolved the immediate black-frame bottleneck.
 - Remaining work shifts from "make anything visible" to "close correctness gap and brightness/structure mismatch vs reference."
 
-## Latest Findings (P3 TLUT Decode Grounding Pass)
+## Latest Findings (P3 TMEM Expansion Pass)
 
-After replacing random LUT approximation with real TMEM TLUT decode in the active RDRAM texture path:
+After extending TMEM-backed texel decode from CI-only to CI + IA/I + RGBA16 (with 32b still on RDRAM fallback):
 
 - Local gate status: pass (`./scripts/local_gate.sh`).
 - Paper Mario parity remains stable:
@@ -167,14 +167,15 @@ After replacing random LUT approximation with real TMEM TLUT decode in the activ
   - VI reject: `{1:43, 0:111}`
   - texture path counters:
     - `tx_samples=719032824`
-    - `tx_rdram=719032824`
-    - `tx_tmem=0`
+    - `tx_tmem=336098064`
+    - `tx_rdram=382934760`
     - `tx_synth=0`
     - `tx_lut=230841816`
+    - `tx_tmem_reject_size=382934760` (current remaining TMEM misses are 32b-sized texels)
 
 Implication:
-- TLUT behavior is now deterministic and data-backed (palette entries read from TMEM), replacing prior synthetic/random LUT behavior.
-- Full TMEM texel addressing still needs dedicated closure; current stable path remains RDRAM decode + real TLUT decode.
+- TMEM path is now handling a substantial share of active texel traffic without changing current parity metrics.
+- Next P3 closure item is 32b TMEM texel addressing semantics; all non-32b active texel formats are now covered by TMEM decode.
 
 ## Update Log
 
@@ -190,3 +191,4 @@ Implication:
 | 2026-03-02 | Reworked blender to selector-driven P/A/M/B path and fixed alpha-compare control decode (P5 in progress). | Blender now follows mode selectors with force/AA divide behavior and reduced synthetic weighting; alpha-compare now respects `alpha_compare_en` + `dither_alpha_en` bit semantics. |
 | 2026-03-02 | Relaxed conformance hash-sensitivity assertions by default during active bring-up. | `rvk2_conformance_tests` now keeps structural checks strict while skipping legacy sensitivity-only expectations unless `REALITYVK_RVK2_STRICT_CONFORMANCE=1` is set. |
 | 2026-03-02 | Replaced synthetic LUT approximation with real TMEM TLUT palette decode (P3/P5 in progress). | CI/TLUT sampling now uses palette entries from TMEM for decode; forensics now reports `tx_lut` and keeps texel source usage split via `tx_tmem`/`tx_rdram` counters. |
+| 2026-03-02 | Expanded TMEM texel decode to CI + IA/I + RGBA16 (P3 in progress). | TMEM now services a large share of active texel reads while preserving current parity metrics; remaining TMEM misses are dominated by 32b-sized texels. |
