@@ -62,13 +62,14 @@ This is the single execution tracker for the rewrite.
 56. Executor combiner path now decodes and applies cycle-specific (`cycle1`/`cycle2`) selector fields from `SetCombine`, and conformance now asserts cycle2-selector isolation from cycle1 output.
 57. Executor combiner path now models extended selector sources (`LOD_FRACTION`, `PRIM_LOD_FRAC`, `K5`, and alpha-selector lanes) and conformance now asserts these selector transitions alter output deterministically.
 58. Executor coverage-gated write semantics now use cycle-aware destination alpha in cycle2 (using cycle1 output as coverage destination), with dedicated conformance coverage.
+59. Submission-plan split classification coverage is now explicit in unit tests (`start`/`barrier`/`phase`/`cycle`/`render-target`/`scissor` + non-submittable unknown-phase path), closing Phase B semantic-batching test gaps.
 
 ## Phase Status
 
 | Phase | Status | Notes |
 | --- | --- | --- |
 | A: Contracts and Determinism | Done | Schema, trace, replay, gate wiring, ADR baseline are in place. |
-| B: Semantic Pipeline Backbone | In progress | Semantic/raster/render/submission/executor pipeline exists with expanded mode-bit behavior, but coverage is still incomplete. |
+| B: Semantic Pipeline Backbone | Done | Draw semantic -> raster -> render-work -> submission -> executor path is deterministic and now has explicit split-classification coverage. |
 | C: Core Rendering Correctness | In progress | Fill/texrect/triangle backbone exists with stronger blend/coverage semantics; full cycle-accurate closure is still open. |
 | D: VI and Presentation | Done | Register-driven source selection/scaling/filter/fail-safe behavior is implemented with unit + conformance + smoke coverage for current scoped contract. |
 | E: Texture Replacement | In progress | Deterministic key/cache contracts, store APIs, `.htc` IO, pack-index ingest, lifecycle controls, bounded load policy, optional executor sampling, pack-index tooling, and replacement observability counters are landed; runtime UX polish and cutover wiring are still open. |
@@ -76,7 +77,7 @@ This is the single execution tracker for the rewrite.
 
 ## Completion Estimate
 
-Estimated overall roadmap completion: **~91%**.
+Estimated overall roadmap completion: **~92%**.
 
 Heuristic phase weighting used for this estimate:
 - A: 20%
@@ -88,7 +89,7 @@ Heuristic phase weighting used for this estimate:
 
 Estimated phase progress used:
 - A: 100%
-- B: 98%
+- B: 100%
 - C: 92%
 - D: 100%
 - E: 65%
@@ -303,6 +304,10 @@ Estimated phase progress used:
    - cycle2 coverage-gated write checks now evaluate coverage destination against cycle1 output rather than pre-cycle destination state
    - rect/triangle write paths now thread phase-aware coverage destination color through synthetic phase evaluation
    - conformance now includes cycle1 vs cycle2 coverage-save behavior checks (`colorOnCvg + cvgDest=save`) and local gate remains clean
+49. Added Phase B submission split-classification closure:
+   - unit tests now directly cover submission split reasons for barrier/phase/cycle/render-target/scissor transitions
+   - unit tests now cover same-state append aggregation counters and non-submittable unknown-phase filtering
+   - deterministic batching-classification contract is now explicitly validated in local gate
 
 ## Current Bottlenecks
 
@@ -314,19 +319,19 @@ Estimated phase progress used:
 
 ## Next Coding Priorities
 
-1. Continue non-triangle semantic closure for remaining high-impact combiner/blender/depth/cvg interactions.
-2. Continue adding targeted hazard-corner conformance where semantic gaps are discovered.
+1. Continue core rendering correctness closure for remaining cycle-accurate combiner/blender/depth/coverage hazards.
+2. Keep expanding targeted hazard-corner conformance as correctness behaviors land.
 3. Keep reducing Paper Mario parity delta while preserving deterministic trace/replay contracts.
 4. Finish texture replacement runtime UX polish (artist-facing reload flow + broader visibility surfacing).
 5. Start early cutover/deletion prep for legacy-derived runtime branches that are no longer needed.
 
 ## Remaining Work Split (Approx)
 
-1. Core rendering correctness closure (cycle-accurate combiner/blender/depth/cvg): **30%** of remaining work.
-2. Semantic + non-triangle behavior coverage closure: **20%**.
-3. Texture replacement (`hi-res` + `.htc`) implementation and integration: **31%**.
-4. Trace/replay strictness + schema tightening + cutover cleanup: **12%**.
-5. Parity stabilization + validation hardening: **7%**.
+1. Core rendering correctness closure (cycle-accurate combiner/blender/depth/cvg): **35%** of remaining work.
+2. Hazard-corner conformance expansion and validation hardening: **15%**.
+3. Texture replacement (`hi-res` + `.htc`) implementation and integration: **34%**.
+4. Trace/replay strictness + schema tightening + cutover cleanup: **10%**.
+5. Parity stabilization and metric closure: **6%**.
 
 ## Local Gate Contract
 

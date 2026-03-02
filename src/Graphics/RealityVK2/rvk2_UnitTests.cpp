@@ -1982,6 +1982,132 @@ void testExecutorTriangleCoefficientConsumption()
 		"triangle depth test should preserve near-triangle present hash");
 }
 
+void testSubmissionPlanSplitClassification()
+{
+	auto makeWork = []() -> rvk2::RenderWorkPacket {
+		rvk2::RenderWorkPacket work{};
+		work.phase = static_cast<u8>(rvk2::RenderPhase::kCycle1);
+		work.cycleType = 0U;
+		work.barrierMask = rvk2::render_barrier::kNone;
+		work.colorImageFormat = 0U;
+		work.colorImageSize = 3U;
+		work.colorImageWidth = 320U;
+		work.colorImageAddress = 0x00100000U;
+		work.depthImageAddress = 0x00200000U;
+		work.scissorMode = 0U;
+		work.scissorXH = 0U;
+		work.scissorYH = 0U;
+		work.scissorXL = 319U;
+		work.scissorYL = 239U;
+		work.sourcePacketId = 1ULL;
+		return work;
+	};
+
+	{
+		std::vector<rvk2::SubmissionBatchPacket> batches;
+		rvk2::RenderWorkPacket first = makeWork();
+		rvk2::RenderWorkPacket appended = first;
+		appended.sourcePacketId = 2ULL;
+		appended.textured = true;
+		appended.depthTest = true;
+		rvk2::appendRenderWorkToSubmissionPlan(first, 0U, batches);
+		rvk2::appendRenderWorkToSubmissionPlan(appended, 1U, batches);
+		expectEq(batches.size(), static_cast<size_t>(1U), "submission append should keep same-state work in one batch");
+		expectEq(batches[0].splitReason, static_cast<u8>(rvk2::SubmissionSplitReason::kStart), "submission start split reason mismatch");
+		expectEq(batches[0].workCount, 2U, "submission append work count mismatch");
+		expectEq(batches[0].firstWorkIndex, 0U, "submission append first work index mismatch");
+		expectEq(batches[0].lastWorkIndex, 1U, "submission append last work index mismatch");
+		expectEq(batches[0].texturedWorkCount, 1U, "submission append textured count mismatch");
+		expectEq(batches[0].depthTestWorkCount, 1U, "submission append depth count mismatch");
+		expectEq(batches[0].firstSourcePacketId, 1ULL, "submission append first source packet mismatch");
+		expectEq(batches[0].lastSourcePacketId, 2ULL, "submission append last source packet mismatch");
+	}
+
+	{
+		std::vector<rvk2::SubmissionBatchPacket> batches;
+		rvk2::RenderWorkPacket first = makeWork();
+		rvk2::RenderWorkPacket barrier = first;
+		barrier.sourcePacketId = 2ULL;
+		barrier.barrierMask = rvk2::render_barrier::kLoadSync;
+		rvk2::appendRenderWorkToSubmissionPlan(first, 0U, batches);
+		rvk2::appendRenderWorkToSubmissionPlan(barrier, 1U, batches);
+		expectEq(batches.size(), static_cast<size_t>(2U), "barrier split should create a new batch");
+		expectEq(
+			batches[1].splitReason,
+			static_cast<u8>(rvk2::SubmissionSplitReason::kBarrier),
+			"barrier split reason mismatch");
+		expectEq(
+			batches[1].splitBarrierMask,
+			static_cast<u8>(rvk2::render_barrier::kLoadSync),
+			"barrier split mask mismatch");
+	}
+
+	{
+		std::vector<rvk2::SubmissionBatchPacket> batches;
+		rvk2::RenderWorkPacket first = makeWork();
+		rvk2::RenderWorkPacket phaseChange = first;
+		phaseChange.sourcePacketId = 2ULL;
+		phaseChange.phase = static_cast<u8>(rvk2::RenderPhase::kCopy);
+		rvk2::appendRenderWorkToSubmissionPlan(first, 0U, batches);
+		rvk2::appendRenderWorkToSubmissionPlan(phaseChange, 1U, batches);
+		expectEq(
+			batches[1].splitReason,
+			static_cast<u8>(rvk2::SubmissionSplitReason::kPhaseChange),
+			"phase-change split reason mismatch");
+	}
+
+	{
+		std::vector<rvk2::SubmissionBatchPacket> batches;
+		rvk2::RenderWorkPacket first = makeWork();
+		rvk2::RenderWorkPacket cycleChange = first;
+		cycleChange.sourcePacketId = 2ULL;
+		cycleChange.cycleType = 1U;
+		rvk2::appendRenderWorkToSubmissionPlan(first, 0U, batches);
+		rvk2::appendRenderWorkToSubmissionPlan(cycleChange, 1U, batches);
+		expectEq(
+			batches[1].splitReason,
+			static_cast<u8>(rvk2::SubmissionSplitReason::kCycleTypeChange),
+			"cycle-type split reason mismatch");
+	}
+
+	{
+		std::vector<rvk2::SubmissionBatchPacket> batches;
+		rvk2::RenderWorkPacket first = makeWork();
+		rvk2::RenderWorkPacket rtChange = first;
+		rtChange.sourcePacketId = 2ULL;
+		rtChange.colorImageAddress ^= 0x1000U;
+		rvk2::appendRenderWorkToSubmissionPlan(first, 0U, batches);
+		rvk2::appendRenderWorkToSubmissionPlan(rtChange, 1U, batches);
+		expectEq(
+			batches[1].splitReason,
+			static_cast<u8>(rvk2::SubmissionSplitReason::kRenderTargetChange),
+			"render-target split reason mismatch");
+	}
+
+	{
+		std::vector<rvk2::SubmissionBatchPacket> batches;
+		rvk2::RenderWorkPacket first = makeWork();
+		rvk2::RenderWorkPacket scissorChange = first;
+		scissorChange.sourcePacketId = 2ULL;
+		scissorChange.scissorXL = 255U;
+		rvk2::appendRenderWorkToSubmissionPlan(first, 0U, batches);
+		rvk2::appendRenderWorkToSubmissionPlan(scissorChange, 1U, batches);
+		expectEq(
+			batches[1].splitReason,
+			static_cast<u8>(rvk2::SubmissionSplitReason::kScissorChange),
+			"scissor split reason mismatch");
+	}
+
+	{
+		std::vector<rvk2::SubmissionBatchPacket> batches;
+		rvk2::RenderWorkPacket unknown = makeWork();
+		unknown.phase = static_cast<u8>(rvk2::RenderPhase::kUnknown);
+		expectTrue(!rvk2::isSubmittableRenderWork(unknown), "unknown phase should not be submittable");
+		rvk2::appendRenderWorkToSubmissionPlan(unknown, 0U, batches);
+		expectEq(batches.size(), static_cast<size_t>(0U), "unknown phase should not emit submission batches");
+	}
+}
+
 void testExecutorFrameOutput()
 {
 	rvk2::Runtime runtime;
@@ -2647,6 +2773,7 @@ int main()
 	testVIRendererAspectScaling();
 	testExecutorVIOriginPresentationSelection();
 	testExecutorTriangleCoefficientConsumption();
+	testSubmissionPlanSplitClassification();
 	testExecutorFrameOutput();
 	testTextureReplacementContract();
 	testTextureReplacementCacheIO();
