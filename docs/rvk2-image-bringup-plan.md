@@ -46,22 +46,38 @@ Total remaining work represented here: 100%.
 
 ## Progress Snapshot
 
-- Overall completion: **~55%**
+- Overall completion: **~57%**
 - Active focus: **P4/P5 with stage-tap-guided isolation**
 - Blockers: none (debug debt only)
 
+## Latest Stage Sweep (Paper Mario)
+
+Source artifacts:
+- `build/parity-runs/paper-mario/paper_mario_intro.<mode>.candidate.{ppm,png}`
+- `build/parity-runs/paper-mario/paper_mario_intro.<mode>.metrics.json`
+
+Observed mode groups (rebuilt `build/release-vulkan-smoke` plugin):
+- Group A (identical outputs): `final` + `blender_out`
+- Group B (identical outputs): `texel_raw` + `combiner_out`
+- Group C (unique output): `vi_source`
+
+Key implication:
+- For this scene/frame slice, combiner is currently behaving as pass-through from texel stage, while blender/late pixel controls are where output diverges from texel.
+- `vi_source` divergence confirms VI processing is materially changing the frame; it remains useful as a source-surface isolation view, not as a parity target by itself.
+
 ## Immediate Work Queue
 
-1. Run short parity/smoke captures per stage-view mode (`final`, `texel_raw`, `combiner_out`, `blender_out`, `vi_source`) and compare behavior transitions.
-2. Use `vi_source` to answer one hard question first: whether selected source surfaces already contain coherent scene structure.
-3. If `vi_source` is coherent: prioritize P6/VI mapping and filtering correctness.
-4. If `vi_source` is not coherent: prioritize P4/P5 raster-stage corrections before more VI work.
-5. Keep TMEM32 experimental work behind explicit opt-in until stage outputs are stable and interpretable.
+1. Add focused forensics counters around blender/coverage decisions (alpha A/B selectors, coverage resolve, dither mode, force_blender/AA interactions) for active draw packets.
+2. Correlate `final` vs `texel_raw` divergence with packet classes to identify the first high-impact blender/coverage mismatch.
+3. Use `vi_source` captures to validate source-surface coherence per frame window before spending more cycles on VI polish.
+4. Keep TMEM32 experimental work behind explicit opt-in until blender/coverage behavior is better constrained.
+5. After blender closure, re-run stage sweep and check whether `combiner_out` still collapses onto `texel_raw`.
 
 ## Update Log
 
 | Date | Change | Notes |
 | --- | --- | --- |
+| 2026-03-02 | Completed rebuilt-plugin stage sweep (`final`, `texel_raw`, `combiner_out`, `blender_out`, `vi_source`). | `final==blender_out`, `texel_raw==combiner_out`, and `vi_source` was unique; this narrows immediate work to blender/coverage semantics. |
 | 2026-03-02 | Plan compacted for operational use. | Removed stale narrative sections; kept active signals and execution queue. |
 | 2026-03-02 | Added stage-tap diagnostics in executor pipeline. | `REALITYVK_RVK2_DEBUG_STAGE_VIEW` now supports `final`, `texel_raw`, `combiner_out`, `blender_out`, and `vi_source`. |
 | 2026-03-02 | Added VI-source direct-present debug path. | `vi_source` mode bypasses VI processing and presents selected source surface pixels directly for isolation. |
