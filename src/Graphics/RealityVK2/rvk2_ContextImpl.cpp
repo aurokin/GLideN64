@@ -99,7 +99,7 @@ void appendFrameForensicsRecord(const rvk2::ExecutorOutput & _output)
 		: 0ULL;
 	std::fprintf(
 		file,
-		"frame=%llu\twork=%llu\tbatches=%llu\twrites=%llu\tsurfaces=%llu\tpresent_surface=0x%08X\tpresent_select=%u\tpresent_hash=0x%016llX\tpresent_w=%u\tpresent_h=%u\tvi_valid=%u\tvi_origin=0x%08X\tvi_origin_match=%u\tvi_reject=%u\tvi_type=%u\tvi_use_regs=%u\tvi_src_w=%u\tvi_src_h=%u\tvi_out_w=%u\tvi_out_h=%u\tvi_stride=%u\tselected_surface_writes=%llu\tselected_surface_works=%llu\tselected_surface_size=%u\tselected_surface_w=%u\tselected_surface_h=%u\ttx_samples=%llu\ttx_tmem=%llu\ttx_tmem_try=%llu\ttx_tmem_reject_fmt=%llu\ttx_tmem_reject_size=%llu\ttx_tmem_reject_coord=%llu\ttx_tmem32_cmp=%llu\ttx_tmem32_mismatch=%llu\ttx_rdram=%llu\ttx_synth=%llu\ttx_lut=%llu\tout_luma_sum=%llu\tout_luma_avg_x1000=%llu\tvi_src_samples=%llu\tvi_src_invalid=%llu\tvi_src_luma_avg_x1000=%llu\tvi_out_luma_avg_x1000=%llu\tvi_out_nonblack=%llu",
+		"frame=%llu\twork=%llu\tbatches=%llu\twrites=%llu\tsurfaces=%llu\tpresent_surface=0x%08X\tpresent_select=%u\tpresent_hash=0x%016llX\tpresent_w=%u\tpresent_h=%u\tvi_valid=%u\tvi_origin=0x%08X\tvi_origin_match=%u\tvi_reject=%u\tvi_type=%u\tvi_use_regs=%u\tvi_src_w=%u\tvi_src_h=%u\tvi_out_w=%u\tvi_out_h=%u\tvi_stride=%u\tselected_surface_writes=%llu\tselected_surface_works=%llu\tselected_surface_size=%u\tselected_surface_w=%u\tselected_surface_h=%u\ttx_samples=%llu\ttx_tmem=%llu\ttx_tmem_try=%llu\ttx_tmem_reject_fmt=%llu\ttx_tmem_reject_size=%llu\ttx_tmem_reject_coord=%llu\ttx_tmem32_cmp=%llu\ttx_tmem32_mismatch=%llu\ttx_tmem32_alt_noxor_mismatch=%llu\ttx_tmem32_alt_abs_mismatch=%llu\ttx_tmem32_alt_direct_mismatch=%llu\ttx_tmem32_alt_direct_swap_mismatch=%llu\ttx_tmem32_alt_tileline_xor_mismatch=%llu\ttx_tmem32_alt_tileline_evenodd_mismatch=%llu\ttx_tmem32_alt_direct_evenodd_mismatch=%llu\ttx_tmem32_alt_loadkind_mismatch=%llu\ttx_rdram=%llu\ttx_synth=%llu\ttx_lut=%llu\tout_luma_sum=%llu\tout_luma_avg_x1000=%llu\tvi_src_samples=%llu\tvi_src_invalid=%llu\tvi_src_luma_avg_x1000=%llu\tvi_out_luma_avg_x1000=%llu\tvi_out_nonblack=%llu",
 		static_cast<unsigned long long>(rvk2::runtime().commandStream().frameId()),
 		static_cast<unsigned long long>(summary.executedWorkCount),
 		static_cast<unsigned long long>(summary.executedBatchCount),
@@ -134,6 +134,14 @@ void appendFrameForensicsRecord(const rvk2::ExecutorOutput & _output)
 		static_cast<unsigned long long>(summary.textureTmemRejectCoordCount),
 		static_cast<unsigned long long>(summary.textureTmem32CompareCount),
 		static_cast<unsigned long long>(summary.textureTmem32CompareMismatchCount),
+		static_cast<unsigned long long>(summary.textureTmem32AltNoXorMismatchCount),
+		static_cast<unsigned long long>(summary.textureTmem32AltAbsCoordMismatchCount),
+		static_cast<unsigned long long>(summary.textureTmem32AltDirectMismatchCount),
+		static_cast<unsigned long long>(summary.textureTmem32AltDirectSwappedMismatchCount),
+		static_cast<unsigned long long>(summary.textureTmem32AltTileLineXorMismatchCount),
+		static_cast<unsigned long long>(summary.textureTmem32AltTileLineEvenOddMismatchCount),
+		static_cast<unsigned long long>(summary.textureTmem32AltDirectEvenOddMismatchCount),
+		static_cast<unsigned long long>(summary.textureTmem32AltLoadKindAwareMismatchCount),
 		static_cast<unsigned long long>(summary.textureRdramSampleCount),
 		static_cast<unsigned long long>(summary.textureSyntheticSampleCount),
 		static_cast<unsigned long long>(summary.textureLUTSampleCount),

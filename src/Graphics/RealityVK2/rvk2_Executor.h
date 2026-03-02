@@ -98,6 +98,14 @@ struct ExecutorSummary {
 	u64 textureTmemRejectCoordCount = 0ULL;
 	u64 textureTmem32CompareCount = 0ULL;
 	u64 textureTmem32CompareMismatchCount = 0ULL;
+	u64 textureTmem32AltNoXorMismatchCount = 0ULL;
+	u64 textureTmem32AltAbsCoordMismatchCount = 0ULL;
+	u64 textureTmem32AltDirectMismatchCount = 0ULL;
+	u64 textureTmem32AltDirectSwappedMismatchCount = 0ULL;
+	u64 textureTmem32AltTileLineXorMismatchCount = 0ULL;
+	u64 textureTmem32AltTileLineEvenOddMismatchCount = 0ULL;
+	u64 textureTmem32AltDirectEvenOddMismatchCount = 0ULL;
+	u64 textureTmem32AltLoadKindAwareMismatchCount = 0ULL;
 	u64 textureRdramSampleCount = 0ULL;
 	u64 textureSyntheticSampleCount = 0ULL;
 	u64 textureLUTSampleCount = 0ULL;

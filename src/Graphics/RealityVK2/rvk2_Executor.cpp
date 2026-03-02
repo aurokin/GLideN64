@@ -100,6 +100,46 @@ bool tmem32CompareEnabled()
 	return enabled;
 }
 
+enum class ExperimentalTMEM32Mode : u8
+{
+	kLegacy = 0U,
+	kNoXor,
+	kTileLineXor,
+	kTileLineEvenOdd,
+	kDirect,
+	kDirectEvenOdd,
+	kDirectSwapped,
+	kLoadKindAware,
+};
+
+ExperimentalTMEM32Mode experimentalTMEM32Mode()
+{
+	static const ExperimentalTMEM32Mode mode = []() -> ExperimentalTMEM32Mode {
+		const char * raw = std::getenv("REALITYVK_RVK2_EXPERIMENTAL_TMEM32_MODE");
+		if (raw == nullptr || raw[0] == '\0')
+			return ExperimentalTMEM32Mode::kDirect;
+		const std::string token = toLowerAscii(trimAsciiWhitespace(raw));
+		if (token == "legacy")
+			return ExperimentalTMEM32Mode::kLegacy;
+		if (token == "noxor")
+			return ExperimentalTMEM32Mode::kNoXor;
+		if (token == "tileline")
+			return ExperimentalTMEM32Mode::kTileLineXor;
+		if (token == "tileline_evenodd")
+			return ExperimentalTMEM32Mode::kTileLineEvenOdd;
+		if (token == "direct")
+			return ExperimentalTMEM32Mode::kDirect;
+		if (token == "direct_evenodd")
+			return ExperimentalTMEM32Mode::kDirectEvenOdd;
+		if (token == "direct_swapped")
+			return ExperimentalTMEM32Mode::kDirectSwapped;
+		if (token == "loadkind")
+			return ExperimentalTMEM32Mode::kLoadKindAware;
+		return ExperimentalTMEM32Mode::kDirect;
+	}();
+	return mode;
+}
+
 inline bool parseUnsignedToken(const std::string & _token, u64 & _out)
 {
 	const std::string token = trimAsciiWhitespace(_token);
@@ -720,6 +760,108 @@ inline u32 bitsPerTexelFromSize(u8 _size)
 	}
 }
 
+inline u32 xor13ForT(u16 _t)
+{
+	return (_t & 1U) != 0U ? 3U : 1U;
+}
+
+inline u32 xor02ForT(u16 _t)
+{
+	return (_t & 1U) != 0U ? 2U : 0U;
+}
+
+inline s32 computeLegacySplit32LineStride(const rvk2::RenderWorkPacket & _work)
+{
+	const u16 lowU = std::min<u16>(_work.tileULS, _work.tileLRS);
+	const u16 highU = std::max<u16>(_work.tileULS, _work.tileLRS);
+	u32 tileWidth = ((static_cast<u32>(highU) - static_cast<u32>(lowU)) >> 2U) + 1U;
+	if (tileWidth == 0U)
+		tileWidth = 1U;
+
+	s32 wid64 = static_cast<s32>(tileWidth) << 2;
+	if ((wid64 & 15) != 0)
+		wid64 += 16;
+	wid64 &= ~15;
+	wid64 >>= 3;
+	s32 line32 = static_cast<s32>(_work.tileLine) << 1;
+	line32 = (line32 - wid64) << 3;
+	if (wid64 < 1)
+		wid64 = 1;
+	const s32 width = wid64 << 1;
+	return width + (line32 >> 2);
+}
+
+inline u32 readTmem32SplitPacked(const rvk2::RenderWorkPacket & _work, u16 _s, u16 _t, s32 _lineStride, u32 _xor)
+{
+	const u16 * tmem16 = reinterpret_cast<const u16 *>(TMEM);
+	const s32 tline = (static_cast<s32>(_work.tileTmem) << 2) + _lineStride * static_cast<s32>(_t);
+	const u32 taddr = (static_cast<u32>(tline + static_cast<s32>(_s)) ^ _xor) & 0x3FFU;
+	const u16 gr = swapU16(tmem16[taddr]);
+	const u16 ab = swapU16(tmem16[taddr | 0x400U]);
+	return (static_cast<u32>(ab) << 16U) | static_cast<u32>(gr);
+}
+
+inline u32 readTmem32DirectPacked(const rvk2::RenderWorkPacket & _work, u16 _s, u16 _t, u32 _xor)
+{
+	const u32 * tmem32 = reinterpret_cast<const u32 *>(TMEM);
+	const u32 base =
+		((static_cast<u32>(_work.tileTmem & 0x1FFU) << 1U)
+			+ ((static_cast<u32>(_work.tileLine) << 1U) * static_cast<u32>(_t))
+			+ static_cast<u32>(_s))
+		& 0x3FFU;
+	return tmem32[(base ^ _xor) & 0x3FFU];
+}
+
+inline u32 packSplit32ToRGBA(u32 _packed, bool _highToLowRGBA)
+{
+	const u8 r = _highToLowRGBA
+		? static_cast<u8>((_packed >> 24U) & 0xFFU)
+		: static_cast<u8>(_packed & 0xFFU);
+	const u8 g = _highToLowRGBA
+		? static_cast<u8>((_packed >> 16U) & 0xFFU)
+		: static_cast<u8>((_packed >> 8U) & 0xFFU);
+	const u8 b = _highToLowRGBA
+		? static_cast<u8>((_packed >> 8U) & 0xFFU)
+		: static_cast<u8>((_packed >> 16U) & 0xFFU);
+	const u8 a = _highToLowRGBA
+		? static_cast<u8>(_packed & 0xFFU)
+		: static_cast<u8>((_packed >> 24U) & 0xFFU);
+	return packRgba8(r, g, b, a);
+}
+
+inline u32 decodeExperimentalTMEM32Color(
+	const rvk2::RenderWorkPacket & _work,
+	u16 _s,
+	u16 _t)
+{
+	const s32 legacySplitStride = computeLegacySplit32LineStride(_work);
+	const s32 tileLineSplitStride = static_cast<s32>(_work.tileLine) << 2;
+	const ExperimentalTMEM32Mode mode = experimentalTMEM32Mode();
+	switch (mode) {
+	case ExperimentalTMEM32Mode::kNoXor:
+		return packSplit32ToRGBA(readTmem32SplitPacked(_work, _s, _t, legacySplitStride, 0U), false);
+	case ExperimentalTMEM32Mode::kTileLineXor:
+		return packSplit32ToRGBA(readTmem32SplitPacked(_work, _s, _t, tileLineSplitStride, xor13ForT(_t)), false);
+	case ExperimentalTMEM32Mode::kTileLineEvenOdd:
+		return packSplit32ToRGBA(readTmem32SplitPacked(_work, _s, _t, tileLineSplitStride, xor02ForT(_t)), false);
+	case ExperimentalTMEM32Mode::kDirect:
+		return packSplit32ToRGBA(readTmem32DirectPacked(_work, _s, _t, 0U), false);
+	case ExperimentalTMEM32Mode::kDirectEvenOdd:
+		return packSplit32ToRGBA(readTmem32DirectPacked(_work, _s, _t, xor02ForT(_t)), false);
+	case ExperimentalTMEM32Mode::kDirectSwapped:
+		return packSplit32ToRGBA(readTmem32DirectPacked(_work, _s, _t, xor13ForT(_t)), true);
+	case ExperimentalTMEM32Mode::kLoadKindAware:
+		if (_work.tmemLoadKind == static_cast<u8>(rvk2::TmemLoadKind::kTile)
+			&& _work.tmemLoadTile == (_work.tile & 0x7U)) {
+			return packSplit32ToRGBA(readTmem32SplitPacked(_work, _s, _t, tileLineSplitStride, xor13ForT(_t)), false);
+		}
+		return packSplit32ToRGBA(readTmem32SplitPacked(_work, _s, _t, legacySplitStride, xor13ForT(_t)), false);
+	case ExperimentalTMEM32Mode::kLegacy:
+	default:
+		return packSplit32ToRGBA(readTmem32SplitPacked(_work, _s, _t, legacySplitStride, xor13ForT(_t)), false);
+	}
+}
+
 inline bool computeTextureSourceCoord(
 	const rvk2::RenderWorkPacket & _work,
 	s32 _s,
@@ -1035,36 +1177,7 @@ inline bool sampleCITextureFromTMEM(
 			_outRejectReason = 1U;
 			return false;
 		}
-		const u16 * tmem16 = reinterpret_cast<const u16 *>(TMEM);
-		const u16 lowU = std::min<u16>(_work.tileULS, _work.tileLRS);
-		const u16 highU = std::max<u16>(_work.tileULS, _work.tileLRS);
-		u32 tileWidth = ((static_cast<u32>(highU) - static_cast<u32>(lowU)) >> 2U) + 1U;
-		if (tileWidth == 0U)
-			tileWidth = 1U;
-
-		s32 wid64 = static_cast<s32>(tileWidth) << 2;
-		if ((wid64 & 15) != 0)
-			wid64 += 16;
-		wid64 &= ~15;
-		wid64 >>= 3;
-		s32 line32 = static_cast<s32>(_work.tileLine) << 1;
-		line32 = (line32 - wid64) << 3;
-		if (wid64 < 1)
-			wid64 = 1;
-		const s32 width = wid64 << 1;
-		line32 = width + (line32 >> 2);
-
-		const s32 tline = (static_cast<s32>(_work.tileTmem) << 2) + line32 * static_cast<s32>(t);
-		const u32 xorVal = (t & 1U) != 0U ? 3U : 1U;
-		const u32 taddr = (static_cast<u32>((tline + static_cast<s32>(s))) ^ xorVal) & 0x3FFU;
-		const u16 gr = swapU16(tmem16[taddr]);
-		const u16 ab = swapU16(tmem16[taddr | 0x400U]);
-		const u32 packed = (static_cast<u32>(ab) << 16U) | static_cast<u32>(gr);
-		const u8 r = static_cast<u8>(packed & 0xFFU);
-		const u8 g = static_cast<u8>((packed >> 8U) & 0xFFU);
-		const u8 b = static_cast<u8>((packed >> 16U) & 0xFFU);
-		const u8 a = static_cast<u8>((packed >> 24U) & 0xFFU);
-		_outRgba = packRgba8(r, g, b, a);
+		_outRgba = decodeExperimentalTMEM32Color(_work, s, t);
 		return true;
 	}
 
@@ -1161,21 +1274,181 @@ inline u32 samplePseudoTexelColor(
 				rdramNeedsLUTForCompare);
 		if (gActiveExecutorSummary != nullptr) {
 			++gActiveExecutorSummary->textureTmem32CompareCount;
-			if (!tmemOk || !rdramOk) {
-				++gActiveExecutorSummary->textureTmem32CompareMismatchCount;
+			u32 rdramResolved = rdramColorForCompare;
+			if (rdramNeedsLUTForCompare)
+				rdramResolved = applyTextureLUTModeColor(_work, seed, rdramResolved);
+			rdramResolved = applyTextureDetailModeColor(_work, seed, rdramResolved);
+
+			auto resolveCandidate = [&](u32 _rgba, bool _needsLUT) -> u32 {
+				if (_needsLUT)
+					_rgba = applyTextureLUTModeColor(_work, seed, _rgba);
+				return applyTextureDetailModeColor(_work, seed, _rgba);
+			};
+			auto tallyMismatch = [&](bool _ok, u32 _resolved, u64 & _counter) {
+				if (!rdramOk || !_ok || _resolved != rdramResolved)
+					++_counter;
+			};
+
+			u32 resolvedCurrent = tmemColor;
+			if (tmemOk)
+				resolvedCurrent = resolveCandidate(tmemColor, tmemNeedsLUT);
+			tallyMismatch(
+				tmemOk,
+				resolvedCurrent,
+				gActiveExecutorSummary->textureTmem32CompareMismatchCount);
+
+			const u16 * tmem16 = reinterpret_cast<const u16 *>(TMEM);
+			const u32 * tmem32 = reinterpret_cast<const u32 *>(TMEM);
+			const s32 tileBaseS = static_cast<s32>(_work.tileULS >> 2U);
+			const s32 tileBaseT = static_cast<s32>(_work.tileULT >> 2U);
+			const s32 texelS = _s - tileBaseS;
+			const s32 texelT = _t - tileBaseT;
+			const bool localCoordValid = texelS >= 0 && texelT >= 0;
+			const u16 sLocal = static_cast<u16>(texelS & 0xFFFF);
+			const u16 tLocal = static_cast<u16>(texelT & 0xFFFF);
+			const u16 sAbs = static_cast<u16>(_s & 0xFFFF);
+			const u16 tAbs = static_cast<u16>(_t & 0xFFFF);
+			const u16 lowU = std::min<u16>(_work.tileULS, _work.tileLRS);
+			const u16 highU = std::max<u16>(_work.tileULS, _work.tileLRS);
+			u32 tileWidth = ((static_cast<u32>(highU) - static_cast<u32>(lowU)) >> 2U) + 1U;
+			if (tileWidth == 0U)
+				tileWidth = 1U;
+			s32 wid64 = static_cast<s32>(tileWidth) << 2;
+			if ((wid64 & 15) != 0)
+				wid64 += 16;
+			wid64 &= ~15;
+			wid64 >>= 3;
+			s32 line32 = static_cast<s32>(_work.tileLine) << 1;
+			line32 = (line32 - wid64) << 3;
+			if (wid64 < 1)
+				wid64 = 1;
+			const s32 width = wid64 << 1;
+			line32 = width + (line32 >> 2);
+			const s32 splitStrideTileLine = static_cast<s32>(_work.tileLine) << 2;
+
+			enum class XorMode : u8
+			{
+				kNone = 0U,
+				k13 = 1U,
+				k02 = 2U,
+			};
+
+			auto xorValueForT = [](u16 _tCoord, XorMode _mode) -> u32 {
+				switch (_mode) {
+				case XorMode::k13:
+					return (_tCoord & 1U) != 0U ? 3U : 1U;
+				case XorMode::k02:
+					return (_tCoord & 1U) != 0U ? 2U : 0U;
+				default:
+					return 0U;
+				}
+			};
+
+			auto decodeSplit32 = [&](u16 _sCoord, u16 _tCoord, s32 _lineStride, bool _requireLocalCoord, XorMode _xorMode, bool _highToLowRGBA, u32 & _out) -> bool {
+				if (_requireLocalCoord && !localCoordValid)
+					return false;
+				const s32 tline = (static_cast<s32>(_work.tileTmem) << 2) + _lineStride * static_cast<s32>(_tCoord);
+				const u32 xorVal = xorValueForT(_tCoord, _xorMode);
+				const u32 taddr = (static_cast<u32>(tline + static_cast<s32>(_sCoord)) ^ xorVal) & 0x3FFU;
+				const u16 gr = swapU16(tmem16[taddr]);
+				const u16 ab = swapU16(tmem16[taddr | 0x400U]);
+				const u32 packed = (static_cast<u32>(ab) << 16U) | static_cast<u32>(gr);
+				const u8 r = _highToLowRGBA
+					? static_cast<u8>((packed >> 24U) & 0xFFU)
+					: static_cast<u8>(packed & 0xFFU);
+				const u8 g = _highToLowRGBA
+					? static_cast<u8>((packed >> 16U) & 0xFFU)
+					: static_cast<u8>((packed >> 8U) & 0xFFU);
+				const u8 b = _highToLowRGBA
+					? static_cast<u8>((packed >> 8U) & 0xFFU)
+					: static_cast<u8>((packed >> 16U) & 0xFFU);
+				const u8 a = _highToLowRGBA
+					? static_cast<u8>(packed & 0xFFU)
+					: static_cast<u8>((packed >> 24U) & 0xFFU);
+				_out = packRgba8(r, g, b, a);
+				return true;
+			};
+			auto decodeDirect32 = [&](u16 _sCoord, u16 _tCoord, bool _requireLocalCoord, XorMode _xorMode, bool _highToLowRGBA, u32 & _out) -> bool {
+				if (_requireLocalCoord && !localCoordValid)
+					return false;
+				const u32 base =
+					((static_cast<u32>(_work.tileTmem & 0x1FFU) << 1U)
+						+ ((static_cast<u32>(_work.tileLine) << 1U) * static_cast<u32>(_tCoord))
+						+ static_cast<u32>(_sCoord))
+					& 0x3FFU;
+				const u32 idx = (base ^ xorValueForT(_tCoord, _xorMode)) & 0x3FFU;
+				const u32 raw = tmem32[idx & 0x3FFU];
+				const u8 r = _highToLowRGBA
+					? static_cast<u8>((raw >> 24U) & 0xFFU)
+					: static_cast<u8>(raw & 0xFFU);
+				const u8 g = _highToLowRGBA
+					? static_cast<u8>((raw >> 16U) & 0xFFU)
+					: static_cast<u8>((raw >> 8U) & 0xFFU);
+				const u8 b = _highToLowRGBA
+					? static_cast<u8>((raw >> 8U) & 0xFFU)
+					: static_cast<u8>((raw >> 16U) & 0xFFU);
+				const u8 a = _highToLowRGBA
+					? static_cast<u8>(raw & 0xFFU)
+					: static_cast<u8>((raw >> 24U) & 0xFFU);
+				_out = packRgba8(r, g, b, a);
+				return true;
+			};
+
+			u32 alt = 0U;
+			const bool altNoXorOk = decodeSplit32(sLocal, tLocal, line32, true, XorMode::kNone, false, alt);
+			tallyMismatch(
+				altNoXorOk,
+				altNoXorOk ? resolveCandidate(alt, false) : 0U,
+				gActiveExecutorSummary->textureTmem32AltNoXorMismatchCount);
+
+			const bool altAbsOk = decodeSplit32(sAbs, tAbs, line32, false, XorMode::k13, false, alt);
+			tallyMismatch(
+				altAbsOk,
+				altAbsOk ? resolveCandidate(alt, false) : 0U,
+				gActiveExecutorSummary->textureTmem32AltAbsCoordMismatchCount);
+
+			const bool altDirectOk = decodeDirect32(sLocal, tLocal, true, XorMode::kNone, false, alt);
+			tallyMismatch(
+				altDirectOk,
+				altDirectOk ? resolveCandidate(alt, false) : 0U,
+				gActiveExecutorSummary->textureTmem32AltDirectMismatchCount);
+
+			const bool altDirectSwapOk = decodeDirect32(sLocal, tLocal, true, XorMode::k13, true, alt);
+			tallyMismatch(
+				altDirectSwapOk,
+				altDirectSwapOk ? resolveCandidate(alt, false) : 0U,
+				gActiveExecutorSummary->textureTmem32AltDirectSwappedMismatchCount);
+
+			const bool altTileLineXorOk = decodeSplit32(sLocal, tLocal, splitStrideTileLine, true, XorMode::k13, false, alt);
+			tallyMismatch(
+				altTileLineXorOk,
+				altTileLineXorOk ? resolveCandidate(alt, false) : 0U,
+				gActiveExecutorSummary->textureTmem32AltTileLineXorMismatchCount);
+
+			const bool altTileLineEvenOddOk = decodeSplit32(sLocal, tLocal, splitStrideTileLine, true, XorMode::k02, false, alt);
+			tallyMismatch(
+				altTileLineEvenOddOk,
+				altTileLineEvenOddOk ? resolveCandidate(alt, false) : 0U,
+				gActiveExecutorSummary->textureTmem32AltTileLineEvenOddMismatchCount);
+
+			const bool altDirectEvenOddOk = decodeDirect32(sLocal, tLocal, true, XorMode::k02, false, alt);
+			tallyMismatch(
+				altDirectEvenOddOk,
+				altDirectEvenOddOk ? resolveCandidate(alt, false) : 0U,
+				gActiveExecutorSummary->textureTmem32AltDirectEvenOddMismatchCount);
+
+			bool altLoadKindOk = false;
+			if (_work.tmemLoadKind == static_cast<u8>(rvk2::TmemLoadKind::kTile)
+				&& _work.tmemLoadTile == (_work.tile & 0x7U)) {
+				altLoadKindOk = decodeSplit32(sLocal, tLocal, splitStrideTileLine, true, XorMode::k13, false, alt);
 			}
 			else {
-				u32 tmemResolved = tmemColor;
-				u32 rdramResolved = rdramColorForCompare;
-				if (tmemNeedsLUT)
-					tmemResolved = applyTextureLUTModeColor(_work, seed, tmemResolved);
-				if (rdramNeedsLUTForCompare)
-					rdramResolved = applyTextureLUTModeColor(_work, seed, rdramResolved);
-				tmemResolved = applyTextureDetailModeColor(_work, seed, tmemResolved);
-				rdramResolved = applyTextureDetailModeColor(_work, seed, rdramResolved);
-				if (tmemResolved != rdramResolved)
-					++gActiveExecutorSummary->textureTmem32CompareMismatchCount;
+				altLoadKindOk = decodeSplit32(sLocal, tLocal, line32, true, XorMode::k13, false, alt);
 			}
+			tallyMismatch(
+				altLoadKindOk,
+				altLoadKindOk ? resolveCandidate(alt, false) : 0U,
+				gActiveExecutorSummary->textureTmem32AltLoadKindAwareMismatchCount);
 		}
 	}
 

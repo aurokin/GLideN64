@@ -48,7 +48,7 @@ Total remaining work represented here: 100%.
 
 ## Live Progress
 
-- Overall completion of this bring-up plan: **~43%**
+- Overall completion of this bring-up plan: **~49%**
 - Active phase: **P4/P5 (visible-output stabilization)**
 - Blockers: none (technical debt only)
 
@@ -182,6 +182,26 @@ Implication:
   - `tmem32_mismatch=379622596`
   - mismatch rate `~0.991351`
 
+## Latest Findings (P3 TMEM32 Mode Sweep)
+
+After adding mode-selectable experimental 32b TMEM decode and sweeping candidates under Paper Mario:
+
+- New env control: `REALITYVK_RVK2_EXPERIMENTAL_TMEM32_MODE` (with `legacy`, `noxor`, `tileline`, `tileline_evenodd`, `direct`, `direct_evenodd`, `direct_swapped`, `loadkind`).
+- Legacy-family modes (`legacy`, `tileline`, `loadkind`) remain near-black in active frames:
+  - `vi_out_luma_avg_x1000 ~16`
+  - `vi_out_nonblack ~3000`
+- Direct-family modes materially improve visible output while keeping full TMEM32 use:
+  - best observed: `direct`
+  - `vi_out_luma_avg_x1000 = 2923`
+  - `vi_out_nonblack = 18583`
+  - `tx_tmem=tx_samples` and `tx_rdram=0` in active frames.
+- Full parity run with experimental TMEM32 + `direct` now completes without black-frame retry failure:
+  - `rmse=0.081138`, `mae=0.010701`.
+
+Implication:
+- 32b TMEM decode is no longer blocked on "always black" in experimental mode.
+- Remaining 32b work shifts to correctness refinement (reduce parity error) before replacing default RDRAM fallback.
+
 ## Update Log
 
 | Date | Change | Notes |
@@ -199,3 +219,4 @@ Implication:
 | 2026-03-02 | Expanded TMEM texel decode to CI + IA/I + RGBA16 (P3 in progress). | TMEM now services a large share of active texel reads while preserving current parity metrics; remaining TMEM misses are dominated by 32b-sized texels. |
 | 2026-03-02 | Added TMEM decision diagnostics and gated experimental 32b TMEM decode behind opt-in env flag. | Forensics now reports TMEM attempt/reject classes; `REALITYVK_RVK2_EXPERIMENTAL_TMEM32=1` can be used for targeted 32b debugging without destabilizing default runs. |
 | 2026-03-02 | Added opt-in 32b TMEM compare instrumentation against stable RDRAM path. | `REALITYVK_RVK2_DEBUG_TMEM32_COMPARE=1` now reports 32b compare volume and mismatch counts, providing direct data for 32b addressing correction work. |
+| 2026-03-02 | Added experimental 32b TMEM decode mode selector and completed parity mode sweep. | Added `REALITYVK_RVK2_EXPERIMENTAL_TMEM32_MODE`; direct-mode decoding removes black-retry collapse in experimental 32b runs and is now the default experimental mode. |
