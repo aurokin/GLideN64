@@ -36,6 +36,7 @@ This is the single execution tracker for the rewrite.
 30. VI-specific conformance now covers filter-mode behavior and fail-safe control-state blanking at executor level.
 31. VI register path now models `PIXEL_ADVANCE[15:12]` as deterministic horizontal subpixel sample offset.
 32. VI register path now enforces type-aware `VI_WIDTH` line-stride alignment (16bpp `%4`, 32bpp `%2`) as deterministic fail-safe blanking.
+33. Executor/replay color-surface writes now honor render-target pixel size semantics (`colorImageSize=2` quantized to deterministic RGBA5551-expanded output).
 
 ## Phase Status
 
@@ -208,6 +209,10 @@ Estimated phase progress used:
    - register-driven VI now requires type-aligned `VI_WIDTH` scanline stride (16bpp `%4`, 32bpp `%2`) for deterministic presentation
    - invalid stride states now resolve to blank output instead of undefined sampling behavior
    - unit + executor conformance coverage added for invalid 16bpp/32bpp stride blanking behavior
+34. Added render-target write-size semantics closure:
+   - executor writes now encode to surface format by `colorImageSize` before storage (`16bpp -> RGBA5551` quantize/expand)
+   - replay model mirrors identical target-size write behavior for deterministic trace/replay consistency
+   - executor conformance coverage added for `colorImageSize`-driven output divergence with coverage invariance
 
 ## Current Bottlenecks
 

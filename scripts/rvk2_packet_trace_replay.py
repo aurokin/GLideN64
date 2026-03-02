@@ -4009,6 +4009,22 @@ def _decode_fill_color(fill_color: int, color_size: int) -> int:
     return ((r & 0xFF) << 24) | ((g & 0xFF) << 16) | ((b & 0xFF) << 8) | (a & 0xFF)
 
 
+def _encode_surface_color(rgba: int, color_size: int) -> int:
+    if color_size != 2:
+        return rgba & 0xFFFFFFFF
+
+    r = (rgba >> 24) & 0xFF
+    g = (rgba >> 16) & 0xFF
+    b = (rgba >> 8) & 0xFF
+    a = rgba & 0xFF
+    r5 = (r * 31 + 127) // 255
+    g5 = (g * 31 + 127) // 255
+    b5 = (b * 31 + 127) // 255
+    a1 = 1 if a >= 128 else 0
+    packed = ((r5 & 0x1F) << 11) | ((g5 & 0x1F) << 6) | ((b5 & 0x1F) << 1) | a1
+    return _decode_fill_color(packed, 2)
+
+
 def _wrap_coord_positive(value: int, period: int) -> int:
     if period <= 0:
         return 0
@@ -4228,7 +4244,7 @@ def _write_render_work_rect(
                     _passes_synthetic_alpha_compare(work, fill_rgba, x, y)
                     and _passes_synthetic_coverage_write(work, fill_rgba, dst_color, x, y)
                 ):
-                    pixels[row_index] = fill_rgba
+                    pixels[row_index] = _encode_surface_color(fill_rgba, work.color_image_size)
                     color_write_count += 1
                 row_index += 1
         summary.color_write_count += color_write_count
@@ -4252,7 +4268,7 @@ def _write_render_work_rect(
                 _passes_synthetic_alpha_compare(work, rgba, x, y)
                 and _passes_synthetic_coverage_write(work, rgba, dst_color, x, y)
             ):
-                pixels[row_index] = rgba
+                pixels[row_index] = _encode_surface_color(rgba, work.color_image_size)
                 color_write_count += 1
             row_index += 1
 
@@ -4916,7 +4932,7 @@ def _write_render_work_triangle(
                 if work.depth_update_enable:
                     depth_surface.values[depth_index] = z
 
-            pixels[row_index] = rgba
+            pixels[row_index] = _encode_surface_color(rgba, work.color_image_size)
             row_index += 1
             color_write_count += 1
 

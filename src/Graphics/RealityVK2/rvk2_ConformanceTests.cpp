@@ -1409,6 +1409,52 @@ void testRenderTargetIsolationConformance()
 		"changes on non-presented render target should not affect present hash");
 }
 
+void testRenderTargetColorSizeConformance()
+{
+	rvk2::Executor executor;
+	rvk2::RenderWorkPacket color32 = makeTexRectWork(false);
+	color32.sourcePacketId = 130ULL;
+	color32.colorImageAddress = 0x00AE0000U;
+	color32.colorImageWidth = 8U;
+	color32.rectULX = 0U;
+	color32.rectULY = 0U;
+	color32.rectLRX = 5U;
+	color32.rectLRY = 3U;
+	color32.colorImageSize = 3U;
+
+	rvk2::RenderWorkPacket color16 = color32;
+	color16.sourcePacketId = 131ULL;
+	color16.colorImageSize = 2U;
+
+	const std::vector<rvk2::SubmissionBatchPacket> batches{makeSingleBatch()};
+	const rvk2::ExecutorOutput out32 =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{color32}, batches);
+	const rvk2::ExecutorOutput out16 =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{color16}, batches);
+
+	expectTrue(
+		out32.summary.colorWriteCount > 0ULL,
+		"render target size conformance baseline should write pixels");
+	expectEq(
+		out16.summary.colorWriteCount,
+		out32.summary.colorWriteCount,
+		"render target size conformance should preserve write coverage");
+	expectEq(
+		out16.presentFrame.width,
+		out32.presentFrame.width,
+		"render target size conformance should preserve present width");
+	expectEq(
+		out16.presentFrame.height,
+		out32.presentFrame.height,
+		"render target size conformance should preserve present height");
+	expectTrue(
+		out16.summary.presentHash != out32.summary.presentHash,
+		"render target size conformance should alter present hash for 16bpp writes");
+	expectTrue(
+		!presentFramesEqual(out16, out32),
+		"render target size conformance should alter presented pixels for 16bpp writes");
+}
+
 void testVIFilterModeConformance()
 {
 	const u32 colorAddress = 0x00AB0000U;
@@ -1653,6 +1699,7 @@ int main()
 	testTexRectStateSensitivityConformance();
 	testRenderStateInputSensitivityConformance();
 	testRenderTargetIsolationConformance();
+	testRenderTargetColorSizeConformance();
 	testVIFilterModeConformance();
 	testVIFailSafeConformance();
 	testVIPixelAdvanceConformance();

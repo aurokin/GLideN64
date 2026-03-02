@@ -40,6 +40,23 @@ inline u32 decodeFillColor(u32 _fillColor, u8 _colorImageSize)
 		| static_cast<u32>(a);
 }
 
+inline u32 encodeSurfaceColor(u32 _rgba, u8 _colorImageSize)
+{
+	if (_colorImageSize != 2U)
+		return _rgba;
+
+	const u8 r = static_cast<u8>((_rgba >> 24) & 0xFFU);
+	const u8 g = static_cast<u8>((_rgba >> 16) & 0xFFU);
+	const u8 b = static_cast<u8>((_rgba >> 8) & 0xFFU);
+	const u8 a = static_cast<u8>(_rgba & 0xFFU);
+	const u16 r5 = static_cast<u16>((static_cast<u32>(r) * 31U + 127U) / 255U);
+	const u16 g5 = static_cast<u16>((static_cast<u32>(g) * 31U + 127U) / 255U);
+	const u16 b5 = static_cast<u16>((static_cast<u32>(b) * 31U + 127U) / 255U);
+	const u16 a1 = a >= 128U ? 1U : 0U;
+	const u16 packed = static_cast<u16>((r5 << 11U) | (g5 << 6U) | (b5 << 1U) | a1);
+	return decodeFillColor(static_cast<u32>(packed), 2U);
+}
+
 inline s32 wrapCoordPositive(s32 _value, s32 _period)
 {
 	if (_period <= 0)
@@ -1075,7 +1092,7 @@ void writeRect(
 				continue;
 			if (!passesSyntheticCoverageWrite(_work, rgba, dstColor, x, y))
 				continue;
-			_surface.pixels[colorIdx] = rgba;
+			_surface.pixels[colorIdx] = encodeSurfaceColor(rgba, _work.colorImageSize);
 			++_summary.colorWriteCount;
 		}
 	}
@@ -1172,7 +1189,7 @@ void writeTriangle(
 					_depthSurface->values[depthIdx] = z;
 			}
 
-			_surface.pixels[colorIdx] = rgba;
+			_surface.pixels[colorIdx] = encodeSurfaceColor(rgba, _work.colorImageSize);
 			++_summary.colorWriteCount;
 		}
 	}
