@@ -1318,6 +1318,94 @@ void testCycle2PhaseDistinctConformance()
 		"cycle2 phase should produce output distinct from cycle1");
 }
 
+void testCycle2CombinerSelectorIsolationConformance()
+{
+	rvk2::Executor executor;
+	rvk2::RenderWorkPacket background = makeFillWork(68ULL, 0x00A08000U, 0x2A2A2AFFU);
+	background.rectLRX = 5U;
+	background.rectLRY = 3U;
+
+	rvk2::RenderWorkPacket cycle2Base = makeTexRectWork(false);
+	cycle2Base.sourcePacketId = 69ULL;
+	cycle2Base.colorImageAddress = background.colorImageAddress;
+	cycle2Base.colorImageWidth = 8U;
+	cycle2Base.rectULX = 0U;
+	cycle2Base.rectULY = 0U;
+	cycle2Base.rectLRX = 5U;
+	cycle2Base.rectLRY = 3U;
+	cycle2Base.phase = static_cast<u8>(rvk2::RenderPhase::kCycle2);
+	cycle2Base.cycleType = 1U;
+	cycle2Base.otherModes = (1ULL << 6U);
+	cycle2Base.blendParams = 0x00603090U;
+
+	constexpr u64 kCycle2SelectorMask =
+		(0xFULL << (32U + 5U))
+		| (0xFULL << 24U)
+		| (0x1FULL << 32U)
+		| (0x7ULL << 6U)
+		| (0x7ULL << 21U)
+		| (0x7ULL << 3U)
+		| (0x7ULL << 18U)
+		| 0x7ULL;
+	constexpr u64 kCycle2BaseSelectors =
+		(1ULL << (32U + 5U))
+		| (2ULL << 24U)
+		| (3ULL << 32U)
+		| (4ULL << 6U)
+		| (1ULL << 21U)
+		| (2ULL << 3U)
+		| (3ULL << 18U)
+		| 4ULL;
+	constexpr u64 kCycle2VariantSelectors =
+		(6ULL << (32U + 5U))
+		| (5ULL << 24U)
+		| (7ULL << 32U)
+		| (0ULL << 6U)
+		| (6ULL << 21U)
+		| (5ULL << 3U)
+		| (0ULL << 18U)
+		| 1ULL;
+
+	cycle2Base.combineMux = (cycle2Base.combineMux & ~kCycle2SelectorMask) | kCycle2BaseSelectors;
+	rvk2::RenderWorkPacket cycle2Variant = cycle2Base;
+	cycle2Variant.combineMux = (cycle2Variant.combineMux & ~kCycle2SelectorMask) | kCycle2VariantSelectors;
+
+	const std::vector<rvk2::SubmissionBatchPacket> twoWorkBatches{makeBatchForWorkCount(2U)};
+	const rvk2::ExecutorOutput cycle2BaseOut = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, cycle2Base},
+		twoWorkBatches);
+	const rvk2::ExecutorOutput cycle2VariantOut = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, cycle2Variant},
+		twoWorkBatches);
+	expectEq(
+		cycle2VariantOut.summary.colorWriteCount,
+		cycle2BaseOut.summary.colorWriteCount,
+		"cycle2 selector transition should preserve write coverage");
+	expectTrue(
+		cycle2VariantOut.summary.presentHash != cycle2BaseOut.summary.presentHash,
+		"cycle2 selector transition should alter cycle2 present hash");
+
+	rvk2::RenderWorkPacket cycle1Base = cycle2Base;
+	cycle1Base.phase = static_cast<u8>(rvk2::RenderPhase::kCycle1);
+	cycle1Base.cycleType = 0U;
+	rvk2::RenderWorkPacket cycle1Variant = cycle1Base;
+	cycle1Variant.combineMux = cycle2Variant.combineMux;
+
+	const rvk2::ExecutorOutput cycle1BaseOut = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, cycle1Base},
+		twoWorkBatches);
+	const rvk2::ExecutorOutput cycle1VariantOut = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, cycle1Variant},
+		twoWorkBatches);
+	expectEq(
+		cycle1VariantOut.summary.presentHash,
+		cycle1BaseOut.summary.presentHash,
+		"cycle2-only selector transition should not alter cycle1 present hash");
+	expectTrue(
+		presentFramesEqual(cycle1VariantOut, cycle1BaseOut),
+		"cycle2-only selector transition should not alter cycle1 presented pixels");
+}
+
 void testFillPhaseIgnoresBlendCombinerConformance()
 {
 	rvk2::Executor executor;
@@ -2377,6 +2465,7 @@ int main()
 	testScissorDitherIndexConformance();
 	testCopyPhaseDestinationBypassConformance();
 	testCycle2PhaseDistinctConformance();
+	testCycle2CombinerSelectorIsolationConformance();
 	testFillPhaseIgnoresBlendCombinerConformance();
 	testTexRectFlipConformance();
 	testTexRectStateSensitivityConformance();

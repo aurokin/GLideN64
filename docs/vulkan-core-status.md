@@ -58,6 +58,8 @@ This is the single execution tracker for the rewrite.
 52. Executor/replay now model `SetScissor` field mode (even/odd line filtering) and mode-specific scissor edge semantics (lower-exclusive always, right-edge inclusive only in copy/fill).
 53. Executor/replay now model scissor-aware dither Y indexing (`[2:1]` under explicit scissoring) with conformance coverage.
 54. Executor/replay now model explicit texture-filter mode variants (point/bilerp/average/sharpen-style) with expanded conformance coverage.
+55. Local gate remains clean across Release/Debug unit + conformance suites after the recent scissor/dither/filter semantic closure passes.
+56. Executor combiner path now decodes and applies cycle-specific (`cycle1`/`cycle2`) selector fields from `SetCombine`, and conformance now asserts cycle2-selector isolation from cycle1 output.
 
 ## Phase Status
 
@@ -72,7 +74,7 @@ This is the single execution tracker for the rewrite.
 
 ## Completion Estimate
 
-Estimated overall roadmap completion: **~87%**.
+Estimated overall roadmap completion: **~89%**.
 
 Heuristic phase weighting used for this estimate:
 - A: 20%
@@ -84,8 +86,8 @@ Heuristic phase weighting used for this estimate:
 
 Estimated phase progress used:
 - A: 100%
-- B: 94%
-- C: 88%
+- B: 96%
+- C: 90%
 - D: 100%
 - E: 65%
 - F: 0%
@@ -286,6 +288,11 @@ Estimated phase progress used:
    - executor/replay now differentiate texture-filter modes (`point`, `bilerp`, `average`, and sharpen-style mode)
    - texrect and textured-triangle sampling paths now consume explicit filter mode instead of binary filtered/unfiltered behavior
    - conformance coverage now asserts deterministic divergence across filter-mode transitions while preserving write coverage
+46. Added B/C cycle-aware combiner selector closure:
+   - executor combiner now decodes real cycle1/cycle2 selector fields from `combineMux` instead of synthetic rotated second-pass state
+   - cycle2 path now consumes cycle1 intermediate output and applies cycle2 combiner/blender selectors explicitly
+   - texture sampling seed no longer depends on `combineMux`, reducing non-semantic coupling
+   - conformance now includes cycle2-selector isolation checks and local gate remains clean
 
 ## Current Bottlenecks
 
@@ -305,9 +312,9 @@ Estimated phase progress used:
 
 ## Remaining Work Split (Approx)
 
-1. Core rendering correctness closure (cycle-accurate combiner/blender/depth/cvg): **29%** of remaining work.
-2. Semantic + non-triangle behavior coverage closure: **19%**.
-3. Texture replacement (`hi-res` + `.htc`) implementation and integration: **30%**.
+1. Core rendering correctness closure (cycle-accurate combiner/blender/depth/cvg): **30%** of remaining work.
+2. Semantic + non-triangle behavior coverage closure: **20%**.
+3. Texture replacement (`hi-res` + `.htc`) implementation and integration: **31%**.
 4. Trace/replay strictness + schema tightening + cutover cleanup: **12%**.
 5. Parity stabilization + validation hardening: **7%**.
 

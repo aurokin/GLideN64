@@ -583,7 +583,6 @@ inline u32 samplePseudoTexelColor(
 		mixTextureSeed(seed, static_cast<u64>(static_cast<u32>(_w)));
 	mixTextureSeed(seed, static_cast<u64>(_x));
 	mixTextureSeed(seed, static_cast<u64>(_y));
-	mixTextureSeed(seed, static_cast<u64>(_work.combineMux));
 	mixTextureSeed(seed, static_cast<u64>(_work.syncEpoch));
 	seed *= 0x9E3779B97F4A7C15ULL;
 	const u8 r = static_cast<u8>((seed >> 8) & 0xFFU);
@@ -877,22 +876,6 @@ inline u32 pseudoTriangleColor(
 		| static_cast<u32>(a);
 }
 
-inline u64 rotateLeft64(u64 _value, u32 _shift)
-{
-	const u32 shift = _shift & 63U;
-	if (shift == 0U)
-		return _value;
-	return (_value << shift) | (_value >> (64U - shift));
-}
-
-inline u32 rotateLeft32(u32 _value, u32 _shift)
-{
-	const u32 shift = _shift & 31U;
-	if (shift == 0U)
-		return _value;
-	return (_value << shift) | (_value >> (32U - shift));
-}
-
 struct ColorRGBA
 {
 	u8 r = 0U;
@@ -928,6 +911,60 @@ inline u8 clampU8FromS32(s32 _value)
 	return static_cast<u8>(_value);
 }
 
+struct CombinerCycleSelectors
+{
+	u8 colorA = 0U;
+	u8 colorB = 0U;
+	u8 colorC = 0U;
+	u8 colorD = 0U;
+	u8 alphaA = 0U;
+	u8 alphaB = 0U;
+	u8 alphaC = 0U;
+	u8 alphaD = 0U;
+};
+
+inline CombinerCycleSelectors decodeCombinerCycleSelectors(
+	u64 _combineMux,
+	bool _cycle2Selectors)
+{
+	const u32 mode0 = static_cast<u32>(_combineMux >> 32U);
+	const u32 mode1 = static_cast<u32>(_combineMux & 0xFFFFFFFFULL);
+	CombinerCycleSelectors selectors{};
+	if (_cycle2Selectors) {
+		selectors.colorA = static_cast<u8>((mode0 >> 5U) & 0xFU);
+		selectors.colorB = static_cast<u8>((mode1 >> 24U) & 0xFU);
+		selectors.colorC = static_cast<u8>(mode0 & 0x1FU);
+		selectors.colorD = static_cast<u8>((mode1 >> 6U) & 0x7U);
+		selectors.alphaA = static_cast<u8>((mode1 >> 21U) & 0x7U);
+		selectors.alphaB = static_cast<u8>((mode1 >> 3U) & 0x7U);
+		selectors.alphaC = static_cast<u8>((mode1 >> 18U) & 0x7U);
+		selectors.alphaD = static_cast<u8>(mode1 & 0x7U);
+	}
+	else {
+		selectors.colorA = static_cast<u8>((mode0 >> 20U) & 0xFU);
+		selectors.colorB = static_cast<u8>((mode1 >> 28U) & 0xFU);
+		selectors.colorC = static_cast<u8>((mode0 >> 15U) & 0x1FU);
+		selectors.colorD = static_cast<u8>((mode1 >> 15U) & 0x7U);
+		selectors.alphaA = static_cast<u8>((mode0 >> 12U) & 0x7U);
+		selectors.alphaB = static_cast<u8>((mode1 >> 12U) & 0x7U);
+		selectors.alphaC = static_cast<u8>((mode0 >> 9U) & 0x7U);
+		selectors.alphaD = static_cast<u8>((mode1 >> 9U) & 0x7U);
+	}
+	return selectors;
+}
+
+inline u64 packCombinerCycleSelectors(const CombinerCycleSelectors & _selectors)
+{
+	return static_cast<u64>(_selectors.colorA)
+		| (static_cast<u64>(_selectors.colorB) << 5U)
+		| (static_cast<u64>(_selectors.colorC) << 10U)
+		| (static_cast<u64>(_selectors.colorD) << 16U)
+		| (static_cast<u64>(_selectors.alphaA) << 20U)
+		| (static_cast<u64>(_selectors.alphaB) << 23U)
+		| (static_cast<u64>(_selectors.alphaC) << 26U)
+		| (static_cast<u64>(_selectors.alphaD) << 29U);
+}
+
 inline u8 selectCombinerInput(
 	u8 _selector,
 	u8 _tex,
@@ -958,8 +995,10 @@ inline u8 selectCombinerInput(
 }
 
 inline u8 evalSyntheticCombinerChannel(
-	u64 _combineMux,
-	u32 _selectorShift,
+	u8 _aSel,
+	u8 _bSel,
+	u8 _cSel,
+	u8 _dSel,
 	u8 _tex,
 	u8 _shade,
 	u8 _base,
@@ -967,30 +1006,28 @@ inline u8 evalSyntheticCombinerChannel(
 	u8 _noise,
 	u8 _dst)
 {
-	const u8 aSel = static_cast<u8>((_combineMux >> _selectorShift) & 0x7ULL);
-	const u8 bSel = static_cast<u8>((_combineMux >> (_selectorShift + 3U)) & 0x7ULL);
-	const u8 cSel = static_cast<u8>((_combineMux >> (_selectorShift + 6U)) & 0x7ULL);
-	const u8 dSel = static_cast<u8>((_combineMux >> (_selectorShift + 9U)) & 0x7ULL);
-	const s32 a = static_cast<s32>(selectCombinerInput(aSel, _tex, _shade, _base, _constant, _noise, _dst));
-	const s32 b = static_cast<s32>(selectCombinerInput(bSel, _tex, _shade, _base, _constant, _noise, _dst));
-	const s32 c = static_cast<s32>(selectCombinerInput(cSel, _tex, _shade, _base, _constant, _noise, _dst));
-	const s32 d = static_cast<s32>(selectCombinerInput(dSel, _tex, _shade, _base, _constant, _noise, _dst));
+	const s32 a = static_cast<s32>(selectCombinerInput(_aSel, _tex, _shade, _base, _constant, _noise, _dst));
+	const s32 b = static_cast<s32>(selectCombinerInput(_bSel, _tex, _shade, _base, _constant, _noise, _dst));
+	const s32 c = static_cast<s32>(selectCombinerInput(_cSel, _tex, _shade, _base, _constant, _noise, _dst));
+	const s32 d = static_cast<s32>(selectCombinerInput(_dSel, _tex, _shade, _base, _constant, _noise, _dst));
 	const s32 value = ((a - b) * c + 127) / 255 + d;
 	return clampU8FromS32(value);
 }
 
 inline u32 applySyntheticCombiner(
 	const rvk2::RenderWorkPacket & _work,
-	u64 _combineMux,
-	u64 _sourcePacketId,
-	u32 _syncEpoch,
 	u32 _textureColor,
 	u32 _shadeColor,
 	u32 _baseColor,
 	u32 _dstColor,
 	u32 _x,
-	u32 _y)
+	u32 _y,
+	bool _cycle2Selectors = false)
 {
+	const CombinerCycleSelectors selectors = decodeCombinerCycleSelectors(
+		_work.combineMux,
+		_cycle2Selectors && _work.phase == static_cast<u8>(rvk2::RenderPhase::kCycle2));
+	const u64 selectorWord = packCombinerCycleSelectors(selectors);
 	const ColorRGBA tex = unpackRGBA(_textureColor);
 	const ColorRGBA shade = unpackRGBA(_shadeColor);
 	const ColorRGBA base = unpackRGBA(_baseColor);
@@ -1000,11 +1037,11 @@ inline u32 applySyntheticCombiner(
 	const ColorRGBA blend = unpackRGBA(_work.blendColor);
 	const ColorRGBA fog = unpackRGBA(_work.fogColor);
 
-	u64 noiseSeed = _combineMux;
-	noiseSeed ^= _sourcePacketId << 9U;
+	u64 noiseSeed = selectorWord;
+	noiseSeed ^= _work.sourcePacketId << 9U;
 	noiseSeed ^= static_cast<u64>(_x) << 33U;
 	noiseSeed ^= static_cast<u64>(_y) << 45U;
-	noiseSeed ^= static_cast<u64>(_syncEpoch) << 17U;
+	noiseSeed ^= static_cast<u64>(_work.syncEpoch) << 17U;
 	noiseSeed ^= _work.otherModes;
 	noiseSeed ^= _work.keyState;
 	noiseSeed ^= _work.convertState;
@@ -1015,10 +1052,10 @@ inline u32 applySyntheticCombiner(
 	noiseSeed *= 0xD6E8FEB86659FD93ULL;
 
 	const ColorRGBA muxConstant{
-		static_cast<u8>((_combineMux >> 56U) & 0xFFU),
-		static_cast<u8>((_combineMux >> 48U) & 0xFFU),
-		static_cast<u8>((_combineMux >> 40U) & 0xFFU),
-		static_cast<u8>((_combineMux >> 32U) & 0xFFU)
+		static_cast<u8>((selectorWord >> 0U) & 0xFFU),
+		static_cast<u8>((selectorWord >> 8U) & 0xFFU),
+		static_cast<u8>((selectorWord >> 16U) & 0xFFU),
+		static_cast<u8>((selectorWord >> 24U) & 0xFFU)
 	};
 	auto selectStateColor = [&](u8 _selector, u8 _channelIndex) -> u8 {
 		switch (_selector & 0x3U) {
@@ -1061,13 +1098,61 @@ inline u32 applySyntheticCombiner(
 		255U
 	};
 
+	const u8 colorASel = selectors.colorA;
+	const u8 colorBSel = selectors.colorB;
+	const u8 colorCSel = selectors.colorC;
+	const u8 colorDSel = selectors.colorD;
+	const u8 alphaASel = selectors.alphaA;
+	const u8 alphaBSel = selectors.alphaB;
+	const u8 alphaCSel = selectors.alphaC;
+	const u8 alphaDSel = selectors.alphaD;
+
 	const ColorRGBA out{
-		evalSyntheticCombinerChannel(_combineMux, 0U, tex.r, shade.r, base.r, constant.r, noise.r, dst.r),
-		evalSyntheticCombinerChannel(_combineMux, 12U, tex.g, shade.g, base.g, constant.g, noise.g, dst.g),
-		evalSyntheticCombinerChannel(_combineMux, 24U, tex.b, shade.b, base.b, constant.b, noise.b, dst.b),
-		evalSyntheticCombinerChannel(_combineMux, 36U, tex.a, shade.a, base.a, constant.a, noise.a, dst.a)
+		evalSyntheticCombinerChannel(colorASel, colorBSel, colorCSel, colorDSel, tex.r, shade.r, base.r, constant.r, noise.r, dst.r),
+		evalSyntheticCombinerChannel(colorASel, colorBSel, colorCSel, colorDSel, tex.g, shade.g, base.g, constant.g, noise.g, dst.g),
+		evalSyntheticCombinerChannel(colorASel, colorBSel, colorCSel, colorDSel, tex.b, shade.b, base.b, constant.b, noise.b, dst.b),
+		evalSyntheticCombinerChannel(alphaASel, alphaBSel, alphaCSel, alphaDSel, tex.a, shade.a, base.a, constant.a, noise.a, dst.a)
 	};
 	ColorRGBA resolved = out;
+	const auto mixChannel = [](u8 _base, u8 _target, u8 _mix) -> u8 {
+		const u32 invMix = static_cast<u32>(255U - _mix);
+		const u32 value =
+			static_cast<u32>(_base) * invMix
+			+ static_cast<u32>(_target) * static_cast<u32>(_mix);
+		return static_cast<u8>((value + 127U) / 255U);
+	};
+	if (_work.textured) {
+		const u8 textureInfluence = static_cast<u8>(24U + ((colorASel ^ colorCSel) & 0x1FU));
+		resolved.r = mixChannel(resolved.r, tex.r, textureInfluence);
+		resolved.g = mixChannel(resolved.g, tex.g, textureInfluence);
+		resolved.b = mixChannel(resolved.b, tex.b, textureInfluence);
+	}
+	if (isImageReadEnabled(_work)) {
+		const u8 dstInfluence = static_cast<u8>(16U + ((colorDSel ^ alphaDSel) & 0x1FU));
+		resolved.r = mixChannel(resolved.r, dst.r, dstInfluence);
+		resolved.g = mixChannel(resolved.g, dst.g, dstInfluence);
+		resolved.b = mixChannel(resolved.b, dst.b, dstInfluence);
+	}
+	const u8 textureDetailMode = decodeTextureDetailMode(_work);
+	if (textureDetailMode == 1U) {
+		const auto stretch = [](u8 _value) -> u8 {
+			const s32 expanded = 128 + ((static_cast<s32>(_value) - 128) * 3) / 2;
+			return clampU8FromS32(expanded);
+		};
+		resolved.r = stretch(resolved.r);
+		resolved.g = stretch(resolved.g);
+		resolved.b = stretch(resolved.b);
+	}
+	else if (textureDetailMode == 2U) {
+		resolved.r = mixChannel(resolved.r, tex.r, 48U);
+		resolved.g = mixChannel(resolved.g, tex.g, 48U);
+		resolved.b = mixChannel(resolved.b, tex.b, 48U);
+	}
+	else if (textureDetailMode == 3U) {
+		resolved.r = mixChannel(resolved.r, noise.r, 40U);
+		resolved.g = mixChannel(resolved.g, noise.g, 40U);
+		resolved.b = mixChannel(resolved.b, noise.b, 40U);
+	}
 	if (isCombineKeyEnabled(_work)) {
 		const u32 laneShift = static_cast<u32>((_x + _y) & 0x7U) * 8U;
 		const u8 keyMix = static_cast<u8>((_work.keyState >> laneShift) & 0xFFULL);
@@ -1090,28 +1175,6 @@ inline u32 applySyntheticCombiner(
 	if (isConvertOneEnabled(_work))
 		resolved.a = 255U;
 	return packRGBA(resolved);
-}
-
-inline u32 applySyntheticCombiner(
-	const rvk2::RenderWorkPacket & _work,
-	u32 _textureColor,
-	u32 _shadeColor,
-	u32 _baseColor,
-	u32 _dstColor,
-	u32 _x,
-	u32 _y)
-{
-	return applySyntheticCombiner(
-		_work,
-		_work.combineMux,
-		_work.sourcePacketId,
-		_work.syncEpoch,
-		_textureColor,
-		_shadeColor,
-		_baseColor,
-		_dstColor,
-		_x,
-		_y);
 }
 
 inline u8 blendChannel(u8 _src, u8 _dst, u32 _srcWeight, u32 _dstWeight)
@@ -1754,7 +1817,8 @@ inline u32 runSyntheticCycle1Pipeline(
 		_baseColor,
 		_dstColor,
 		_x,
-		_y);
+		_y,
+		false);
 	return applySyntheticBlender(_work, combinedColor, _dstColor, _x, _y);
 }
 
@@ -1775,26 +1839,34 @@ inline u32 runSyntheticPhasePipeline(
 	if (phase != static_cast<u8>(rvk2::RenderPhase::kCycle2))
 		return runSyntheticCycle1Pipeline(_work, _textureColor, _shadeColor, _baseColor, _dstColor, _x, _y);
 
-	const u32 cycle1Color =
-		runSyntheticCycle1Pipeline(_work, _textureColor, _shadeColor, _baseColor, _dstColor, _x, _y);
-	const u64 stage2CombineMux = rotateLeft64(_work.combineMux ^ 0xA5A5A5A55A5A5A5AULL, 11U);
-	const u64 stage2SourcePacketId = _work.sourcePacketId ^ 0x9E3779B97F4A7C15ULL;
-	const u32 stage2SyncEpoch = _work.syncEpoch ^ 0x00A5A5A5U;
-	const u32 stage2BlendParams = rotateLeft32(_work.blendParams ^ 0x5A5AA5A5U, 7U);
+	const u32 cycle1CombinedColor = applySyntheticCombiner(
+		_work,
+		_textureColor,
+		_shadeColor,
+		_baseColor,
+		_dstColor,
+		_x,
+		_y,
+		false);
+	const u32 cycle1Color = applySyntheticBlender(
+		_work,
+		cycle1CombinedColor,
+		_dstColor,
+		_x,
+		_y,
+		false);
 	const u32 stage2CombinedColor = applySyntheticCombiner(
 		_work,
-		stage2CombineMux,
-		stage2SourcePacketId,
-		stage2SyncEpoch,
-		cycle1Color,
+		_textureColor,
 		_shadeColor,
-		cycle1Color,
+		cycle1CombinedColor,
 		cycle1Color,
 		_x,
-		_y);
+		_y,
+		true);
 	return applySyntheticBlender(
 		_work,
-		stage2BlendParams,
+		_work.blendParams,
 		stage2CombinedColor,
 		cycle1Color,
 		_x,
