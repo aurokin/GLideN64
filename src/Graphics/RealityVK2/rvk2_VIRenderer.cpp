@@ -32,7 +32,7 @@ struct VIResolvedState
 	u8 interlaceField = 0U;
 	u8 aaMode = 0U;
 	u8 viType = 0U;
-	u64 sourceBasePixelOffset = 0ULL;
+	u64 sourceBaseByteOffset = 0ULL;
 	u32 sourceLineStride = 0U;
 	u16 sourceWidth = 0U;
 	u16 sourceHeight = 0U;
@@ -285,6 +285,28 @@ u32 applyVITypeDecode(u32 _pixel, u8 _viType)
 		| static_cast<u32>(a);
 }
 
+u8 lumaFromPixel(u32 _pixel)
+{
+	const u32 r = (_pixel >> 24U) & 0xFFU;
+	const u32 g = (_pixel >> 16U) & 0xFFU;
+	const u32 b = (_pixel >> 8U) & 0xFFU;
+	return static_cast<u8>((r * 77U + g * 150U + b * 29U + 128U) >> 8U);
+}
+
+u32 bytesPerPixelFromSurfaceSize(u8 _size)
+{
+	switch (_size & 0x3U) {
+	case 0U:
+		return 0U;
+	case 1U:
+		return 1U;
+	case 2U:
+		return 2U;
+	default:
+		return 4U;
+	}
+}
+
 u32 deriveOutputWidthFromRegisters(const rvk2::VIRegisterState & _registers)
 {
 	const u32 hStart = (_registers.hStart >> 16U) & 0x3FFU;
@@ -395,11 +417,8 @@ VIResolvedState resolveVIState(
 	if (_input.sourceAddressValid) {
 		const u32 baseAddress = _input.sourceAddress & 0x00FFFFFFU;
 		const u32 originAddress = _input.registers.origin & 0x00FFFFFFU;
-		if (originAddress >= baseAddress) {
-			const u32 bytesPerPixel = state.viType == kVIType16Bpp ? 2U : 4U;
-			if (bytesPerPixel != 0U)
-				state.sourceBasePixelOffset = static_cast<u64>(originAddress - baseAddress) / bytesPerPixel;
-		}
+		if (originAddress >= baseAddress)
+			state.sourceBaseByteOffset = static_cast<u64>(originAddress - baseAddress);
 	}
 
 	state.outputWidth = clampU32(
@@ -530,6 +549,18 @@ VIFrameSummary VIRenderer::present(
 		viState.sourceLineStride != 0U
 			? viState.sourceLineStride
 			: static_cast<u32>(viState.sourceWidth);
+	const u32 viBytesPerPixel = viState.viType == kVIType16Bpp ? 2U : 4U;
+	u32 sourceBytesPerPixel = bytesPerPixelFromSurfaceSize(_input.sourceSize);
+	if (sourceBytesPerPixel == 0U)
+		sourceBytesPerPixel = viBytesPerPixel;
+	if (sourceBytesPerPixel == 0U) {
+		summary.rejectReason = kVIRejectInvalidResolvedOutput;
+		return summary;
+	}
+	const u64 sourceLineStrideBytes =
+		static_cast<u64>(sourceLineStride) * static_cast<u64>(viBytesPerPixel);
+	const u64 sourceLineStrideSamples =
+		std::max<u64>(1ULL, sourceLineStrideBytes / static_cast<u64>(sourceBytesPerPixel));
 
 	u64 hash = kFnvOffset;
 	for (u32 y = 0U; y < outputHeight; ++y) {
@@ -568,10 +599,12 @@ VIFrameSummary VIRenderer::present(
 					sourceX = sampleXFP >> 10U;
 					sourceY = sampleYFP >> 10U;
 					if (sampleValid) {
+						const u64 linearByteOffset =
+							viState.sourceBaseByteOffset
+							+ static_cast<u64>(sourceY) * sourceLineStrideBytes
+							+ static_cast<u64>(sourceX) * static_cast<u64>(viBytesPerPixel);
 						const u64 linearOffset =
-							viState.sourceBasePixelOffset
-							+ static_cast<u64>(sourceY) * static_cast<u64>(sourceLineStride)
-							+ static_cast<u64>(sourceX);
+							linearByteOffset / static_cast<u64>(sourceBytesPerPixel);
 						if (linearOffset >= sourcePixelCount)
 							sampleValid = false;
 						else
@@ -596,6 +629,8 @@ VIFrameSummary VIRenderer::present(
 					pixel = applyVITypeDecode(
 						(*_input.sourcePixels)[static_cast<size_t>(sampleIndex)],
 						viState.viType);
+					++summary.sourceSampleCount;
+					summary.sourceLumaSum += static_cast<u64>(lumaFromPixel(pixel));
 					const bool deditherActive =
 						viState.deditherEnabled
 						&& viState.viType == kVIType16Bpp
@@ -613,7 +648,7 @@ VIFrameSummary VIRenderer::present(
 						u64 downRightIndex = sampleIndex;
 
 						if (viState.useRegisters) {
-							const u64 stride64 = static_cast<u64>(sourceLineStride);
+							const u64 stride64 = sourceLineStrideSamples;
 							const bool hasLeft = sourceX > 0U && sampleIndex > 0ULL;
 							const bool hasRight =
 								sourceX + 1U < sourceLineStride
@@ -705,11 +740,16 @@ VIFrameSummary VIRenderer::present(
 							pixel = applyDivotToPixel(leftPixel, pixel, rightPixel);
 					}
 				}
+				else
+					++summary.sourceInvalidSampleCount;
 			}
 			if (viState.gammaDitherEnabled)
 				pixel = applyGammaDitherToPixel(pixel, x, y);
 			if (viState.gammaEnabled)
 				pixel = applyGammaToPixel(pixel);
+			summary.outputLumaSum += static_cast<u64>(lumaFromPixel(pixel));
+			if ((pixel & 0x00FFFFFFU) != 0U)
+				++summary.outputNonBlackCount;
 			if (_outputPixels != nullptr)
 				(*_outputPixels)[pixelIndex(outputWidth, x, y)] = pixel;
 			updateHashByte(hash, static_cast<u8>((pixel >> 0U) & 0xFFU));

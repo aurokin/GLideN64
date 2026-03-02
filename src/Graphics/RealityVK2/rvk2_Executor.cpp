@@ -961,6 +961,8 @@ inline u32 samplePseudoTexelColor(
 	u32 _y)
 {
 	applyTextureCoordinateModes(_work, _s, _t, _w, _includeW);
+	if (gActiveExecutorSummary != nullptr)
+		++gActiveExecutorSummary->textureSampleCount;
 	if (const rvk2::TextureReplacementImage * replacement =
 			findTextureReplacementImage(_work, _s, _t, _w, _includeW)) {
 		return rvk2::sampleTextureReplacementImage(*replacement, _s, _t);
@@ -978,10 +980,17 @@ inline u32 samplePseudoTexelColor(
 	u32 rdramColor = 0U;
 	bool needsLUT = false;
 	if (sampleTextureFromRdram(_work, _s, _t, rdramColor, needsLUT)) {
+		if (gActiveExecutorSummary != nullptr) {
+			++gActiveExecutorSummary->textureRdramSampleCount;
+			if (needsLUT)
+				++gActiveExecutorSummary->textureLUTApproxSampleCount;
+		}
 		if (needsLUT)
 			rdramColor = applyTextureLUTModeColor(_work, seed, rdramColor);
 		return applyTextureDetailModeColor(_work, seed, rdramColor);
 	}
+	if (gActiveExecutorSummary != nullptr)
+		++gActiveExecutorSummary->textureSyntheticSampleCount;
 
 	seed *= 0x9E3779B97F4A7C15ULL;
 	const u8 r = static_cast<u8>((seed >> 8) & 0xFFU);
@@ -1081,6 +1090,22 @@ inline u32 bitsPerPixelFromSurfaceSize(u8 _size)
 
 constexpr size_t kExecutorSurfaceHistoryLimit = 6U;
 
+bool expectedSurfaceSizeFromVIStatus(const rvk2::ExecutorConfig & _config, u8 & _outSurfaceSize)
+{
+	if (!_config.viRegistersValid)
+		return false;
+	const u8 viType = static_cast<u8>(_config.viStatus & 0x3U);
+	if (viType == 2U) {
+		_outSurfaceSize = 2U;
+		return true;
+	}
+	if (viType == 3U) {
+		_outSurfaceSize = 3U;
+		return true;
+	}
+	return false;
+}
+
 template <typename SurfaceT>
 bool originMatchesSurfaceRange(
 	u32 _surfaceAddress,
@@ -1107,11 +1132,14 @@ bool chooseSurfaceForVIOriginGeneric(
 	const SurfaceMapT & _surfaces,
 	u32 _viOriginAddress,
 	u32 & _outSurfaceAddress,
-	bool & _outExactMatch)
+	bool & _outExactMatch,
+	bool _preferSurfaceSize,
+	u8 _preferredSurfaceSize)
 {
 	_outExactMatch = false;
 	u32 bestAddress = 0U;
 	u32 bestDelta = std::numeric_limits<u32>::max();
+	bool bestSizeMatch = false;
 	bool found = false;
 	for (const auto & entry : _surfaces) {
 		const u32 surfaceAddress = entry.first;
@@ -1119,11 +1147,16 @@ bool chooseSurfaceForVIOriginGeneric(
 		bool exactMatch = false;
 		if (!originMatchesSurfaceRange(surfaceAddress, surface, _viOriginAddress, exactMatch))
 			continue;
+		const bool sizeMatch =
+			!_preferSurfaceSize || ((surface.size & 0x3U) == (_preferredSurfaceSize & 0x3U));
 		const u32 delta = _viOriginAddress - surfaceAddress;
-		if (!found || delta < bestDelta) {
+		if (!found
+			|| (sizeMatch && !bestSizeMatch)
+			|| (sizeMatch == bestSizeMatch && delta < bestDelta)) {
 			found = true;
 			bestDelta = delta;
 			bestAddress = surfaceAddress;
+			bestSizeMatch = sizeMatch;
 			_outExactMatch = exactMatch;
 		}
 	}
@@ -1137,26 +1170,34 @@ bool chooseSurfaceForVIOrigin(
 	const std::unordered_map<u32, ColorSurface> & _surfaces,
 	u32 _viOriginAddress,
 	u32 & _outSurfaceAddress,
-	bool & _outExactMatch)
+	bool & _outExactMatch,
+	bool _preferSurfaceSize = false,
+	u8 _preferredSurfaceSize = 0U)
 {
 	return chooseSurfaceForVIOriginGeneric(
 		_surfaces,
 		_viOriginAddress,
 		_outSurfaceAddress,
-		_outExactMatch);
+		_outExactMatch,
+		_preferSurfaceSize,
+		_preferredSurfaceSize);
 }
 
 bool chooseHistorySurfaceForVIOrigin(
 	const std::unordered_map<u32, rvk2::ExecutorCachedSurface> & _surfaces,
 	u32 _viOriginAddress,
 	u32 & _outSurfaceAddress,
-	bool & _outExactMatch)
+	bool & _outExactMatch,
+	bool _preferSurfaceSize = false,
+	u8 _preferredSurfaceSize = 0U)
 {
 	return chooseSurfaceForVIOriginGeneric(
 		_surfaces,
 		_viOriginAddress,
 		_outSurfaceAddress,
-		_outExactMatch);
+		_outExactMatch,
+		_preferSurfaceSize,
+		_preferredSurfaceSize);
 }
 
 bool chooseMostWrittenSurfaceAddress(
@@ -1379,6 +1420,14 @@ inline u32 packRGBA(const ColorRGBA & _color)
 		| static_cast<u32>(_color.a);
 }
 
+inline u8 lumaFromRGBA(u32 _rgba)
+{
+	const u32 r = (_rgba >> 24U) & 0xFFU;
+	const u32 g = (_rgba >> 16U) & 0xFFU;
+	const u32 b = (_rgba >> 8U) & 0xFFU;
+	return static_cast<u8>((r * 77U + g * 150U + b * 29U + 128U) >> 8U);
+}
+
 inline u8 clampU8FromS32(s32 _value)
 {
 	if (_value < 0)
@@ -1458,147 +1507,141 @@ inline u64 packCombinerCycleSelectors(const CombinerCycleSelectors & _selectors)
 
 struct CombinerColorInputs
 {
-	u8 combined = 0U;
-	u8 texel0 = 0U;
-	u8 texel1 = 0U;
-	u8 primitive = 0U;
-	u8 shade = 0U;
-	u8 environment = 0U;
-	u8 center = 0U;
-	u8 scale = 0U;
-	u8 combinedAlpha = 0U;
-	u8 texel0Alpha = 0U;
-	u8 texel1Alpha = 0U;
-	u8 primitiveAlpha = 0U;
-	u8 shadeAlpha = 0U;
-	u8 environmentAlpha = 0U;
-	u8 lodFraction = 0U;
-	u8 primLodFrac = 0U;
-	u8 noise = 0U;
-	u8 k4 = 0U;
-	u8 k5 = 0U;
-	u8 one = 255U;
-	u8 zero = 0U;
+	s32 combined = 0;
+	s32 texel0 = 0;
+	s32 texel1 = 0;
+	s32 primitive = 0;
+	s32 shade = 0;
+	s32 environment = 0;
+	s32 center = 0;
+	s32 scale = 0;
+	s32 combinedAlpha = 0;
+	s32 texel0Alpha = 0;
+	s32 texel1Alpha = 0;
+	s32 primitiveAlpha = 0;
+	s32 shadeAlpha = 0;
+	s32 environmentAlpha = 0;
+	s32 lodFraction = 0;
+	s32 primLodFrac = 0;
+	s32 noise = 0;
+	s32 k4 = 0;
+	s32 k5 = 0;
+	s32 one = 256;
+	s32 zero = 0;
 };
 
 struct CombinerAlphaInputs
 {
-	u8 combined = 0U;
-	u8 texel0 = 0U;
-	u8 texel1 = 0U;
-	u8 primitive = 0U;
-	u8 shade = 0U;
-	u8 environment = 0U;
-	u8 primLodFrac = 0U;
-	u8 one = 255U;
-	u8 zero = 0U;
+	s32 combined = 0;
+	s32 texel0 = 0;
+	s32 texel1 = 0;
+	s32 primitive = 0;
+	s32 shade = 0;
+	s32 environment = 0;
+	s32 lodFraction = 0;
+	s32 primLodFrac = 0;
+	s32 one = 256;
+	s32 zero = 0;
 };
 
-inline u8 selectSyntheticCombinerColorInput(
-	u8 _selector,
-	const CombinerColorInputs & _in)
+inline s32 selectCombinerColorInputA(u8 _selector, const CombinerColorInputs & _in)
+{
+	switch (_selector & 0xFU) {
+	case 0U: return _in.combined;
+	case 1U: return _in.texel0;
+	case 2U: return _in.texel1;
+	case 3U: return _in.primitive;
+	case 4U: return _in.shade;
+	case 5U: return _in.environment;
+	case 6U: return _in.one;
+	case 7U: return _in.noise;
+	default: return _in.zero;
+	}
+}
+
+inline s32 selectCombinerColorInputB(u8 _selector, const CombinerColorInputs & _in)
+{
+	switch (_selector & 0xFU) {
+	case 0U: return _in.combined;
+	case 1U: return _in.texel0;
+	case 2U: return _in.texel1;
+	case 3U: return _in.primitive;
+	case 4U: return _in.shade;
+	case 5U: return _in.environment;
+	case 6U: return _in.center;
+	case 7U: return _in.k4;
+	default: return _in.zero;
+	}
+}
+
+inline s32 selectCombinerColorInputC(u8 _selector, const CombinerColorInputs & _in)
 {
 	switch (_selector & 0x1FU) {
-	case 0U:
-		return _in.combined;
-	case 1U:
-		return _in.texel0;
-	case 2U:
-		return _in.texel1;
-	case 3U:
-		return _in.primitive;
-	case 4U:
-		return _in.shade;
-	case 5U:
-		return _in.environment;
-	case 6U:
-		return _in.one;
-	case 7U:
-		return _in.combinedAlpha;
-	case 8U:
-		return _in.texel0Alpha;
-	case 9U:
-		return _in.texel1Alpha;
-	case 10U:
-		return _in.primitiveAlpha;
-	case 11U:
-		return _in.shadeAlpha;
-	case 12U:
-		return _in.environmentAlpha;
-	case 13U:
-		return _in.lodFraction;
-	case 14U:
-		return _in.primLodFrac;
-	case 15U:
-		return _in.k5;
-	case 16U:
-		return _in.noise;
-	case 17U:
-		return _in.k4;
-	case 18U:
-		return _in.k5;
-	case 19U:
-		return _in.one;
-	case 20U:
-		return _in.zero;
-	case 31U:
-		return _in.zero;
-	default:
-		return static_cast<u8>(_in.noise ^ _in.center ^ _in.scale);
+	case 0U: return _in.combined;
+	case 1U: return _in.texel0;
+	case 2U: return _in.texel1;
+	case 3U: return _in.primitive;
+	case 4U: return _in.shade;
+	case 5U: return _in.environment;
+	case 6U: return _in.scale;
+	case 7U: return _in.combinedAlpha;
+	case 8U: return _in.texel0Alpha;
+	case 9U: return _in.texel1Alpha;
+	case 10U: return _in.primitiveAlpha;
+	case 11U: return _in.shadeAlpha;
+	case 12U: return _in.environmentAlpha;
+	case 13U: return _in.lodFraction;
+	case 14U: return _in.primLodFrac;
+	case 15U: return _in.k5;
+	default: return _in.zero;
 	}
 }
 
-inline u8 selectSyntheticCombinerAlphaInput(
-	u8 _selector,
-	const CombinerAlphaInputs & _in)
+inline s32 selectCombinerColorInputD(u8 _selector, const CombinerColorInputs & _in)
 {
 	switch (_selector & 0x7U) {
-	case 0U:
-		return _in.combined;
-	case 1U:
-		return _in.texel0;
-	case 2U:
-		return _in.texel1;
-	case 3U:
-		return _in.primitive;
-	case 4U:
-		return _in.shade;
-	case 5U:
-		return _in.environment;
-	case 6U:
-		return _in.primLodFrac;
-	default:
-		return _in.zero;
+	case 0U: return _in.combined;
+	case 1U: return _in.texel0;
+	case 2U: return _in.texel1;
+	case 3U: return _in.primitive;
+	case 4U: return _in.shade;
+	case 5U: return _in.environment;
+	case 6U: return _in.one;
+	default: return _in.zero;
 	}
 }
 
-inline u8 evalSyntheticCombinerColorChannel(
-	u8 _aSel,
-	u8 _bSel,
-	u8 _cSel,
-	u8 _dSel,
-	const CombinerColorInputs & _in)
+inline s32 selectCombinerAlphaInputABorD(u8 _selector, const CombinerAlphaInputs & _in)
 {
-	const s32 a = static_cast<s32>(selectSyntheticCombinerColorInput(_aSel, _in));
-	const s32 b = static_cast<s32>(selectSyntheticCombinerColorInput(_bSel, _in));
-	const s32 c = static_cast<s32>(selectSyntheticCombinerColorInput(_cSel, _in));
-	const s32 d = static_cast<s32>(selectSyntheticCombinerColorInput(_dSel, _in));
-	const s32 value = ((a - b) * c + 127) / 255 + d;
-	return clampU8FromS32(value);
+	switch (_selector & 0x7U) {
+	case 0U: return _in.combined;
+	case 1U: return _in.texel0;
+	case 2U: return _in.texel1;
+	case 3U: return _in.primitive;
+	case 4U: return _in.shade;
+	case 5U: return _in.environment;
+	case 6U: return _in.one;
+	default: return _in.zero;
+	}
 }
 
-inline u8 evalSyntheticCombinerAlphaChannel(
-	u8 _aSel,
-	u8 _bSel,
-	u8 _cSel,
-	u8 _dSel,
-	const CombinerAlphaInputs & _in)
+inline s32 selectCombinerAlphaInputC(u8 _selector, const CombinerAlphaInputs & _in)
 {
-	const s32 a = static_cast<s32>(selectSyntheticCombinerAlphaInput(_aSel, _in));
-	const s32 b = static_cast<s32>(selectSyntheticCombinerAlphaInput(_bSel, _in));
-	const s32 c = static_cast<s32>(selectSyntheticCombinerAlphaInput(_cSel, _in));
-	const s32 d = static_cast<s32>(selectSyntheticCombinerAlphaInput(_dSel, _in));
-	const s32 value = ((a - b) * c + 127) / 255 + d;
+	switch (_selector & 0x7U) {
+	case 0U: return _in.lodFraction;
+	case 1U: return _in.texel0;
+	case 2U: return _in.texel1;
+	case 3U: return _in.primitive;
+	case 4U: return _in.shade;
+	case 5U: return _in.environment;
+	case 6U: return _in.primLodFrac;
+	default: return _in.zero;
+	}
+}
+
+inline u8 evalCombinerEquation(s32 _a, s32 _b, s32 _c, s32 _d)
+{
+	const s32 value = (((_a - _b) * _c + 128) >> 8) + _d;
 	return clampU8FromS32(value);
 }
 
@@ -1612,78 +1655,32 @@ inline u32 applySyntheticCombiner(
 	u32 _y,
 	bool _cycle2Selectors = false)
 {
+	(void)_dstColor;
+	const bool useCycle2Selectors =
+		_cycle2Selectors
+		|| _work.phase == static_cast<u8>(rvk2::RenderPhase::kCycle1);
 	const CombinerCycleSelectors selectors = decodeCombinerCycleSelectors(
 		_work.combineMux,
-		_cycle2Selectors && _work.phase == static_cast<u8>(rvk2::RenderPhase::kCycle2));
-	const u64 selectorWord = packCombinerCycleSelectors(selectors);
+		useCycle2Selectors);
 	const ColorRGBA tex = unpackRGBA(_textureColor);
 	const ColorRGBA shade = unpackRGBA(_shadeColor);
-	const ColorRGBA base = unpackRGBA(_baseColor);
-	const ColorRGBA dst = unpackRGBA(_dstColor);
+	const ColorRGBA combined = unpackRGBA(_baseColor);
 	const ColorRGBA prim = unpackRGBA(_work.primColor);
 	const ColorRGBA env = unpackRGBA(_work.envColor);
-	const ColorRGBA blend = unpackRGBA(_work.blendColor);
-	const ColorRGBA fog = unpackRGBA(_work.fogColor);
 
-	u64 noiseSeed = selectorWord;
+	u64 noiseSeed = _work.combineMux;
 	noiseSeed ^= _work.sourcePacketId << 9U;
 	noiseSeed ^= static_cast<u64>(_x) << 33U;
 	noiseSeed ^= static_cast<u64>(_y) << 45U;
 	noiseSeed ^= static_cast<u64>(_work.syncEpoch) << 17U;
-	noiseSeed ^= _work.otherModes;
-	noiseSeed ^= _work.keyState;
-	noiseSeed ^= _work.convertState;
-	noiseSeed ^= static_cast<u64>(_work.primColor) << 5U;
-	noiseSeed ^= static_cast<u64>(_work.envColor) << 11U;
-	noiseSeed ^= static_cast<u64>(_work.blendColor) << 19U;
-	noiseSeed ^= static_cast<u64>(_work.fogColor) << 27U;
+	noiseSeed ^= _work.otherModes ^ _work.keyState ^ _work.convertState;
 	noiseSeed *= 0xD6E8FEB86659FD93ULL;
-
-	const ColorRGBA muxConstant{
-		static_cast<u8>((selectorWord >> 0U) & 0xFFU),
-		static_cast<u8>((selectorWord >> 8U) & 0xFFU),
-		static_cast<u8>((selectorWord >> 16U) & 0xFFU),
-		static_cast<u8>((selectorWord >> 24U) & 0xFFU)
-	};
-	auto selectStateColor = [&](u8 _selector, u8 _channelIndex) -> u8 {
-		switch (_selector & 0x3U) {
-		case 0U:
-			return _channelIndex == 0U ? prim.r : (_channelIndex == 1U ? prim.g : (_channelIndex == 2U ? prim.b : prim.a));
-		case 1U:
-			return _channelIndex == 0U ? env.r : (_channelIndex == 1U ? env.g : (_channelIndex == 2U ? env.b : env.a));
-		case 2U:
-			return _channelIndex == 0U ? blend.r : (_channelIndex == 1U ? blend.g : (_channelIndex == 2U ? blend.b : blend.a));
-		default:
-			return _channelIndex == 0U ? fog.r : (_channelIndex == 1U ? fog.g : (_channelIndex == 2U ? fog.b : fog.a));
-		}
-	};
-	const u64 modeSelectorWord = _work.otherModes ^ _work.keyState ^ (_work.convertState << 7U);
-	const u8 modeR = static_cast<u8>((modeSelectorWord >> 0U) & 0x3ULL);
-	const u8 modeG = static_cast<u8>((modeSelectorWord >> 2U) & 0x3ULL);
-	const u8 modeB = static_cast<u8>((modeSelectorWord >> 4U) & 0x3ULL);
-	const u8 modeA = static_cast<u8>((modeSelectorWord >> 6U) & 0x3ULL);
-	const u8 mixR = static_cast<u8>((_work.convertState >> 0U) & 0xFFULL);
-	const u8 mixG = static_cast<u8>((_work.convertState >> 8U) & 0xFFULL);
-	const u8 mixB = static_cast<u8>((_work.convertState >> 16U) & 0xFFULL);
-	const u8 mixA = static_cast<u8>((_work.convertState >> 24U) & 0xFFULL);
-	const auto blendConst = [](u8 _base, u8 _state, u8 _mix) -> u8 {
-		const u32 invMix = static_cast<u32>(255U - _mix);
-		const u32 value =
-			static_cast<u32>(_base) * invMix
-			+ static_cast<u32>(_state) * static_cast<u32>(_mix);
-		return static_cast<u8>((value + 127U) / 255U);
-	};
-	const ColorRGBA constant{
-		blendConst(muxConstant.r, selectStateColor(modeR, 0U), mixR),
-		blendConst(muxConstant.g, selectStateColor(modeG, 1U), mixG),
-		blendConst(muxConstant.b, selectStateColor(modeB, 2U), mixB),
-		blendConst(muxConstant.a, selectStateColor(modeA, 3U), mixA)
-	};
+	const s32 noiseInput = static_cast<s32>((((noiseSeed >> 8U) & 0x7ULL) << 6U) | 0x20ULL);
 	const ColorRGBA noise{
-		static_cast<u8>((noiseSeed >> 8U) & 0xFFU),
-		static_cast<u8>((noiseSeed >> 24U) & 0xFFU),
-		static_cast<u8>((noiseSeed >> 40U) & 0xFFU),
-		255U
+		static_cast<u8>(noiseInput & 0xFF),
+		static_cast<u8>(noiseInput & 0xFF),
+		static_cast<u8>(noiseInput & 0xFF),
+		static_cast<u8>(noiseInput & 0xFF)
 	};
 
 	const u8 colorASel = selectors.colorA;
@@ -1694,15 +1691,15 @@ inline u32 applySyntheticCombiner(
 	const u8 alphaBSel = selectors.alphaB;
 	const u8 alphaCSel = selectors.alphaC;
 	const u8 alphaDSel = selectors.alphaD;
-	const u8 lodFraction = laneByteFromDigest(_work.convertState, 0U);
-	const u8 primLodFrac = laneByteFromDigest(_work.convertState, 1U);
-	const u8 k4 = laneByteFromDigest(_work.convertState, 2U);
-	const u8 k5 = laneByteFromDigest(_work.convertState, 3U);
+	const u8 lodFraction = _work.primColorMinLevel;
+	const u8 primLodFrac = _work.primColorLodFrac;
+	const u8 k4 = clampU8FromS32(static_cast<s32>(_work.convertK4));
+	const u8 k5 = clampU8FromS32(static_cast<s32>(_work.convertK5));
 	const ColorRGBA texel1{
-		mixU8WithWeight(tex.r, env.r, 96U),
-		mixU8WithWeight(tex.g, env.g, 96U),
-		mixU8WithWeight(tex.b, env.b, 96U),
-		mixU8WithWeight(tex.a, env.a, 96U)
+		tex.r,
+		tex.g,
+		tex.b,
+		tex.a
 	};
 
 	const auto makeColorInputs = [&](
@@ -1712,10 +1709,9 @@ inline u32 applySyntheticCombiner(
 		u8 _primitive,
 		u8 _shade,
 		u8 _environment,
-		u8 _constant,
-		u8 _noise,
-		u8 _dst,
-		u8 _lane) -> CombinerColorInputs {
+		u8 _center,
+		u8 _scale,
+		u8 _noise) -> CombinerColorInputs {
 		CombinerColorInputs in{};
 		in.combined = _combined;
 		in.texel0 = _tex0;
@@ -1723,9 +1719,9 @@ inline u32 applySyntheticCombiner(
 		in.primitive = _primitive;
 		in.shade = _shade;
 		in.environment = _environment;
-		in.center = laneByteFromDigest(_work.keyState, _lane);
-		in.scale = laneByteFromDigest(_work.keyState, _lane + 3U);
-		in.combinedAlpha = base.a;
+		in.center = _center;
+		in.scale = _scale;
+		in.combinedAlpha = combined.a;
 		in.texel0Alpha = tex.a;
 		in.texel1Alpha = texel1.a;
 		in.primitiveAlpha = prim.a;
@@ -1736,96 +1732,56 @@ inline u32 applySyntheticCombiner(
 		in.noise = _noise;
 		in.k4 = k4;
 		in.k5 = k5;
-		in.one = 255U;
+		in.one = 256;
 		in.zero = 0U;
-		// Blend destination and constant term are folded in to preserve strong destination/constant sensitivity.
-		in.combined = mixU8WithWeight(in.combined, _dst, 28U);
-		in.primitive = mixU8WithWeight(in.primitive, _constant, 20U);
 		return in;
 	};
 
-	const auto makeAlphaInputs = [&](u8 _noise) -> CombinerAlphaInputs {
+	const auto makeAlphaInputs = [&]() -> CombinerAlphaInputs {
 		CombinerAlphaInputs in{};
-		in.combined = base.a;
+		in.combined = combined.a;
 		in.texel0 = tex.a;
 		in.texel1 = texel1.a;
 		in.primitive = prim.a;
 		in.shade = shade.a;
 		in.environment = env.a;
-		in.primLodFrac = primLodFrac ^ _noise;
-		in.one = 255U;
+		in.lodFraction = lodFraction;
+		in.primLodFrac = primLodFrac;
+		in.one = 256;
 		in.zero = 0U;
 		return in;
 	};
 	const CombinerColorInputs colorInputsR =
-		makeColorInputs(base.r, tex.r, texel1.r, prim.r, shade.r, env.r, constant.r, noise.r, dst.r, 0U);
+		makeColorInputs(combined.r, tex.r, texel1.r, prim.r, shade.r, env.r, _work.keyCenterR, _work.keyScaleR, noise.r);
 	const CombinerColorInputs colorInputsG =
-		makeColorInputs(base.g, tex.g, texel1.g, prim.g, shade.g, env.g, constant.g, noise.g, dst.g, 1U);
+		makeColorInputs(combined.g, tex.g, texel1.g, prim.g, shade.g, env.g, _work.keyCenterG, _work.keyScaleG, noise.g);
 	const CombinerColorInputs colorInputsB =
-		makeColorInputs(base.b, tex.b, texel1.b, prim.b, shade.b, env.b, constant.b, noise.b, dst.b, 2U);
-	const CombinerAlphaInputs alphaInputs = makeAlphaInputs(noise.a);
+		makeColorInputs(combined.b, tex.b, texel1.b, prim.b, shade.b, env.b, _work.keyCenterB, _work.keyScaleB, noise.b);
+	const CombinerAlphaInputs alphaInputs = makeAlphaInputs();
 
 	const ColorRGBA out{
-		evalSyntheticCombinerColorChannel(colorASel, colorBSel, colorCSel, colorDSel, colorInputsR),
-		evalSyntheticCombinerColorChannel(colorASel, colorBSel, colorCSel, colorDSel, colorInputsG),
-		evalSyntheticCombinerColorChannel(colorASel, colorBSel, colorCSel, colorDSel, colorInputsB),
-		evalSyntheticCombinerAlphaChannel(alphaASel, alphaBSel, alphaCSel, alphaDSel, alphaInputs)
+		evalCombinerEquation(
+			selectCombinerColorInputA(colorASel, colorInputsR),
+			selectCombinerColorInputB(colorBSel, colorInputsR),
+			selectCombinerColorInputC(colorCSel, colorInputsR),
+			selectCombinerColorInputD(colorDSel, colorInputsR)),
+		evalCombinerEquation(
+			selectCombinerColorInputA(colorASel, colorInputsG),
+			selectCombinerColorInputB(colorBSel, colorInputsG),
+			selectCombinerColorInputC(colorCSel, colorInputsG),
+			selectCombinerColorInputD(colorDSel, colorInputsG)),
+		evalCombinerEquation(
+			selectCombinerColorInputA(colorASel, colorInputsB),
+			selectCombinerColorInputB(colorBSel, colorInputsB),
+			selectCombinerColorInputC(colorCSel, colorInputsB),
+			selectCombinerColorInputD(colorDSel, colorInputsB)),
+		evalCombinerEquation(
+			selectCombinerAlphaInputABorD(alphaASel, alphaInputs),
+			selectCombinerAlphaInputABorD(alphaBSel, alphaInputs),
+			selectCombinerAlphaInputC(alphaCSel, alphaInputs),
+			selectCombinerAlphaInputABorD(alphaDSel, alphaInputs))
 	};
-	ColorRGBA resolved = out;
-	if (_work.textured) {
-		const u8 textureInfluence = static_cast<u8>(24U + ((colorASel ^ colorCSel) & 0x1FU));
-		resolved.r = mixU8WithWeight(resolved.r, tex.r, textureInfluence);
-		resolved.g = mixU8WithWeight(resolved.g, tex.g, textureInfluence);
-		resolved.b = mixU8WithWeight(resolved.b, tex.b, textureInfluence);
-	}
-	if (isImageReadEnabled(_work)) {
-		const u8 dstInfluence = static_cast<u8>(16U + ((colorDSel ^ alphaDSel) & 0x1FU));
-		resolved.r = mixU8WithWeight(resolved.r, dst.r, dstInfluence);
-		resolved.g = mixU8WithWeight(resolved.g, dst.g, dstInfluence);
-		resolved.b = mixU8WithWeight(resolved.b, dst.b, dstInfluence);
-	}
-	const u8 textureDetailMode = decodeTextureDetailMode(_work);
-	if (textureDetailMode == 1U) {
-		const auto stretch = [](u8 _value) -> u8 {
-			const s32 expanded = 128 + ((static_cast<s32>(_value) - 128) * 3) / 2;
-			return clampU8FromS32(expanded);
-		};
-		resolved.r = stretch(resolved.r);
-		resolved.g = stretch(resolved.g);
-		resolved.b = stretch(resolved.b);
-	}
-	else if (textureDetailMode == 2U) {
-		resolved.r = mixU8WithWeight(resolved.r, tex.r, 48U);
-		resolved.g = mixU8WithWeight(resolved.g, tex.g, 48U);
-		resolved.b = mixU8WithWeight(resolved.b, tex.b, 48U);
-	}
-	else if (textureDetailMode == 3U) {
-		resolved.r = mixU8WithWeight(resolved.r, noise.r, 40U);
-		resolved.g = mixU8WithWeight(resolved.g, noise.g, 40U);
-		resolved.b = mixU8WithWeight(resolved.b, noise.b, 40U);
-	}
-	if (isCombineKeyEnabled(_work)) {
-		const u32 laneShift = static_cast<u32>((_x + _y) & 0x7U) * 8U;
-		const u8 keyMix = static_cast<u8>((_work.keyState >> laneShift) & 0xFFULL);
-		resolved.a = static_cast<u8>(
-			(static_cast<u32>(resolved.a) * static_cast<u32>(keyMix) + 127U) / 255U);
-		const u8 invMix = static_cast<u8>(255U - keyMix);
-		resolved.r = static_cast<u8>(
-			(static_cast<u32>(resolved.r) * static_cast<u32>(invMix)
-				+ static_cast<u32>(keyMix) * static_cast<u32>(noise.r)
-				+ 127U) / 255U);
-		resolved.g = static_cast<u8>(
-			(static_cast<u32>(resolved.g) * static_cast<u32>(invMix)
-				+ static_cast<u32>(keyMix) * static_cast<u32>(noise.g)
-				+ 127U) / 255U);
-		resolved.b = static_cast<u8>(
-			(static_cast<u32>(resolved.b) * static_cast<u32>(invMix)
-				+ static_cast<u32>(keyMix) * static_cast<u32>(noise.b)
-				+ 127U) / 255U);
-	}
-	if (isConvertOneEnabled(_work))
-		resolved.a = 255U;
-	return packRGBA(resolved);
+	return packRGBA(out);
 }
 
 inline u8 blendChannel(u8 _src, u8 _dst, u32 _srcWeight, u32 _dstWeight)
@@ -1956,122 +1912,67 @@ inline u32 applySyntheticBlender(
 	u32 _y,
 	bool _cycle2Selectors = false)
 {
+	(void)_blendParams;
 	ColorRGBA src = unpackRGBA(_srcColor);
 	const ColorRGBA dst = unpackRGBA(_dstColor);
 	const ColorRGBA blendState = unpackRGBA(_work.blendColor);
 	const ColorRGBA fogState = unpackRGBA(_work.fogColor);
-	const ColorRGBA primState = unpackRGBA(_work.primColor);
-
-	u32 srcWeight = static_cast<u32>(_blendParams & 0xFFU);
-	u32 dstWeight = static_cast<u32>((_blendParams >> 8U) & 0xFFU);
-	const u32 alphaScale = static_cast<u32>((_blendParams >> 16U) & 0xFFU) + 1U;
-	const u32 coverageBias = static_cast<u32>((_blendParams >> 24U) & 0xFFU);
-	const u32 modeLo = static_cast<u32>(_work.otherModes & 0xFFFFFFFFULL);
-	srcWeight += modeLo & 0xFU;
-	dstWeight += (modeLo >> 4U) & 0xFU;
-	const u32 modeAlphaScale = ((modeLo >> 8U) & 0x1FU) + 1U;
-	const u32 modulatedAlphaScale = std::min<u32>(alphaScale * modeAlphaScale, 1024U);
-	const u32 dynamicCoverageBias = coverageBias ^ static_cast<u32>(_work.keyState & 0xFFULL);
-	const u8 tintMix = static_cast<u8>((_work.convertState >> 16U) & 0xFFULL);
-	const u8 fogMix = static_cast<u8>((_work.convertState >> 24U) & 0x7FULL);
-	const auto mixChannel = [](u8 _base, u8 _target, u8 _mix) -> u8 {
-		const u32 invMix = static_cast<u32>(255U - _mix);
-		const u32 value =
-			static_cast<u32>(_base) * invMix
-			+ static_cast<u32>(_target) * static_cast<u32>(_mix);
-		return static_cast<u8>((value + 127U) / 255U);
-	};
-	src.r = mixChannel(src.r, blendState.r, tintMix);
-	src.g = mixChannel(src.g, blendState.g, tintMix);
-	src.b = mixChannel(src.b, blendState.b, tintMix);
-	src.a = mixChannel(src.a, primState.a, tintMix);
-	src.r = mixChannel(src.r, fogState.r, fogMix);
-	src.g = mixChannel(src.g, fogState.g, fogMix);
-	src.b = mixChannel(src.b, fogState.b, fogMix);
-
-	const bool pipelineMode = isPipelineModeEnabled(_work);
 	const bool aaEnable = isAAEnabled(_work);
 	const BlendMuxSelectors selectors = decodeBlendMuxSelectors(
 		_work,
 		_cycle2Selectors && _work.phase == static_cast<u8>(rvk2::RenderPhase::kCycle2));
-	const auto selectColorSource = [pipelineMode](
+	const auto selectColorSource = [](
 		u8 _selector,
 		u8 _src,
 		u8 _dst,
 		u8 _blend,
-		u8 _fog,
-		u8 _prim) -> u8 {
+		u8 _fog) -> u8 {
 		switch (_selector & 0x3U) {
-		case 0U:
-			return _src;
-		case 1U:
-			return _dst;
-		case 2U:
-			return _blend;
-		default:
-			return pipelineMode ? _prim : _fog;
+		case 0U: return _src;
+		case 1U: return _dst;
+		case 2U: return _blend;
+		default: return _fog;
 		}
 	};
-	const auto selectAlphaSource = [pipelineMode](
+	const auto selectAlphaA = [](
 		u8 _selector,
 		u8 _srcA,
-		u8 _dstA,
-		u8 _blendA,
-		u8 _fogA,
-		u8 _primA) -> u8 {
+		u8 _fogA) -> u8 {
 		switch (_selector & 0x3U) {
-		case 0U:
-			return _srcA;
-		case 1U:
-			return _dstA;
-		case 2U:
-			return _blendA;
-		default:
-			return pipelineMode ? _primA : _fogA;
+		case 0U: return _srcA; // combiner alpha
+		case 1U: return _fogA; // fog alpha
+		case 2U: return _srcA; // shade alpha input is approximated by combiner alpha
+		default: return 0U;
 		}
 	};
-	const auto mixQuarter = [](u8 _base, u8 _injected) -> u8 {
-		return static_cast<u8>(
-			(static_cast<u32>(_base) * 3U + static_cast<u32>(_injected) + 2U) / 4U);
+	const auto selectAlphaB = [](
+		u8 _selector,
+		u8 _alphaA,
+		u8 _memoryCoverage) -> u8 {
+		switch (_selector & 0x3U) {
+		case 0U: return static_cast<u8>(255U - _alphaA); // 1.0 - A
+		case 1U: return _memoryCoverage; // framebuffer coverage (approximated by stored alpha)
+		case 2U: return 255U; // 1.0
+		default: return 0U;   // 0.0
+		}
 	};
-	const ColorRGBA srcSelectorColor{
-		selectColorSource(selectors.m1b, src.r, dst.r, blendState.r, fogState.r, primState.r),
-		selectColorSource(selectors.m1b, src.g, dst.g, blendState.g, fogState.g, primState.g),
-		selectColorSource(selectors.m1b, src.b, dst.b, blendState.b, fogState.b, primState.b),
-		selectColorSource(selectors.m1b, src.a, dst.a, blendState.a, fogState.a, primState.a)
+	const ColorRGBA p{
+		selectColorSource(selectors.m1a, src.r, dst.r, blendState.r, fogState.r),
+		selectColorSource(selectors.m1a, src.g, dst.g, blendState.g, fogState.g),
+		selectColorSource(selectors.m1a, src.b, dst.b, blendState.b, fogState.b),
+		src.a
 	};
-	const ColorRGBA dstSelectorColor{
-		selectColorSource(selectors.m2b, src.r, dst.r, blendState.r, fogState.r, primState.r),
-		selectColorSource(selectors.m2b, src.g, dst.g, blendState.g, fogState.g, primState.g),
-		selectColorSource(selectors.m2b, src.b, dst.b, blendState.b, fogState.b, primState.b),
-		selectColorSource(selectors.m2b, src.a, dst.a, blendState.a, fogState.a, primState.a)
+	const ColorRGBA m{
+		selectColorSource(selectors.m2a, src.r, dst.r, blendState.r, fogState.r),
+		selectColorSource(selectors.m2a, src.g, dst.g, blendState.g, fogState.g),
+		selectColorSource(selectors.m2a, src.b, dst.b, blendState.b, fogState.b),
+		dst.a
 	};
-	const u8 srcSelectorAlpha = selectAlphaSource(
-		selectors.m1a,
+	const u8 alphaA = selectAlphaA(
+		selectors.m1b,
 		src.a,
-		dst.a,
-		blendState.a,
-		fogState.a,
-		primState.a);
-	const u8 dstSelectorAlpha = selectAlphaSource(
-		selectors.m2a,
-		src.a,
-		dst.a,
-		blendState.a,
-		fogState.a,
-		primState.a);
-	src.r = mixQuarter(src.r, srcSelectorColor.r);
-	src.g = mixQuarter(src.g, srcSelectorColor.g);
-	src.b = mixQuarter(src.b, srcSelectorColor.b);
-	src.a = mixQuarter(src.a, srcSelectorAlpha);
-	ColorRGBA dstResolved{
-		mixQuarter(dst.r, dstSelectorColor.r),
-		mixQuarter(dst.g, dstSelectorColor.g),
-		mixQuarter(dst.b, dstSelectorColor.b),
-		mixQuarter(dst.a, dstSelectorAlpha)
-	};
-	srcWeight += static_cast<u32>(srcSelectorAlpha >> 4U);
-	dstWeight += static_cast<u32>(dstSelectorAlpha >> 4U);
+		fogState.a);
+	const u8 alphaB = selectAlphaB(selectors.m2b, alphaA, dst.a);
 
 	const bool useCoverageControls =
 		_work.colorOnCvg
@@ -2081,73 +1982,33 @@ inline u32 applySyntheticBlender(
 		|| _work.cvgDest != 0U
 		|| _work.blendMask != 0U;
 	const SyntheticCoverageSample coverage = useCoverageControls
-		? evaluateSyntheticCoverage(_work, src.a, dstResolved.a, _x, _y)
+		? evaluateSyntheticCoverage(_work, src.a, dst.a, _x, _y)
 		: SyntheticCoverageSample{};
-	if (useCoverageControls && _work.cvgXAlpha) {
-		const u32 coverageAlphaScale =
-			(static_cast<u32>(coverage.resolved) * 255U + 3U) / 7U;
-		src.a = static_cast<u8>(
-			(static_cast<u32>(src.a) * coverageAlphaScale + 127U) / 255U);
+	ColorRGBA out = p;
+	const bool blendEnabled = _work.forceBlender || aaEnable;
+	if (blendEnabled) {
+		const u32 a = static_cast<u32>(alphaA);
+		const u32 b = static_cast<u32>(alphaB);
+		const u32 denom = aaEnable && !_work.forceBlender ? std::max<u32>(1U, a + b) : 255U;
+		const auto blendChannelResolved = [&](u8 _p, u8 _m) -> u8 {
+			const u32 numer =
+				static_cast<u32>(_p) * a
+				+ static_cast<u32>(_m) * b;
+			return static_cast<u8>((numer + (denom / 2U)) / denom);
+		};
+		out.r = blendChannelResolved(p.r, m.r);
+		out.g = blendChannelResolved(p.g, m.g);
+		out.b = blendChannelResolved(p.b, m.b);
 	}
+	out.a = src.a;
 
-	if (srcWeight == 0U && dstWeight == 0U)
-		srcWeight = 255U;
-
-	const u32 srcAlpha = static_cast<u32>(src.a) + 1U;
-	srcWeight = (srcWeight * srcAlpha * modulatedAlphaScale + 32767U) / (256U * 256U);
-	dstWeight = (dstWeight * (256U - srcAlpha) + 127U) / 256U;
-
-	if (useCoverageControls) {
-		const u32 srcCoverageScale = aaEnable ? 20U : 12U;
-		const u32 dstCoverageScale = aaEnable ? 12U : 6U;
-		srcWeight += static_cast<u32>(coverage.resolved) * srcCoverageScale;
-		dstWeight += static_cast<u32>(7U - coverage.resolved) * dstCoverageScale;
-		if (pipelineMode) {
-			srcWeight += static_cast<u32>(coverage.input) * 2U;
-			dstWeight += static_cast<u32>(coverage.destination);
-		}
-		srcWeight += static_cast<u32>(_work.blendMask & 0x3U);
-		dstWeight += static_cast<u32>((_work.blendMask >> 2U) & 0x3U);
-		if (_work.forceBlender) {
-			srcWeight += 8U;
-			dstWeight += 8U;
-		}
-	}
-
-	if ((_blendParams & 0x80000000U) != 0U) {
-		const u32 coverage = (static_cast<u32>(_x) * 29U + static_cast<u32>(_y) * 17U + dynamicCoverageBias) & 0xFFU;
-		srcWeight += coverage >> 4U;
-		dstWeight += (255U - coverage) >> 4U;
-	}
-	if (srcWeight == 0U && dstWeight == 0U)
-		srcWeight = 1U;
-
-	ColorRGBA out{};
-	out.r = blendChannel(src.r, dstResolved.r, srcWeight, dstWeight);
-	out.g = blendChannel(src.g, dstResolved.g, srcWeight, dstWeight);
-	out.b = blendChannel(src.b, dstResolved.b, srcWeight, dstWeight);
-	out.a = blendChannel(src.a, dstResolved.a, srcWeight, dstWeight);
 	if (useCoverageControls && _work.alphaCvgSel)
 		out.a = static_cast<u8>((static_cast<u32>(coverage.resolved) * 255U + 3U) / 7U);
-	if (useCoverageControls && aaEnable) {
+	else if (useCoverageControls && _work.cvgXAlpha) {
 		const u8 coverageAlpha = static_cast<u8>(
 			(static_cast<u32>(coverage.resolved) * 255U + 3U) / 7U);
 		out.a = static_cast<u8>(
-			(static_cast<u32>(out.a) * 3U + static_cast<u32>(coverageAlpha) + 2U) / 4U);
-	}
-	if (pipelineMode) {
-		out.r = mixChannel(out.r, primState.r, 24U);
-		out.g = mixChannel(out.g, primState.g, 24U);
-		out.b = mixChannel(out.b, primState.b, 24U);
-	}
-	if (useCoverageControls && !aaEnable) {
-		const auto quantizeCoverageLane = [](u8 _value) -> u8 {
-			const u32 lane = (static_cast<u32>(_value) * 7U + 127U) / 255U;
-			return static_cast<u8>((lane * 255U + 3U) / 7U);
-		};
-		out.r = quantizeCoverageLane(out.r);
-		out.g = quantizeCoverageLane(out.g);
-		out.b = quantizeCoverageLane(out.b);
+			(static_cast<u32>(out.a) * static_cast<u32>(coverageAlpha) + 127U) / 255U);
 	}
 
 	const u8 colorDitherMode = decodeColorDitherMode(_work);
@@ -2209,15 +2070,13 @@ inline bool passesSyntheticAlphaCompare(
 		|| _work.phase == static_cast<u8>(rvk2::RenderPhase::kFill))
 		return true;
 
-	if (_work.alphaCompare == 0U)
+	const bool alphaCompareEnable = (_work.alphaCompare & 0x1U) != 0U;
+	if (!alphaCompareEnable)
 		return true;
 
 	const u8 alpha = static_cast<u8>(_pixel & 0xFFU);
-	if (_work.alphaCompare == 1U) {
-		const u8 threshold = static_cast<u8>(_work.blendColor & 0xFFU);
-		return alpha >= threshold;
-	}
-	if (_work.alphaCompare == 2U) {
+	const bool ditherAlphaEnable = (_work.alphaCompare & 0x2U) != 0U;
+	if (ditherAlphaEnable) {
 		const u8 threshold = static_cast<u8>(
 			(static_cast<u32>(_x) * 17U
 				+ static_cast<u32>(_y) * 29U
@@ -2226,7 +2085,8 @@ inline bool passesSyntheticAlphaCompare(
 			& 0xFFU);
 		return alpha >= threshold;
 	}
-	return alpha != 0U;
+	const u8 threshold = static_cast<u8>(_work.blendColor & 0xFFU);
+	return alpha >= threshold;
 }
 
 inline bool passesSyntheticCoverageWrite(
@@ -2596,6 +2456,7 @@ void writeRect(
 				if (!passesSyntheticCoverageWrite(_work, rgba, coverageDestinationColor, x, y))
 					continue;
 				_surface.pixels[colorIdx] = encodeSurfaceColor(rgba, _work.colorImageSize);
+				_summary.outputLumaSum += static_cast<u64>(lumaFromRGBA(rgba));
 				++_summary.colorWriteCount;
 		}
 	}
@@ -2698,6 +2559,7 @@ void writeTriangle(
 			}
 
 			_surface.pixels[colorIdx] = encodeSurfaceColor(rgba, _work.colorImageSize);
+			_summary.outputLumaSum += static_cast<u64>(lumaFromRGBA(rgba));
 			++_summary.colorWriteCount;
 		}
 	}
@@ -2940,9 +2802,18 @@ ExecutorOutput Executor::executeWithOutput(
 	bool viOriginMatchedSurface = false;
 	if (m_config.viRegistersValid) {
 		const u32 viOriginAddress = m_config.viOrigin & 0x00FFFFFFU;
+		u8 preferredSurfaceSize = 0U;
+		const bool preferSurfaceSize =
+			expectedSurfaceSizeFromVIStatus(m_config, preferredSurfaceSize);
 		u32 matchedSurfaceAddress = presentSurfaceAddress;
 		bool exactMatch = false;
-		if (chooseSurfaceForVIOrigin(surfaces, viOriginAddress, matchedSurfaceAddress, exactMatch)) {
+		if (chooseSurfaceForVIOrigin(
+				surfaces,
+				viOriginAddress,
+				matchedSurfaceAddress,
+				exactMatch,
+				preferSurfaceSize,
+				preferredSurfaceSize)) {
 			presentSurfaceAddress = matchedSurfaceAddress;
 			viOriginMatchedSurface = true;
 			summary.presentSelectionReason =
@@ -2957,7 +2828,9 @@ ExecutorOutput Executor::executeWithOutput(
 					m_surfaceHistory,
 					viOriginAddress,
 					historyMatchedAddress,
-					historyExact)) {
+					historyExact,
+					preferSurfaceSize,
+					preferredSurfaceSize)) {
 				presentSurfaceAddress = historyMatchedAddress;
 				summary.presentSelectionReason =
 					historyExact
@@ -2998,11 +2871,15 @@ ExecutorOutput Executor::executeWithOutput(
 		summary.selectedPresentSurfaceWorkCount = historyIt->second.workCount;
 
 	if (it != surfaces.end()) {
+		summary.selectedPresentSurfaceWidth = it->second.width;
+		summary.selectedPresentSurfaceHeight = it->second.height;
+		summary.selectedPresentSurfaceSize = it->second.size;
 		VIFrameInput presentInput{};
 		presentInput.sourceAddressValid = viOriginMatchedSurface;
 		presentInput.sourceAddress = presentSurfaceAddress;
 		presentInput.sourceWidth = it->second.width;
 		presentInput.sourceHeight = it->second.height;
+		presentInput.sourceSize = it->second.size;
 		presentInput.sourcePixels = &it->second.pixels;
 		presentInput.registers.valid = m_config.viRegistersValid;
 		presentInput.registers.status = m_config.viStatus;
@@ -3024,6 +2901,11 @@ ExecutorOutput Executor::executeWithOutput(
 		summary.viResolvedOutputWidth = viSummary.resolvedOutputWidth;
 		summary.viResolvedOutputHeight = viSummary.resolvedOutputHeight;
 		summary.viResolvedLineStride = viSummary.resolvedLineStride;
+		summary.viSourceSampleCount = viSummary.sourceSampleCount;
+		summary.viSourceInvalidSampleCount = viSummary.sourceInvalidSampleCount;
+		summary.viSourceLumaSum = viSummary.sourceLumaSum;
+		summary.viOutputLumaSum = viSummary.outputLumaSum;
+		summary.viOutputNonBlackCount = viSummary.outputNonBlackCount;
 		summary.viResolvedType = viSummary.resolvedType;
 		summary.viResolvedUsesRegisters = viSummary.usesRegisters;
 		output.presentFrame.width = viSummary.presentWidth;
@@ -3041,6 +2923,9 @@ ExecutorOutput Executor::executeWithOutput(
 	}
 	else if (historyIt != m_surfaceHistory.end()) {
 		const ExecutorCachedSurface & cached = historyIt->second;
+		summary.selectedPresentSurfaceWidth = cached.width;
+		summary.selectedPresentSurfaceHeight = cached.height;
+		summary.selectedPresentSurfaceSize = cached.size;
 		bool cacheExactMatch = false;
 		const bool cacheOriginMatch =
 			m_config.viRegistersValid
@@ -3059,6 +2944,7 @@ ExecutorOutput Executor::executeWithOutput(
 		presentInput.sourceAddress = cached.address;
 		presentInput.sourceWidth = cached.width;
 		presentInput.sourceHeight = cached.height;
+		presentInput.sourceSize = cached.size;
 		presentInput.sourcePixels = &cached.pixels;
 		presentInput.registers.valid = m_config.viRegistersValid;
 		presentInput.registers.status = m_config.viStatus;
@@ -3080,6 +2966,11 @@ ExecutorOutput Executor::executeWithOutput(
 		summary.viResolvedOutputWidth = viSummary.resolvedOutputWidth;
 		summary.viResolvedOutputHeight = viSummary.resolvedOutputHeight;
 		summary.viResolvedLineStride = viSummary.resolvedLineStride;
+		summary.viSourceSampleCount = viSummary.sourceSampleCount;
+		summary.viSourceInvalidSampleCount = viSummary.sourceInvalidSampleCount;
+		summary.viSourceLumaSum = viSummary.sourceLumaSum;
+		summary.viOutputLumaSum = viSummary.outputLumaSum;
+		summary.viOutputNonBlackCount = viSummary.outputNonBlackCount;
 		summary.viResolvedType = viSummary.resolvedType;
 		summary.viResolvedUsesRegisters = viSummary.usesRegisters;
 		output.presentFrame.width = viSummary.presentWidth;
@@ -3088,6 +2979,9 @@ ExecutorOutput Executor::executeWithOutput(
 		m_lastSelectedSurface.lastTouched = frameStamp;
 	}
 	else if (m_lastSelectedSurface.valid) {
+		summary.selectedPresentSurfaceWidth = m_lastSelectedSurface.width;
+		summary.selectedPresentSurfaceHeight = m_lastSelectedSurface.height;
+		summary.selectedPresentSurfaceSize = m_lastSelectedSurface.size;
 		bool cacheExactMatch = false;
 		const bool cacheOriginMatch =
 			m_config.viRegistersValid
@@ -3114,6 +3008,7 @@ ExecutorOutput Executor::executeWithOutput(
 		presentInput.sourceAddress = m_lastSelectedSurface.address;
 		presentInput.sourceWidth = m_lastSelectedSurface.width;
 		presentInput.sourceHeight = m_lastSelectedSurface.height;
+		presentInput.sourceSize = m_lastSelectedSurface.size;
 		presentInput.sourcePixels = &m_lastSelectedSurface.pixels;
 		presentInput.registers.valid = m_config.viRegistersValid;
 		presentInput.registers.status = m_config.viStatus;
@@ -3135,6 +3030,11 @@ ExecutorOutput Executor::executeWithOutput(
 		summary.viResolvedOutputWidth = viSummary.resolvedOutputWidth;
 		summary.viResolvedOutputHeight = viSummary.resolvedOutputHeight;
 		summary.viResolvedLineStride = viSummary.resolvedLineStride;
+		summary.viSourceSampleCount = viSummary.sourceSampleCount;
+		summary.viSourceInvalidSampleCount = viSummary.sourceInvalidSampleCount;
+		summary.viSourceLumaSum = viSummary.sourceLumaSum;
+		summary.viOutputLumaSum = viSummary.outputLumaSum;
+		summary.viOutputNonBlackCount = viSummary.outputNonBlackCount;
 		summary.viResolvedType = viSummary.resolvedType;
 		summary.viResolvedUsesRegisters = viSummary.usesRegisters;
 		output.presentFrame.width = viSummary.presentWidth;

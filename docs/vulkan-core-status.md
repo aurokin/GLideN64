@@ -8,7 +8,7 @@
 - Comparison contract: upstream `GLideN64` reference vs local `RealityVK` candidate.
 - Trace contract: strict schema-v1 replay (`S=72`, `R=71`, `W=109`).
 - Texture replacement contract: `.hts` (`RKVHTS1`) only.
-- Current blocker: runtime output is still unstable (black/noise), now exposed after full cutover cleanup.
+- Current blocker: runtime output is now visible and parity-gated, but still dim/mismatched versus reference content.
 
 ## Roadmap Progress
 
@@ -25,8 +25,8 @@ Estimated total completion: **~99%**.
 
 ## Remaining Work
 
-1. Debug and fix RVK2 present output instability (black/noise), tracked in `docs/rvk2-image-bringup-plan.md`.
-2. Refresh maintained parity/trace fixtures after the strict single-path cleanup.
+1. Close remaining P4/P5 correctness gaps (combiner/blender/depth/coverage) after visible-output bring-up.
+2. Advance P3 from RDRAM decode bridge to authoritative TMEM-backed texel path.
 3. Remove any additional dead code found during output-debug pass.
 
 ## Cleanup Landed in This Sweep

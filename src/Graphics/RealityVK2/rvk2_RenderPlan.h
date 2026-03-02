@@ -108,6 +108,16 @@ struct RenderWorkPacket {
 	u32 envColor = 0U;
 	u32 blendColor = 0U;
 	u32 fogColor = 0U;
+	u8 primColorMinLevel = 0U;
+	u8 primColorLodFrac = 0U;
+	s16 convertK4 = 0;
+	s16 convertK5 = 0;
+	u8 keyCenterR = 0U;
+	u8 keyScaleR = 0U;
+	u8 keyCenterG = 0U;
+	u8 keyScaleG = 0U;
+	u8 keyCenterB = 0U;
+	u8 keyScaleB = 0U;
 	u64 keyState = 0ULL;
 	u64 convertState = 0ULL;
 	u8 scissorMode = 0U;

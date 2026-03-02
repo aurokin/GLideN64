@@ -40,6 +40,9 @@ struct VIFrameInput {
 	u32 sourceAddress = 0U;
 	u16 sourceWidth = 0U;
 	u16 sourceHeight = 0U;
+	u8 sourceSize = 0U;
+	u8 reserved0 = 0U;
+	u16 reserved1 = 0U;
 	const std::vector<u32> * sourcePixels = nullptr;
 	VIRegisterState registers{};
 };
@@ -57,6 +60,11 @@ struct VIFrameSummary {
 	u32 resolvedOutputWidth = 0U;
 	u32 resolvedOutputHeight = 0U;
 	u32 resolvedLineStride = 0U;
+	u64 sourceSampleCount = 0ULL;
+	u64 sourceInvalidSampleCount = 0ULL;
+	u64 sourceLumaSum = 0ULL;
+	u64 outputLumaSum = 0ULL;
+	u64 outputNonBlackCount = 0ULL;
 	u8 resolvedType = 0U;
 	u8 rejectReason = kVIRejectNone;
 	u8 usesRegisters = 0U;

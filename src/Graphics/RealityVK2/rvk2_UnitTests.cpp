@@ -1972,7 +1972,29 @@ void testExecutorPreviousSurfaceFallback()
 
 void testExecutorTriangleCoefficientConsumption()
 {
-	auto makeTriangleWork = []() -> rvk2::RenderWorkPacket {
+	auto makeCycle2CombinerMux = [](
+		u8 colorA,
+		u8 colorB,
+		u8 colorC,
+		u8 colorD,
+		u8 alphaA,
+		u8 alphaB,
+		u8 alphaC,
+		u8 alphaD) -> u64 {
+		u32 mode0 = 0U;
+		u32 mode1 = 0U;
+		mode0 |= (static_cast<u32>(colorA & 0xFU) << 5U);
+		mode0 |= static_cast<u32>(colorC & 0x1FU);
+		mode1 |= (static_cast<u32>(colorB & 0xFU) << 24U);
+		mode1 |= (static_cast<u32>(colorD & 0x7U) << 6U);
+		mode1 |= (static_cast<u32>(alphaA & 0x7U) << 21U);
+		mode1 |= (static_cast<u32>(alphaB & 0x7U) << 3U);
+		mode1 |= (static_cast<u32>(alphaC & 0x7U) << 18U);
+		mode1 |= static_cast<u32>(alphaD & 0x7U);
+		return (static_cast<u64>(mode0) << 32U) | static_cast<u64>(mode1);
+	};
+
+	auto makeTriangleWork = [&]() -> rvk2::RenderWorkPacket {
 		rvk2::RenderWorkPacket work{};
 		work.sourcePacketId = 1ULL;
 		work.sourceOpcode = 0x0FU;
@@ -2009,7 +2031,17 @@ void testExecutorTriangleCoefficientConsumption()
 		work.triangleShadeB = 0x6000;
 		work.triangleShadeA = 0xFF00;
 		work.triangleZ = 100;
-		work.combineMux = 0x1122334455667788ULL;
+		// 1-cycle mode uses the cycle-2 combiner configuration.
+		work.combineMux = makeCycle2CombinerMux(
+			4U, // A: SHADE
+			0U, // B: COMBINED (undefined first cycle in hardware)
+			6U, // C: 1
+			0U, // D: COMBINED (undefined first cycle in hardware)
+			4U, // alpha A: SHADE alpha
+			7U, // alpha B: 0
+			6U, // alpha C: 1
+			0U  // alpha D: COMBINED alpha
+		);
 		return work;
 	};
 
@@ -2043,6 +2075,16 @@ void testExecutorTriangleCoefficientConsumption()
 	rvk2::RenderWorkPacket texWorkA = nearWork;
 	texWorkA.textured = true;
 	texWorkA.triangleTextureEnable = true;
+	texWorkA.combineMux = makeCycle2CombinerMux(
+		1U, // A: TEX0
+		0U, // B: COMBINED
+		6U, // C: 1
+		0U, // D: COMBINED
+		1U, // alpha A: TEX0 alpha
+		7U, // alpha B: 0
+		6U, // alpha C: 1
+		0U  // alpha D: COMBINED alpha
+	);
 	texWorkA.triangleTexS = 0x01000000;
 	texWorkA.triangleTexT = 0x02000000;
 	texWorkA.triangleTexW = 0x00100000;

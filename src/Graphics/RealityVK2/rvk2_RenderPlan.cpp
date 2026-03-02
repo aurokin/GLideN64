@@ -228,6 +228,16 @@ RenderWorkPacket buildRenderWorkPacket(
 	work.envColor = packColorRGBA(_rdpState.envColor);
 	work.blendColor = packColorRGBA(_rdpState.blendColor);
 	work.fogColor = packColorRGBA(_rdpState.fogColor);
+	work.primColorMinLevel = _rdpState.primColorMinLevel;
+	work.primColorLodFrac = _rdpState.primColorLodFrac;
+	work.convertK4 = _rdpState.convertK4;
+	work.convertK5 = _rdpState.convertK5;
+	work.keyCenterR = _rdpState.keyCenterR;
+	work.keyScaleR = _rdpState.keyScaleR;
+	work.keyCenterG = _rdpState.keyCenterG;
+	work.keyScaleG = _rdpState.keyScaleG;
+	work.keyCenterB = _rdpState.keyCenterB;
+	work.keyScaleB = _rdpState.keyScaleB;
 	work.keyState = buildKeyStateDigest(_rdpState);
 	work.convertState = buildConvertStateDigest(_rdpState);
 	work.scissorMode = _rdpState.scissorMode;

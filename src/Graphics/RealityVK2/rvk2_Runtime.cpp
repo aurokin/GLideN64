@@ -436,6 +436,16 @@ u64 hashRenderWorkPacket(const rvk2::RenderWorkPacket & _work)
 	updateHash(hash, _work.envColor);
 	updateHash(hash, _work.blendColor);
 	updateHash(hash, _work.fogColor);
+	updateHash(hash, _work.primColorMinLevel);
+	updateHash(hash, _work.primColorLodFrac);
+	updateHash(hash, _work.convertK4);
+	updateHash(hash, _work.convertK5);
+	updateHash(hash, _work.keyCenterR);
+	updateHash(hash, _work.keyScaleR);
+	updateHash(hash, _work.keyCenterG);
+	updateHash(hash, _work.keyScaleG);
+	updateHash(hash, _work.keyCenterB);
+	updateHash(hash, _work.keyScaleB);
 	updateHash(hash, _work.keyState);
 	updateHash(hash, _work.convertState);
 	updateHash(hash, _work.scissorMode);
