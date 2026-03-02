@@ -25,6 +25,7 @@ By default, the gate runs:
 
 - Release CLI build (`MUPENPLUSAPI=ON`, `MUPENPLUSAPI_GLIDENUI=OFF`)
 - Debug CLI build (`MUPENPLUSAPI=ON`, `MUPENPLUSAPI_GLIDENUI=OFF`)
+- `rvk2_unit_tests` in both Release and Debug gate builds.
 
 ## Optional knobs
 
@@ -40,19 +41,37 @@ By default, the gate runs:
     - `REALITYVK_GATE_SMOKE_REQUIRE_DEPTH_BLIT_STATS=1` (default)
     - `REALITYVK_GATE_SMOKE_CAPTURE_DEPTH_SUMMARY=1` (default)
     - Candidate capture fails on depth blit failure markers; per-run depth summary JSON artifacts are emitted in parity run output.
+  - rvk2 packet replay validation is enabled by default in smoke mode:
+    - `REALITYVK_GATE_RVK2_TRACE_REPLAY=1` (default)
+    - Injects `REALITYVK2_PACKET_TRACE_FILE` for the parity run and validates it using `scripts/rvk2_packet_trace_replay.py`.
+    - Fails the gate if the trace file is missing or replay/hash checks fail.
+    - Writes JSON report to `build/local-gate/rvk2.packet.replay.json` by default.
 - `REALITYVK_GATE_JOBS=<n>` sets build parallelism.
+- `REALITYVK_GATE_RUN_RVK2_UNIT_TESTS=0` skips `rvk2_unit_tests` execution (debug-only escape hatch).
 - `REALITYVK_PM_REFERENCE_PLUGIN=<path>` overrides reference plugin path used by parity checks.
 - `REALITYVK_PM_CANDIDATE_PLUGIN=<path>` overrides candidate plugin path used by parity checks.
 - `REALITYVK_GATE_SMOKE_REQUIRE_READBACK_MARKER=0` disables marker enforcement (debug-only escape hatch).
 - `REALITYVK_GATE_SMOKE_REQUIRE_NO_DEPTH_BLIT_FAIL=0` disables strict depth-failure gate (debug-only escape hatch).
 - `REALITYVK_GATE_SMOKE_REQUIRE_DEPTH_BLIT_STATS=0` disables required depth stats marker check.
 - `REALITYVK_GATE_SMOKE_CAPTURE_DEPTH_SUMMARY=0` disables depth summary artifact generation.
+- `REALITYVK_GATE_RVK2_TRACE_REPLAY=0` disables rvk2 packet replay validation (debug-only escape hatch).
+- `REALITYVK_GATE_RVK2_TRACE_REPLAY_STRICT=1` treats replay warnings as gate failures.
+- `REALITYVK_GATE_RVK2_TRACE_REPLAY_JOBS=<n>` sets replay worker process count (`0` = auto/all cores).
+- `REALITYVK_GATE_RVK2_TRACE_FILE=<path>` overrides packet trace output file for replay checks.
+- `REALITYVK_GATE_RVK2_TRACE_REPORT_FILE=<path>` overrides replay JSON report path.
 
 Examples:
 
 ```bash
 REALITYVK_GATE_WITH_QT=1 ./scripts/local_gate.sh
 REALITYVK_GATE_WITH_SMOKE=1 ./scripts/local_gate.sh
+REALITYVK_GATE_WITH_SMOKE=1 REALITYVK_PM_VISUAL_GATE=0 ./scripts/local_gate.sh
+```
+
+Determinism utility:
+
+```bash
+./scripts/rvk2_trace_determinism.sh
 ```
 
 ## Smoke gate details

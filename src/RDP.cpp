@@ -10,6 +10,9 @@
 #include "Config.h"
 #include "DebugDump.h"
 #include "DisplayWindow.h"
+#include "Graphics/RealityVK2/rvk2_Runtime.h"
+#include "Graphics/RealityVK2/rvk2_RuntimeSwitch.h"
+#include "Graphics/RealityVK2/rvk2_TraceOutput.h"
 
 void RDP_Unknown( u32 w0, u32 w1 )
 {
@@ -568,6 +571,22 @@ inline u32 READ_RDP_DATA(u32 address)
 		return rdram[(address & 0xffffff)>>2];
 }
 
+namespace {
+
+constexpr u64 kRvk2FnvOffset = 1469598103934665603ULL;
+constexpr u64 kRvk2FnvPrime = 1099511628211ULL;
+constexpr u32 kRvk2MaxCapturedExtraWords = 6U;
+
+inline void hashWord(u64 & _hash, u32 _word)
+{
+	for (u32 shift = 0U; shift < 32U; shift += 8U) {
+		_hash ^= static_cast<u8>((_word >> shift) & 0xFFU);
+		_hash *= kRvk2FnvPrime;
+	}
+}
+
+} // namespace
+
 void RDP_ProcessRDPList()
 {
 	if (ConfigOpen || dwnd().isResizeWindow()) {
@@ -580,6 +599,12 @@ void RDP_ProcessRDPList()
 
 	if (dp_end <= dp_current) return;
 
+	const u32 listStart = dp_current;
+	const bool captureRvk2Trace = rvk2::shouldCaptureRDPTrace();
+	const u64 rvk2FrameId = captureRvk2Trace ? rvk2::allocateTraceFrameId() : 0ULL;
+	if (captureRvk2Trace)
+		rvk2::runtime().beginFrame(rvk2FrameId);
+
 	RSP.LLE = true;
 
 	// load command data
@@ -589,16 +614,18 @@ void RDP_ProcessRDPList()
 	}
 
 	bool setZero = true;
+	u32 commandByteOffset = 0U;
 	while (RDP.cmd_cur != RDP.cmd_ptr) {
 		u32 cmd = (RDP.cmd_data[RDP.cmd_cur] >> 24) & 0x3f;
+		const u32 cmdLength = CmdLength[cmd];
 
-		if ((((RDP.cmd_ptr - RDP.cmd_cur)&maxCMDMask) * 4) < CmdLength[cmd]) {
+		if ((((RDP.cmd_ptr - RDP.cmd_cur)&maxCMDMask) * 4) < cmdLength) {
 			setZero = false;
 			break;
 		}
 
-		if (RDP.cmd_cur + CmdLength[cmd] / 4 > MAXCMD)
-			::memcpy(RDP.cmd_data + MAXCMD, RDP.cmd_data, CmdLength[cmd] - (MAXCMD - RDP.cmd_cur) * 4);
+		if (RDP.cmd_cur + cmdLength / 4 > MAXCMD)
+			::memcpy(RDP.cmd_data + MAXCMD, RDP.cmd_data, cmdLength - (MAXCMD - RDP.cmd_cur) * 4);
 
 		// execute the command
 		RDP.w0 = RDP.cmd_data[RDP.cmd_cur + 0];
@@ -609,10 +636,49 @@ void RDP_ProcessRDPList()
 #ifdef DEBUG_DUMP
 		DebugMsg(DEBUG_LOW, "CMD=0x%02lX W0=0x%08lX W1=0x%08lX\n", cmd, RDP.w0, RDP.w1);
 #endif
+		if (captureRvk2Trace) {
+			rvk2::CommandProvenance provenance{};
+			provenance.taskId = static_cast<u32>(rvk2FrameId);
+			provenance.microcode = static_cast<u16>(GBI.getMicrocodeType());
+			const u32 commandWords = cmdLength / 4U;
+			u8 extraWordCount = 0U;
+			if (commandWords > 2U) {
+				const u32 commandExtraWords = commandWords - 2U;
+				extraWordCount =
+					static_cast<u8>(commandExtraWords < kRvk2MaxCapturedExtraWords ? commandExtraWords : kRvk2MaxCapturedExtraWords);
+			}
+
+			const u32 w2 = commandWords > 2U ? RDP.cmd_data[RDP.cmd_cur + 2U] : 0U;
+			const u32 w3 = commandWords > 3U ? RDP.cmd_data[RDP.cmd_cur + 3U] : 0U;
+			const u32 w4 = commandWords > 4U ? RDP.cmd_data[RDP.cmd_cur + 4U] : 0U;
+			const u32 w5 = commandWords > 5U ? RDP.cmd_data[RDP.cmd_cur + 5U] : 0U;
+			const u32 w6 = commandWords > 6U ? RDP.cmd_data[RDP.cmd_cur + 6U] : 0U;
+			const u32 w7 = commandWords > 7U ? RDP.cmd_data[RDP.cmd_cur + 7U] : 0U;
+
+			u64 tailHash = kRvk2FnvOffset;
+			for (u32 wordIndex = 2U + extraWordCount; wordIndex < commandWords; ++wordIndex)
+				hashWord(tailHash, RDP.cmd_data[RDP.cmd_cur + wordIndex]);
+
+			rvk2::runtime().submitRDPWord(
+				listStart + commandByteOffset,
+				RDP.w0,
+				RDP.w1,
+				provenance,
+				extraWordCount,
+				w2,
+				w3,
+				w4,
+				w5,
+				w6,
+				w7,
+				static_cast<u16>(commandWords),
+				tailHash);
+		}
 		LLETriangle::get().flush(cmd);
 		LLEcmd[cmd](RDP.w0, RDP.w1);
 
-		RDP.cmd_cur = (RDP.cmd_cur + CmdLength[cmd] / 4) & maxCMDMask;
+		RDP.cmd_cur = (RDP.cmd_cur + cmdLength / 4) & maxCMDMask;
+		commandByteOffset += cmdLength;
 	}
 
 	if (setZero) {
@@ -622,6 +688,9 @@ void RDP_ProcessRDPList()
 
 	gDP.changed |= CHANGED_COLORBUFFER;
 	gDP.changed &= ~CHANGED_CPU_FB_WRITE;
+
+	if (captureRvk2Trace)
+		rvk2::emitCapturedFrameTrace(static_cast<u32>(GBI.getMicrocodeType()));
 
 	dp_current = dp_end;
 }

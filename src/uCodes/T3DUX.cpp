@@ -2,9 +2,12 @@
 #include "N64.h"
 #include "RSP.h"
 #include "RDP.h"
+#include "GBI.h"
 #include "gSP.h"
 #include "gDP.h"
 #include "DisplayWindow.h"
+#include "Graphics/RealityVK2/rvk2_Runtime.h"
+#include "Graphics/RealityVK2/rvk2_RuntimeSwitch.h"
 
 /******************T3DUX microcode*************************/
 
@@ -58,30 +61,61 @@ static u32 t32uxSetTileW0 = 0;
 static u32 t32uxSetTileW1 = 0;
 
 static
+bool shouldCaptureRvk2Trace()
+{
+	if (!rvk2::shouldCaptureRDPTrace())
+		return false;
+	return rvk2::runtime().commandStream().frameId() != 0ULL;
+}
+
+static
+void submitRvk2T3DUXRDPWord(u32 _address, u32 _w0, u32 _w1)
+{
+	rvk2::CommandProvenance provenance{};
+	provenance.taskId = static_cast<u32>(rvk2::runtime().commandStream().frameId());
+	provenance.microcode = static_cast<u16>(GBI.getMicrocodeType());
+	rvk2::runtime().submitRDPWord(_address, _w0, _w1, provenance);
+}
+
+static
+void submitRvk2T3DUXRSPWord(u32 _address, u32 _w0, u32 _w1)
+{
+	rvk2::CommandProvenance provenance{};
+	provenance.taskId = static_cast<u32>(rvk2::runtime().commandStream().frameId());
+	provenance.microcode = static_cast<u16>(GBI.getMicrocodeType());
+	rvk2::runtime().submitRSPWord(_address, _w0, _w1, provenance);
+}
+
+static
 void T3DUX_ProcessRDP(u32 _cmds)
 {
-	u32 addr = RSP_SegmentToPhysical(_cmds) >> 2;
+	u32 addr = RSP_SegmentToPhysical(_cmds);
 	if (addr != 0) {
 		RSP.LLE = true;
-		u32 w0 = ((u32*)RDRAM)[addr++];
-		u32 w1 = ((u32*)RDRAM)[addr++];
-		RSP.cmd = _SHIFTR( w0, 24, 8 );
-		while (w0 + w1 != 0) {
-			GBI.cmd[RSP.cmd]( w0, w1 );
-			w0 = ((u32*)RDRAM)[addr++];
-			w1 = ((u32*)RDRAM)[addr++];
+		const bool captureRvk2Trace = shouldCaptureRvk2Trace();
+		while (true) {
+			const u32 w0 = *(u32*)&RDRAM[addr];
+			const u32 w1 = *(u32*)&RDRAM[addr + 4];
 			RSP.cmd = _SHIFTR( w0, 24, 8 );
+			if (w0 + w1 == 0)
+				break;
 			switch (RSP.cmd) {
 			case G_TEXRECT:
 			case G_TEXRECTFLIP:
-				RDP.w2 = ((u32*)RDRAM)[addr++];
-				RDP.w3 = ((u32*)RDRAM)[addr++];
+				RDP.w2 = *(u32*)&RDRAM[addr + 8];
+				RDP.w3 = *(u32*)&RDRAM[addr + 12];
 				break;
 			case G_SETTILE:
 				t32uxSetTileW0 = w0;
 				t32uxSetTileW1 = w1;
 				break;
 			}
+			if (captureRvk2Trace)
+				submitRvk2T3DUXRDPWord(addr, w0, w1);
+			GBI.cmd[RSP.cmd]( w0, w1 );
+			addr += 8;
+			if (RSP.cmd == G_TEXRECT || RSP.cmd == G_TEXRECTFLIP)
+				addr += 8;
 		}
 		RSP.LLE = false;
 	}
@@ -212,13 +246,20 @@ void T3DUX_LoadObject(u32 pstate, u32 pvtx, u32 ptri, u32 pcol)
 
 void RunT3DUX()
 {
+	const bool captureRvk2Trace = shouldCaptureRvk2Trace();
 	while (true) {
-		u32 addr = RSP.PC[RSP.PCi] >> 2;
+		const u32 commandAddress = RSP.PC[RSP.PCi];
+		u32 addr = commandAddress >> 2;
 		const u32 pgstate = ((u32*)RDRAM)[addr++];
 		const u32 pstate = ((u32*)RDRAM)[addr++];
 		const u32 pvtx = ((u32*)RDRAM)[addr++];
 		const u32 ptri = ((u32*)RDRAM)[addr++];
 		const u32 pcol = ((u32*)RDRAM)[addr++];
+		if (captureRvk2Trace) {
+			submitRvk2T3DUXRSPWord(commandAddress, pgstate, pstate);
+			submitRvk2T3DUXRSPWord(commandAddress + 8U, pvtx, ptri);
+			submitRvk2T3DUXRSPWord(commandAddress + 16U, pcol, 0U);
+		}
 		//const u32 pstore = ((u32*)RDRAM)[addr];
 		if (pstate == 0) {
 			RSP.halt = true;

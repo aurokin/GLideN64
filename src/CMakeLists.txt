@@ -11,6 +11,7 @@ option(ANDROID "Set to ON if targeting an Android device" ${ANDROID})
 option(DEBUG_DUMP "Set to ON to enable debug dump" ${DEBUG_DUMP})
 option(NO_OSD "Set to ON to disable OSD text drawing" ${NO_OSD})
 option(USE_IPO "Enables IPO/LTO when supported" ON)
+option(REALITYVK_BUILD_RVK2_TESTS "Build RealityVK2 unit tests" ON)
 
 if(DEFINED REALITYVK_BUILD_LEGACY_RENDERER AND REALITYVK_BUILD_LEGACY_RENDERER)
   message(FATAL_ERROR "Vulkan-only branch: REALITYVK_BUILD_LEGACY_RENDERER is not supported.")
@@ -98,6 +99,21 @@ set(RealityVK_SOURCES
   Graphics/ContextFactory.cpp
   Graphics/ColorBufferReader.cpp
   Graphics/CombinerProgram.cpp
+  Graphics/RealityVK2/rvk2_CommandStream.cpp
+  Graphics/RealityVK2/rvk2_ContextImpl.cpp
+  Graphics/RealityVK2/rvk2_DrawSemantic.cpp
+  Graphics/RealityVK2/rvk2_Executor.cpp
+  Graphics/RealityVK2/rvk2_RasterPipeline.cpp
+  Graphics/RealityVK2/rvk2_RenderPlan.cpp
+  Graphics/RealityVK2/rvk2_RDPState.cpp
+  Graphics/RealityVK2/rvk2_RSPFrontend.cpp
+  Graphics/RealityVK2/rvk2_Runtime.cpp
+  Graphics/RealityVK2/rvk2_RuntimeSwitch.cpp
+  Graphics/RealityVK2/rvk2_SubmissionPlan.cpp
+  Graphics/RealityVK2/rvk2_TMEMModel.cpp
+  Graphics/RealityVK2/rvk2_TraceOutput.cpp
+  Graphics/RealityVK2/rvk2_Validation.cpp
+  Graphics/RealityVK2/rvk2_VIRenderer.cpp
   Graphics/ObjectHandle.cpp
   Graphics/Parameters.cpp
   Graphics/VulkanContext/vulkan_ContextImpl.cpp
@@ -517,6 +533,26 @@ if(USE_IPO AND REALITYVK_BUILD_TYPE STREQUAL "Release")
     set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -O3")
   endif()
 endif(USE_IPO AND REALITYVK_BUILD_TYPE STREQUAL "Release")
+
+if(REALITYVK_BUILD_RVK2_TESTS)
+	add_executable(rvk2_unit_tests
+		Graphics/RealityVK2/rvk2_UnitTests.cpp
+		Graphics/RealityVK2/rvk2_CommandStream.cpp
+		Graphics/RealityVK2/rvk2_DrawSemantic.cpp
+		Graphics/RealityVK2/rvk2_Executor.cpp
+		Graphics/RealityVK2/rvk2_RasterPipeline.cpp
+		Graphics/RealityVK2/rvk2_RenderPlan.cpp
+		Graphics/RealityVK2/rvk2_RDPState.cpp
+		Graphics/RealityVK2/rvk2_RSPFrontend.cpp
+		Graphics/RealityVK2/rvk2_Runtime.cpp
+		Graphics/RealityVK2/rvk2_SubmissionPlan.cpp
+		Graphics/RealityVK2/rvk2_TMEMModel.cpp
+		Graphics/RealityVK2/rvk2_VIRenderer.cpp
+	)
+	set_target_properties(rvk2_unit_tests PROPERTIES
+		RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+	)
+endif(REALITYVK_BUILD_RVK2_TESTS)
 
 if(REALITYVK_BUILD_TYPE STREQUAL "Debug")
   if(SDL)

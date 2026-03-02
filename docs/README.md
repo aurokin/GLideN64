@@ -1,42 +1,25 @@
 # Documentation Map
 
-This folder contains working docs for RealityVK Vulkan migration and parity work.
+This directory is intentionally compact. Treat the files below as canonical.
 
-## Start Here
+## Core Program Docs
 
-1. [Workflow](/home/auro/code/gliden64/WORKFLOW.md)
-2. [Parity Flow vs Upstream](/home/auro/code/gliden64/docs/realityvk-vs-upstream-flow.md)
-3. [Local Smoke Guide](/home/auro/code/gliden64/docs/local-smoke.md)
+1. [RealityVK2 Rebuild Plan](/home/auro/code/gliden64/docs/vulkan-core-rebuild-plan.md)
+2. [RealityVK2 Program Status](/home/auro/code/gliden64/docs/vulkan-core-status.md)
+3. [RealityVK2 ADR 0001](/home/auro/code/gliden64/docs/adr/0001-rvk2-schema-ownership.md)
+4. [RealityVK2 ADR 0002](/home/auro/code/gliden64/docs/adr/0002-rvk2-runtime-switch-policy.md)
 
-## Active Operations
+## Operating Docs
 
-- [Local Smoke Guide](/home/auro/code/gliden64/docs/local-smoke.md)
-  - Commands, env vars, capture behavior, and parity outputs.
-- [Local CI Guide](/home/auro/code/gliden64/docs/local-ci.md)
-  - Local gate/CI workflow.
-- [Upstream Flow and Roadmap](/home/auro/code/gliden64/docs/realityvk-vs-upstream-flow.md)
-  - Current metrics, implemented deltas, in-progress items, deferred batch.
-- [Vulkan Migration Plan](/home/auro/code/gliden64/docs/vulkan-migration-plan.md)
-  - Broader migration phases.
-- [Vulkan Backend Intent Map](/home/auro/code/gliden64/docs/vulkan-backend-intent.md)
-  - Module boundaries and agent-safe edit points tied to N64 semantics.
+1. [Local CI Gate](/home/auro/code/gliden64/docs/local-ci.md)
+2. [Local Smoke Guide](/home/auro/code/gliden64/docs/local-smoke.md)
+3. [Runtime Validation Checklist](/home/auro/code/gliden64/docs/n64-runtime-validation-checklist.md)
 
-## Runtime Validation and Test Planning
+## N64 References
 
-- [Runtime Validation Checklist](/home/auro/code/gliden64/docs/n64-runtime-validation-checklist.md)
-- [Video Core Bug Matrix](/home/auro/code/gliden64/docs/n64-video-core-bug-matrix.md)
-- [Runtime Validation Snapshot (2026-03-01)](/home/auro/code/gliden64/docs/archive/runtime-validation-2026-03-01.md)
-
-## References
-
-- [N64 References Index](/home/auro/code/gliden64/docs/references/n64/README.md)
-  - Programming manuals and architecture references used for parity analysis.
-
-## Archive
-
-- [runtime-validation-2026-03-01.md](/home/auro/code/gliden64/docs/archive/runtime-validation-2026-03-01.md)
+1. [N64 References Index](/home/auro/code/gliden64/docs/references/n64/README.md)
 
 ## Notes
 
-- Generated artifacts are disposable and live under `build/`.
-- Current practice is to keep only latest parity artifacts and cache references.
+1. Do not add new roadmap/checklist docs unless they cannot fit in the plan or status files.
+2. Generated artifacts belong under `build/`, not `docs/`.

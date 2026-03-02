@@ -22,10 +22,96 @@
 #include "Debugger.h"
 #include "RSP.h"
 #include "RDP.h"
+#include "GBI.h"
 #include "VI.h"
 #include "Log.h"
+#include "Graphics/RealityVK2/rvk2_Runtime.h"
+#include "Graphics/RealityVK2/rvk2_RuntimeSwitch.h"
+#include "Graphics/RealityVK2/rvk2_SyntheticTriangle.h"
 
 using namespace graphics;
+
+namespace {
+
+inline bool shouldSubmitRvk2SyntheticTriangle()
+{
+	if (!rvk2::shouldCaptureRDPTrace())
+		return false;
+	if (RSP.LLE)
+		return false;
+	return rvk2::runtime().commandStream().frameId() != 0ULL;
+}
+
+inline rvk2::CommandProvenance makeRvk2SyntheticTriangleProvenance()
+{
+	rvk2::CommandProvenance provenance{};
+	provenance.taskId = static_cast<u32>(rvk2::runtime().commandStream().frameId());
+	provenance.microcode = static_cast<u16>(GBI.getMicrocodeType());
+	return provenance;
+}
+
+inline u32 currentRvk2SyntheticTriangleAddress()
+{
+	const u32 pc = RSP.PC[RSP.PCi];
+	return pc >= 8U ? pc - 8U : pc;
+}
+
+inline void submitRvk2SyntheticTriangle(
+	const SPVertex & _v0,
+	const SPVertex & _v1,
+	const SPVertex & _v2)
+{
+	if (!shouldSubmitRvk2SyntheticTriangle())
+		return;
+
+	const bool textured = gSP.texture.on != 0U;
+	const bool depthTest =
+		gDP.otherMode.depthCompare != 0U
+		&& (((gSP.geometryMode & G_ZBUFFER) != 0U) || gDP.otherMode.depthSource == G_ZS_PRIM);
+	const bool shade = (gSP.geometryMode & G_SHADE) != 0U;
+	const u8 tile = static_cast<u8>(gSP.texture.tile & 0x7U);
+	const u8 level = static_cast<u8>(gSP.texture.level & 0x7U);
+	rvk2::synthetic_triangle::submit(
+		_v0,
+		_v1,
+		_v2,
+		shade,
+		textured,
+		depthTest,
+		tile,
+		level,
+		currentRvk2SyntheticTriangleAddress(),
+		makeRvk2SyntheticTriangleProvenance());
+}
+
+inline void submitRvk2SyntheticTriangles(const SPVertex * _vertices, u32 _numVtx, graphics::DrawModeParam _mode)
+{
+	if (_vertices == nullptr || _numVtx < 3U)
+		return;
+
+	if (_mode == graphics::drawmode::TRIANGLES) {
+		for (u32 i = 0U; i + 2U < _numVtx; i += 3U)
+			submitRvk2SyntheticTriangle(_vertices[i], _vertices[i + 1U], _vertices[i + 2U]);
+		return;
+	}
+
+	if (_mode == graphics::drawmode::TRIANGLE_STRIP) {
+		for (u32 i = 2U; i < _numVtx; ++i) {
+			if ((i & 1U) == 0U)
+				submitRvk2SyntheticTriangle(_vertices[i - 2U], _vertices[i - 1U], _vertices[i]);
+			else
+				submitRvk2SyntheticTriangle(_vertices[i - 1U], _vertices[i - 2U], _vertices[i]);
+		}
+		return;
+	}
+
+	if (_mode == graphics::drawmode::TRIANGLE_FAN) {
+		for (u32 i = 1U; i + 1U < _numVtx; ++i)
+			submitRvk2SyntheticTriangle(_vertices[0], _vertices[i], _vertices[i + 1U]);
+	}
+}
+
+} // namespace
 
 GraphicsDrawer::GraphicsDrawer()
 {
@@ -952,6 +1038,7 @@ void GraphicsDrawer::drawScreenSpaceTriangle(u32 _numVtx, graphics::DrawModePara
 	gSP.changed &= ~CHANGED_GEOMETRYMODE; // Don't update cull mode
 	_prepareDrawTriangle(DrawingState::ScreenSpaceTriangle);
 	gfxContext.enable(enable::CULL_FACE, false);
+	submitRvk2SyntheticTriangles(m_dmaVertices.data(), _numVtx, _mode);
 
 	Context::DrawTriangleParameters triParams;
 	triParams.mode = _mode;
@@ -994,6 +1081,7 @@ void GraphicsDrawer::drawDMATriangles(u32 _numVtx)
 	triParams.vertices = m_dmaVertices.data();
 	triParams.combiner = currentCombiner();
 	g_debugger.addTriangles(triParams);
+	submitRvk2SyntheticTriangles(m_dmaVertices.data(), _numVtx, drawmode::TRIANGLES);
 	m_dmaVerticesNum = 0;
 	m_statistics.drawnTris += _numVtx / 3;
 

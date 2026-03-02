@@ -8,7 +8,7 @@ namespace vulkan {
 
 	struct DrawPacket;
 
-	class ContextImpl final : public graphics::ContextImpl
+	class ContextImpl : public graphics::ContextImpl
 	{
 	public:
 		ContextImpl();

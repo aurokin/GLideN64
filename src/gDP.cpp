@@ -22,6 +22,8 @@
 #include "Performance.h"
 #include "DisplayWindow.h"
 #include <Graphics/Context.h>
+#include "Graphics/RealityVK2/rvk2_Runtime.h"
+#include "Graphics/RealityVK2/rvk2_RuntimeSwitch.h"
 
 using namespace std;
 
@@ -29,6 +31,97 @@ gDPInfo gDP;
 
 // angrylion's macro
 #define SIGN(x, numb)	(((x) & ((1 << numb) - 1)) | -((x) & (1 << (numb - 1))))
+
+namespace {
+
+inline bool shouldSubmitRvk2SyntheticRdp()
+{
+	if (!rvk2::shouldCaptureRDPTrace())
+		return false;
+	if (RSP.LLE)
+		return false;
+	return rvk2::runtime().commandStream().frameId() != 0ULL;
+}
+
+inline rvk2::CommandProvenance makeRvk2SyntheticProvenance()
+{
+	rvk2::CommandProvenance provenance{};
+	provenance.taskId = static_cast<u32>(rvk2::runtime().commandStream().frameId());
+	provenance.microcode = static_cast<u16>(GBI.getMicrocodeType());
+	return provenance;
+}
+
+inline u32 currentRvk2SyntheticAddress()
+{
+	const u32 pc = RSP.PC[RSP.PCi];
+	return pc >= 8U ? pc - 8U : pc;
+}
+
+inline void submitRvk2SyntheticRdp(
+	u32 _w0,
+	u32 _w1,
+	u8 _extraWordCount = 0U,
+	u32 _w2 = 0U,
+	u32 _w3 = 0U,
+	u16 _fullWordCount = 0U)
+{
+	if (!shouldSubmitRvk2SyntheticRdp())
+		return;
+
+	if (_fullWordCount == 0U)
+		_fullWordCount = static_cast<u16>(2U + _extraWordCount);
+
+	rvk2::runtime().submitRDPWord(
+		currentRvk2SyntheticAddress(),
+		_w0,
+		_w1,
+		makeRvk2SyntheticProvenance(),
+		_extraWordCount,
+		_w2,
+		_w3,
+		0U,
+		0U,
+		0U,
+		0U,
+		_fullWordCount);
+}
+
+inline u32 packRGBA(u32 _r, u32 _g, u32 _b, u32 _a)
+{
+	return ((_r & 0xFFU) << 24)
+		| ((_g & 0xFFU) << 16)
+		| ((_b & 0xFFU) << 8)
+		| (_a & 0xFFU);
+}
+
+inline u32 packTexRectCoord(f32 _coord)
+{
+	const s32 fixed = static_cast<s32>(std::lround(_coord * 4.0f));
+	return static_cast<u32>(fixed) & 0x0FFFU;
+}
+
+inline u32 packTexRectDelta(f32 _delta)
+{
+	const s32 fixed = static_cast<s32>(std::lround(_delta * 1024.0f));
+	return static_cast<u32>(static_cast<u16>(fixed));
+}
+
+inline void applyTileSizeState(u32 _tile, u32 _uls, u32 _ult, u32 _lrs, u32 _lrt)
+{
+	gDP.tiles[_tile].uls = _SHIFTR( _uls, 2, 10 );
+	gDP.tiles[_tile].ult = _SHIFTR( _ult, 2, 10 );
+	gDP.tiles[_tile].lrs = _SHIFTR( _lrs, 2, 10 );
+	gDP.tiles[_tile].lrt = _SHIFTR( _lrt, 2, 10 );
+
+	gDP.tiles[_tile].fuls = _FIXED2FLOAT( _uls, 2 );
+	gDP.tiles[_tile].fult = _FIXED2FLOAT( _ult, 2 );
+	gDP.tiles[_tile].flrs = _FIXED2FLOAT( _lrs, 2 );
+	gDP.tiles[_tile].flrt = _FIXED2FLOAT( _lrt, 2 );
+
+	gDP.changed |= CHANGED_TILE;
+}
+
+} // namespace
 
 bool isCurrentColorImageDepthImage()
 {
@@ -77,6 +170,9 @@ f32 calcShiftScaleT(const gDPTile & _tile, s16 * _t)
 
 void gDPSetOtherMode( u32 mode0, u32 mode1 )
 {
+	const u32 w0 = (0x2FU << 24) | (mode0 & 0x00FFFFFFU);
+	submitRvk2SyntheticRdp(w0, mode1);
+
 	gDP.otherMode.h = mode0;
 	gDP.otherMode.l = mode1;
 
@@ -111,6 +207,10 @@ void gDPSetOtherMode( u32 mode0, u32 mode1 )
 
 void gDPSetPrimDepth( u16 z, u16 dz )
 {
+	const u32 w0 = (0x2EU << 24);
+	const u32 w1 = (static_cast<u32>(z) << 16) | static_cast<u32>(dz);
+	submitRvk2SyntheticRdp(w0, w1);
+
 	gDP.primDepth.z = _FIXED2FLOAT(_SHIFTR(z, 0, 15), 15);
 	gDP.primDepth.deltaZ = _FIXED2FLOAT(_SHIFTR(dz, 0, 15), 15);
 	DebugMsg( DEBUG_NORMAL, "gDPSetPrimDepth( %f, %f );\n", gDP.primDepth.z, gDP.primDepth.deltaZ);
@@ -136,6 +236,9 @@ void gDPSetTextureLUT( u32 mode )
 
 void gDPSetCombine( u32 muxs0, u32 muxs1 )
 {
+	const u32 w0 = (0x3CU << 24) | (muxs0 & 0x00FFFFFFU);
+	submitRvk2SyntheticRdp(w0, muxs1);
+
 	gDP.combine.muxs0 = muxs0;
 	gDP.combine.muxs1 = muxs1;
 
@@ -167,6 +270,13 @@ void gDPSetCombine( u32 muxs0, u32 muxs1 )
 
 void gDPSetColorImage( u32 format, u32 size, u32 width, u32 address )
 {
+	const u32 packedWidth = width > 0U ? (width - 1U) : 0U;
+	const u32 w0 = (0x3FU << 24)
+		| ((format & 0x7U) << 21)
+		| ((size & 0x3U) << 19)
+		| (packedWidth & 0x0FFFU);
+	submitRvk2SyntheticRdp(w0, address);
+
 	address = RSP_SegmentToPhysical( address );
 
 	gDP.colorImage.format = format;
@@ -188,6 +298,13 @@ void gDPSetColorImage( u32 format, u32 size, u32 width, u32 address )
 
 void gDPSetTextureImage(u32 format, u32 size, u32 width, u32 address)
 {
+	const u32 packedWidth = width > 0U ? (width - 1U) : 0U;
+	const u32 w0 = (0x3DU << 24)
+		| ((format & 0x7U) << 21)
+		| ((size & 0x3U) << 19)
+		| (packedWidth & 0x0FFFU);
+	submitRvk2SyntheticRdp(w0, address);
+
 	gDP.textureImage.format = format;
 	gDP.textureImage.size = size;
 	gDP.textureImage.width = width;
@@ -215,6 +332,9 @@ void gDPSetTextureImage(u32 format, u32 size, u32 width, u32 address)
 
 void gDPSetDepthImage( u32 address )
 {
+	const u32 w0 = (0x3EU << 24);
+	submitRvk2SyntheticRdp(w0, address);
+
 	address = RSP_SegmentToPhysical( address );
 	gDP.depthImageAddress = address;
 	depthBufferList().saveBuffer(address);
@@ -224,6 +344,10 @@ void gDPSetDepthImage( u32 address )
 
 void gDPSetEnvColor( u32 r, u32 g, u32 b, u32 a )
 {
+	const u32 w0 = (0x3BU << 24);
+	const u32 w1 = packRGBA(r, g, b, a);
+	submitRvk2SyntheticRdp(w0, w1);
+
 	gDP.envColor.r = _FIXED2FLOATCOLOR( r, 8 );
 	gDP.envColor.g = _FIXED2FLOATCOLOR( g, 8 );
 	gDP.envColor.b = _FIXED2FLOATCOLOR( b, 8 );
@@ -234,6 +358,10 @@ void gDPSetEnvColor( u32 r, u32 g, u32 b, u32 a )
 
 void gDPSetBlendColor( u32 r, u32 g, u32 b, u32 a )
 {
+	const u32 w0 = (0x39U << 24);
+	const u32 w1 = packRGBA(r, g, b, a);
+	submitRvk2SyntheticRdp(w0, w1);
+
 	gDP.blendColor.r = _FIXED2FLOATCOLOR( r, 8 );
 	gDP.blendColor.g = _FIXED2FLOATCOLOR( g, 8 );
 	gDP.blendColor.b = _FIXED2FLOATCOLOR( b, 8 );
@@ -246,6 +374,10 @@ void gDPSetBlendColor( u32 r, u32 g, u32 b, u32 a )
 
 void gDPSetFogColor( u32 r, u32 g, u32 b, u32 a )
 {
+	const u32 w0 = (0x38U << 24);
+	const u32 w1 = packRGBA(r, g, b, a);
+	submitRvk2SyntheticRdp(w0, w1);
+
 	gDP.fogColor.r = _FIXED2FLOATCOLOR( r, 8 );
 	gDP.fogColor.g = _FIXED2FLOATCOLOR( g, 8 );
 	gDP.fogColor.b = _FIXED2FLOATCOLOR( b, 8 );
@@ -258,6 +390,9 @@ void gDPSetFogColor( u32 r, u32 g, u32 b, u32 a )
 
 void gDPSetFillColor( u32 c )
 {
+	const u32 w0 = (0x37U << 24);
+	submitRvk2SyntheticRdp(w0, c);
+
 	gDP.fillColor.color = c;
 	gDP.fillColor.z = static_cast<f32>(_SHIFTR( c,  2, 14 ));
 	gDP.fillColor.dz = static_cast<f32>(_SHIFTR( c, 0, 2 ));
@@ -288,6 +423,12 @@ void gDPGetFillColor(f32 _fillColor[4])
 
 void gDPSetPrimColor( u32 m, u32 l, u32 r, u32 g, u32 b, u32 a )
 {
+	const u32 w0 = (0x3AU << 24)
+		| ((m & 0x1FU) << 8)
+		| (l & 0xFFU);
+	const u32 w1 = packRGBA(r, g, b, a);
+	submitRvk2SyntheticRdp(w0, w1);
+
 	gDP.primColor.m = _FIXED2FLOAT( m, 5 );
 	gDP.primColor.l = _FIXED2FLOATCOLOR( l, 8 );
 	gDP.primColor.r = _FIXED2FLOATCOLOR( r, 8 );
@@ -300,6 +441,21 @@ void gDPSetPrimColor( u32 m, u32 l, u32 r, u32 g, u32 b, u32 a )
 
 void gDPSetTile( u32 format, u32 size, u32 line, u32 tmem, u32 tile, u32 palette, u32 cmt, u32 cms, u32 maskt, u32 masks, u32 shiftt, u32 shifts )
 {
+	const u32 w0 = (0x35U << 24)
+		| ((format & 0x7U) << 21)
+		| ((size & 0x3U) << 19)
+		| ((line & 0x1FFU) << 9)
+		| (tmem & 0x1FFU);
+	const u32 w1 = ((tile & 0x7U) << 24)
+		| ((palette & 0xFU) << 20)
+		| ((cmt & 0x3U) << 18)
+		| ((maskt & 0xFU) << 14)
+		| ((shiftt & 0xFU) << 10)
+		| ((cms & 0x3U) << 8)
+		| ((masks & 0xFU) << 4)
+		| (shifts & 0xFU);
+	submitRvk2SyntheticRdp(w0, w1);
+
 	gDP.tiles[tile].format = format;
 	gDP.tiles[tile].size = size;
 	gDP.tiles[tile].line = line;
@@ -351,17 +507,15 @@ void gDPSetTile( u32 format, u32 size, u32 line, u32 tmem, u32 tile, u32 palette
 
 void gDPSetTileSize( u32 tile, u32 uls, u32 ult, u32 lrs, u32 lrt )
 {
-	gDP.tiles[tile].uls = _SHIFTR( uls, 2, 10 );
-	gDP.tiles[tile].ult = _SHIFTR( ult, 2, 10 );
-	gDP.tiles[tile].lrs = _SHIFTR( lrs, 2, 10 );
-	gDP.tiles[tile].lrt = _SHIFTR( lrt, 2, 10 );
+	const u32 w0 = (0x32U << 24)
+		| ((uls & 0x0FFFU) << 12)
+		| (ult & 0x0FFFU);
+	const u32 w1 = ((tile & 0x7U) << 24)
+		| ((lrs & 0x0FFFU) << 12)
+		| (lrt & 0x0FFFU);
+	submitRvk2SyntheticRdp(w0, w1);
 
-	gDP.tiles[tile].fuls = _FIXED2FLOAT( uls, 2 );
-	gDP.tiles[tile].fult = _FIXED2FLOAT( ult, 2 );
-	gDP.tiles[tile].flrs = _FIXED2FLOAT( lrs, 2 );
-	gDP.tiles[tile].flrt = _FIXED2FLOAT( lrt, 2 );
-
-	gDP.changed |= CHANGED_TILE;
+	applyTileSizeState(tile, uls, ult, lrs, lrt);
 
 	DebugMsg( DEBUG_NORMAL, "gDPSetTileSize( %i, %.2f, %.2f, %.2f, %.2f );\n",
 		tile,
@@ -488,7 +642,15 @@ void gDPLoadTile32b(u32 uls, u32 ult, u32 lrs, u32 lrt)
 
 void gDPLoadTile(u32 tile, u32 uls, u32 ult, u32 lrs, u32 lrt)
 {
-	gDPSetTileSize( tile, uls, ult, lrs, lrt );
+	const u32 w0 = (0x34U << 24)
+		| ((uls & 0x0FFFU) << 12)
+		| (ult & 0x0FFFU);
+	const u32 w1 = ((tile & 0x7U) << 24)
+		| ((lrs & 0x0FFFU) << 12)
+		| (lrt & 0x0FFFU);
+	submitRvk2SyntheticRdp(w0, w1);
+
+	applyTileSizeState(tile, uls, ult, lrs, lrt);
 	gDP.loadTileIdx = tile;
 	gDP.loadTile = &gDP.tiles[tile];
 	gDP.loadTile->loadType = LOADTYPE_TILE;
@@ -643,7 +805,15 @@ void gDPLoadBlock32(u32 uls,u32 lrs, u32 dxt)
 
 void gDPLoadBlock(u32 tile, u32 uls, u32 ult, u32 lrs, u32 dxt)
 {
-	gDPSetTileSize( tile, uls, ult, lrs, dxt );
+	const u32 w0 = (0x33U << 24)
+		| ((uls & 0x0FFFU) << 12)
+		| (ult & 0x0FFFU);
+	const u32 w1 = ((tile & 0x7U) << 24)
+		| ((lrs & 0x0FFFU) << 12)
+		| (dxt & 0x0FFFU);
+	submitRvk2SyntheticRdp(w0, w1);
+
+	applyTileSizeState(tile, uls, ult, lrs, dxt);
 	gDP.loadTileIdx = tile;
 	gDP.loadTile = &gDP.tiles[tile];
 	gDP.loadTile->loadType = LOADTYPE_BLOCK;
@@ -736,7 +906,15 @@ void gDPLoadBlock(u32 tile, u32 uls, u32 ult, u32 lrs, u32 dxt)
 
 void gDPLoadTLUT( u32 tile, u32 uls, u32 ult, u32 lrs, u32 lrt )
 {
-	gDPSetTileSize( tile, uls, ult, lrs, lrt );
+	const u32 w0 = (0x30U << 24)
+		| ((uls & 0x0FFFU) << 12)
+		| (ult & 0x0FFFU);
+	const u32 w1 = ((tile & 0x7U) << 24)
+		| ((lrs & 0x0FFFU) << 12)
+		| (lrt & 0x0FFFU);
+	submitRvk2SyntheticRdp(w0, w1);
+
+	applyTileSizeState(tile, uls, ult, lrs, lrt);
 	if (gDP.tiles[tile].tmem < 256) {
 		DebugMsg(DEBUG_NORMAL | DEBUG_ERROR, "gDPLoadTLUT wrong tile tmem addr: tile[%d].tmem=%04x;\n", tile, gDP.tiles[tile].tmem);
 		return;
@@ -775,6 +953,14 @@ void gDPLoadTLUT( u32 tile, u32 uls, u32 ult, u32 lrs, u32 lrt )
 
 void gDPSetScissor(u32 mode, s16 xh, s16 yh, s16 xl, s16 yl)
 {
+	const u32 w0 = (0x2DU << 24)
+		| ((static_cast<u32>(xh) & 0x0FFFU) << 12)
+		| (static_cast<u32>(yh) & 0x0FFFU);
+	const u32 w1 = ((mode & 0x3U) << 24)
+		| ((static_cast<u32>(xl) & 0x0FFFU) << 12)
+		| (static_cast<u32>(yl) & 0x0FFFU);
+	submitRvk2SyntheticRdp(w0, w1);
+
 	gDP.scissor.mode = mode;
 	gDP.scissor.xh = xh;
 	gDP.scissor.yh = yh;
@@ -893,6 +1079,13 @@ void gDPMemset(u32 value, u32 addr, u32 length)
 
 void gDPFillRectangle( s32 ulx, s32 uly, s32 lrx, s32 lry )
 {
+	const u32 w0 = (0x36U << 24)
+		| ((static_cast<u32>(lrx) & 0x03FFU) << 14)
+		| ((static_cast<u32>(lry) & 0x03FFU) << 2);
+	const u32 w1 = ((static_cast<u32>(ulx) & 0x03FFU) << 14)
+		| ((static_cast<u32>(uly) & 0x03FFU) << 2);
+	submitRvk2SyntheticRdp(w0, w1);
+
 	GraphicsDrawer & drawer = dwnd().getDrawer();
 	if (gDP.otherMode.cycleType == G_CYC_FILL) {
 		++lrx;
@@ -952,6 +1145,22 @@ void gDPFillRectangle( s32 ulx, s32 uly, s32 lrx, s32 lry )
 
 void gDPSetConvert( s32 k0, s32 k1, s32 k2, s32 k3, s32 k4, s32 k5 )
 {
+	const u32 k0u = static_cast<u32>(k0) & 0x01FFU;
+	const u32 k1u = static_cast<u32>(k1) & 0x01FFU;
+	const u32 k2u = static_cast<u32>(k2) & 0x01FFU;
+	const u32 k3u = static_cast<u32>(k3) & 0x01FFU;
+	const u32 k4u = static_cast<u32>(k4) & 0x01FFU;
+	const u32 k5u = static_cast<u32>(k5) & 0x01FFU;
+	const u32 w0 = (0x2CU << 24)
+		| (k0u << 13)
+		| (k1u << 4)
+		| ((k2u >> 5) & 0xFU);
+	const u32 w1 = ((k2u & 0x1FU) << 27)
+		| (k3u << 18)
+		| (k4u << 9)
+		| k5u;
+	submitRvk2SyntheticRdp(w0, w1);
+
 	gDP.convert.k0 = static_cast<s32>(static_cast<u32>(SIGN(k0, 9) << 1)) + 1;
 	gDP.convert.k1 = static_cast<s32>(static_cast<u32>(SIGN(k1, 9) << 1)) + 1;
 	gDP.convert.k2 = static_cast<s32>(static_cast<u32>(SIGN(k2, 9) << 1)) + 1;
@@ -964,6 +1173,12 @@ void gDPSetConvert( s32 k0, s32 k1, s32 k2, s32 k3, s32 k4, s32 k5 )
 
 void gDPSetKeyR( u32 cR, u32 sR, u32 wR )
 {
+	const u32 w0 = (0x2BU << 24);
+	const u32 w1 = ((wR & 0x0FFFU) << 16)
+		| ((cR & 0xFFU) << 8)
+		| (sR & 0xFFU);
+	submitRvk2SyntheticRdp(w0, w1);
+
 	gDP.key.center.r = 	_FIXED2FLOATCOLOR( cR, 8 );
 	gDP.key.scale.r = 	_FIXED2FLOATCOLOR( sR, 8 );
 	gDP.key.width.r = 	_FIXED2FLOATCOLOR( wR, 8 );
@@ -972,6 +1187,15 @@ void gDPSetKeyR( u32 cR, u32 sR, u32 wR )
 
 void gDPSetKeyGB(u32 cG, u32 sG, u32 wG, u32 cB, u32 sB, u32 wB )
 {
+	const u32 w0 = (0x2AU << 24)
+		| ((wG & 0x0FFFU) << 12)
+		| (wB & 0x0FFFU);
+	const u32 w1 = ((cG & 0xFFU) << 24)
+		| ((sG & 0xFFU) << 16)
+		| ((cB & 0xFFU) << 8)
+		| (sB & 0xFFU);
+	submitRvk2SyntheticRdp(w0, w1);
+
 	gDP.key.center.g = 	_FIXED2FLOATCOLOR( cG, 8 );
 	gDP.key.scale.g = 	_FIXED2FLOATCOLOR( sG, 8 );
 	gDP.key.width.g = 	_FIXED2FLOATCOLOR( wG, 8 );
@@ -984,6 +1208,19 @@ void gDPSetKeyGB(u32 cG, u32 sG, u32 wG, u32 cB, u32 sB, u32 wB )
 
 void gDPTextureRectangle(f32 ulx, f32 uly, f32 lrx, f32 lry, s32 tile, s16 s, s16 t, f32 dsdx, f32 dtdy , bool flip)
 {
+	const u32 op = flip ? 0x25U : 0x24U;
+	const u32 packedULX = packTexRectCoord(ulx);
+	const u32 packedULY = packTexRectCoord(uly);
+	const u32 packedLRX = packTexRectCoord(lrx);
+	const u32 packedLRY = packTexRectCoord(lry);
+	const u32 w0 = (op << 24) | (packedLRX << 12) | packedLRY;
+	const u32 w1 = ((static_cast<u32>(tile) & 0x7U) << 24) | (packedULX << 12) | packedULY;
+	const u32 w2 = (static_cast<u32>(static_cast<u16>(s)) << 16)
+		| static_cast<u32>(static_cast<u16>(t));
+	const u32 w3 = (packTexRectDelta(dsdx) << 16)
+		| packTexRectDelta(dtdy);
+	submitRvk2SyntheticRdp(w0, w1, 2U, w2, w3, 4U);
+
 	if (gDP.otherMode.cycleType == G_CYC_COPY) {
 		dsdx /= 4.0f;
 		lrx += 1.0f;
@@ -1053,6 +1290,9 @@ void gDPTextureRectangle(f32 ulx, f32 uly, f32 lrx, f32 lry, s32 tile, s16 s, s1
 
 void gDPFullSync()
 {
+	const u32 w0 = (0x29U << 24);
+	submitRvk2SyntheticRdp(w0, 0U);
+
 	enum
 	{
 		DPC_STATUS_XBUS_DMEM_DMA = 0x001,	// Bit  0: xbus_dmem_dma
@@ -1102,21 +1342,32 @@ void gDPFullSync()
 
 void gDPTileSync()
 {
+	const u32 w0 = (0x28U << 24);
+	submitRvk2SyntheticRdp(w0, 0U);
+
 	DebugMsg( DEBUG_NORMAL | DEBUG_IGNORED, "gDPTileSync();\n" );
 }
 
 void gDPPipeSync()
 {
+	const u32 w0 = (0x27U << 24);
+	submitRvk2SyntheticRdp(w0, 0U);
+
 	DebugMsg( DEBUG_NORMAL | DEBUG_IGNORED, "gDPPipeSync();\n" );
 }
 
 void gDPLoadSync()
 {
+	const u32 w0 = (0x26U << 24);
+	submitRvk2SyntheticRdp(w0, 0U);
+
 	DebugMsg( DEBUG_NORMAL | DEBUG_IGNORED, "gDPLoadSync();\n" );
 }
 
 void gDPNoOp()
 {
+	submitRvk2SyntheticRdp(0x00000000U, 0U);
+
 	DebugMsg( DEBUG_NORMAL | DEBUG_IGNORED, "gDPNoOp();\n" );
 }
 

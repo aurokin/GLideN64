@@ -84,7 +84,7 @@ REALITYVK_SMOKE_REQUIRE_MAJORITY=1 \
 - Flaky/non-deterministic capture
 
 4. Log and track
-- Add scenario to `docs/n64-video-core-bug-matrix.md`.
+- Add scenario notes directly to the active status tracker (`docs/vulkan-core-status.md`).
 - If reproducible, keep it in smoke manifest or create a new targeted manifest.
 
 ## Current focus checkpoints

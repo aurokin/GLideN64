@@ -18,6 +18,9 @@
 #include "Config.h"
 #include "Log.h"
 #include "DisplayWindow.h"
+#include "Graphics/RealityVK2/rvk2_Runtime.h"
+#include "Graphics/RealityVK2/rvk2_RuntimeSwitch.h"
+#include "Graphics/RealityVK2/rvk2_SyntheticTriangle.h"
 
 using namespace std;
 using namespace graphics;
@@ -31,6 +34,61 @@ using namespace graphics;
 #endif
 
 static bool g_ConkerUcode;
+
+namespace {
+
+inline bool shouldSubmitRvk2SyntheticTriangle()
+{
+	if (!rvk2::shouldCaptureRDPTrace())
+		return false;
+	if (RSP.LLE)
+		return false;
+	return rvk2::runtime().commandStream().frameId() != 0ULL;
+}
+
+inline rvk2::CommandProvenance makeRvk2SyntheticTriangleProvenance()
+{
+	rvk2::CommandProvenance provenance{};
+	provenance.taskId = static_cast<u32>(rvk2::runtime().commandStream().frameId());
+	provenance.microcode = static_cast<u16>(GBI.getMicrocodeType());
+	return provenance;
+}
+
+inline u32 currentRvk2SyntheticTriangleAddress()
+{
+	const u32 pc = RSP.PC[RSP.PCi];
+	return pc >= 8U ? pc - 8U : pc;
+}
+
+inline void submitRvk2SyntheticTriangle(
+	const SPVertex & _v0,
+	const SPVertex & _v1,
+	const SPVertex & _v2)
+{
+	if (!shouldSubmitRvk2SyntheticTriangle())
+		return;
+
+	const bool textured = gSP.texture.on != 0U;
+	const bool depthTest =
+		gDP.otherMode.depthCompare != 0U
+		&& (((gSP.geometryMode & G_ZBUFFER) != 0U) || gDP.otherMode.depthSource == G_ZS_PRIM);
+	const bool shade = (gSP.geometryMode & G_SHADE) != 0U;
+	const u8 tile = static_cast<u8>(gSP.texture.tile & 0x7U);
+	const u8 level = static_cast<u8>(gSP.texture.level & 0x7U);
+	rvk2::synthetic_triangle::submit(
+		_v0,
+		_v1,
+		_v2,
+		shade,
+		textured,
+		depthTest,
+		tile,
+		level,
+		currentRvk2SyntheticTriangleAddress(),
+		makeRvk2SyntheticTriangleProvenance());
+}
+
+} // namespace
 
 void gSPFlushTriangles()
 {
@@ -80,6 +138,10 @@ void gSPTriangle(u32 v0, u32 v1, u32 v2)
 			DebugMsg(DEBUG_NORMAL, "Triangle rejected (%i, %i, %i)\n", v0, v1, v2);
 			return;
 		}
+		submitRvk2SyntheticTriangle(
+			drawer.getVertex(v0),
+			drawer.getVertex(v1),
+			drawer.getVertex(v2));
 		drawer.addTriangle(v0, v1, v2);
 		DebugMsg(DEBUG_NORMAL, "Triangle #%i added (%i, %i, %i)\n", gSP.tri_num++, v0, v1, v2);
 	}
