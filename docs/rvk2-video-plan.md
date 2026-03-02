@@ -22,23 +22,25 @@ Accuracy-first. RVK2-only path. No legacy renderer fallback.
 7. Blender selector `A=shade alpha` now consumes interpolated shade alpha instead of combiner-alpha approximation.
 8. Synthetic texel fallback now renders a stable coordinate/state pattern instead of random noise.
 9. VI origin selection now prefers in-range surfaces matching VI width when multiple candidates overlap.
+10. Hidden coverage bit-plane is now persisted per surface and consumed by blender memory-coverage alpha paths.
+11. TEXEL1 now samples secondary tile descriptors (tile+1) for combiner inputs; cycle2 hazard override remains next-pixel TEX0.
 
-## Remaining Work Map (23%)
+## Remaining Work Map (18%)
 
-1. `P5` cycle semantics closure (combiner/blender/coverage/depth): **8%**
-2. `P3` authoritative TMEM path closure (especially 32b): **6%**
-3. `P4` raster/coefficient edge behavior: **5%**
+1. `P5` cycle semantics closure (combiner/blender/coverage/depth): **6%**
+2. `P3` authoritative TMEM path closure (especially 32b): **5%**
+3. `P4` raster/coefficient edge behavior: **4%**
 4. `P2` present-source determinism polish: **2%**
-5. `P6` VI finishing polish: **2%**
+5. `P6` VI finishing polish: **1%**
 
 ## Latest Batch (2026-03-02)
 
-1. Tightened VI-origin presentation selection:
-   - when multiple in-range surfaces overlap a VI origin, selection now prefers surfaces matching VI width.
-2. Added unit coverage for width-driven VI origin preference:
-   - overlapping-range surfaces now assert deterministic selection based on VI width.
-3. Kept synthetic texel fallback coherent and state-sensitive:
-   - texture seed includes texrect/triangle texture coefficient fields.
+1. Completed hidden-coverage propagation through rect+triangle write paths:
+   - per-pixel hidden coverage now persists across resizes and feeds coverage-memory alpha behavior.
+2. Added secondary-tile TEXEL1 sampling path:
+   - combiner TEXEL1 input now samples tile+1 descriptors instead of aliasing TEXEL0.
+   - cycle2 keeps next-pixel TEX0 hazard override for TEXEL1 when cycle2 selectors are active.
+3. Added conformance coverage for cycle1 TEXEL1 secondary-tile behavior.
 4. Kept local gate green after this batch.
 
 ## What Deep-Dive Changed In Our Plan

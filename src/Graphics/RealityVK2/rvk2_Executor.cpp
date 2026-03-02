@@ -834,6 +834,72 @@ inline u32 decodeAuthoritativeTMEM32Color(
 		false);
 }
 
+inline void applyTileDescriptorToWork(
+	rvk2::RenderWorkPacket & _work,
+	u8 _tileIndex,
+	u8 _format,
+	u8 _size,
+	u16 _line,
+	u16 _tmem,
+	u8 _palette,
+	u8 _cmt,
+	u8 _cms,
+	u8 _maskt,
+	u8 _masks,
+	u8 _shiftt,
+	u8 _shifts,
+	u16 _uls,
+	u16 _ult,
+	u16 _lrs,
+	u16 _lrt)
+{
+	_work.tile = _tileIndex & 0x7U;
+	_work.tileFormat = _format;
+	_work.tileSize = _size;
+	_work.tileLine = _line;
+	_work.tileTmem = _tmem;
+	_work.tilePalette = _palette;
+	_work.tileCmt = _cmt;
+	_work.tileCms = _cms;
+	_work.tileMaskt = _maskt;
+	_work.tileMasks = _masks;
+	_work.tileShiftt = _shiftt;
+	_work.tileShifts = _shifts;
+	_work.tileULS = _uls;
+	_work.tileULT = _ult;
+	_work.tileLRS = _lrs;
+	_work.tileLRT = _lrt;
+}
+
+inline const rvk2::RenderWorkPacket & selectTexelSlotWork(
+	const rvk2::RenderWorkPacket & _work,
+	bool _texel1Slot,
+	rvk2::RenderWorkPacket & _scratch)
+{
+	if (!_texel1Slot || !_work.tile1Valid)
+		return _work;
+	_scratch = _work;
+	applyTileDescriptorToWork(
+		_scratch,
+		_work.tile1Index,
+		_work.tile1Format,
+		_work.tile1Size,
+		_work.tile1Line,
+		_work.tile1Tmem,
+		_work.tile1Palette,
+		_work.tile1Cmt,
+		_work.tile1Cms,
+		_work.tile1Maskt,
+		_work.tile1Masks,
+		_work.tile1Shiftt,
+		_work.tile1Shifts,
+		_work.tile1ULS,
+		_work.tile1ULT,
+		_work.tile1LRS,
+		_work.tile1LRT);
+	return _scratch;
+}
+
 inline bool computeTextureSourceCoord(
 	const rvk2::RenderWorkPacket & _work,
 	s32 _s,
@@ -1367,6 +1433,19 @@ inline u32 pseudoTexel(
 	return applyTextureFilterMode(filterMode, c00, c10, c01, c11, fracS, fracT);
 }
 
+inline u32 pseudoTexelForSlot(
+	const rvk2::RenderWorkPacket & _work,
+	u32 _x,
+	u32 _y,
+	bool _texel1Slot,
+	u32 * _sourceBits = nullptr)
+{
+	rvk2::RenderWorkPacket sampleWork{};
+	const rvk2::RenderWorkPacket & slotWork =
+		selectTexelSlotWork(_work, _texel1Slot, sampleWork);
+	return pseudoTexel(slotWork, _x, _y, _sourceBits);
+}
+
 struct ColorSurface {
 	u8 format = 0U;
 	u8 size = 0U;
@@ -1374,6 +1453,7 @@ struct ColorSurface {
 	u16 height = 0U;
 	std::vector<u32> pixels;
 	std::vector<u8> coverage;
+	std::vector<u8> hiddenCoverage;
 };
 
 struct DepthSurface {
@@ -1591,18 +1671,25 @@ void ensureSurfaceSize(
 	std::vector<u8> resizedCoverage(
 		static_cast<size_t>(targetWidth) * static_cast<size_t>(targetHeight),
 		0U);
+	std::vector<u8> resizedHiddenCoverage(
+		static_cast<size_t>(targetWidth) * static_cast<size_t>(targetHeight),
+		0U);
 	for (u16 y = 0U; y < _surface.height; ++y) {
 		for (u16 x = 0U; x < _surface.width; ++x) {
 			resized[pixelIndex(targetWidth, x, y)] = _surface.pixels[pixelIndex(_surface.width, x, y)];
 			if (!_surface.coverage.empty())
 				resizedCoverage[pixelIndex(targetWidth, x, y)] =
 					_surface.coverage[pixelIndex(_surface.width, x, y)];
+			if (!_surface.hiddenCoverage.empty())
+				resizedHiddenCoverage[pixelIndex(targetWidth, x, y)] =
+					_surface.hiddenCoverage[pixelIndex(_surface.width, x, y)];
 		}
 	}
 	_surface.width = targetWidth;
 	_surface.height = targetHeight;
 	_surface.pixels.swap(resized);
 	_surface.coverage.swap(resizedCoverage);
+	_surface.hiddenCoverage.swap(resizedHiddenCoverage);
 }
 
 void ensureDepthSurfaceSize(
@@ -1978,8 +2065,9 @@ inline u8 evalCombinerEquation(s32 _a, s32 _b, s32 _c, s32 _d)
 
 inline u32 applySyntheticCombiner(
 	const rvk2::RenderWorkPacket & _work,
-	u32 _textureColor,
-	u32 _textureColorNext,
+	u32 _texel0Color,
+	u32 _texel1Color,
+	u32 _texel0NextColor,
 	u32 _shadeColor,
 	u32 _baseColor,
 	u32 _dstColor,
@@ -1998,8 +2086,9 @@ inline u32 applySyntheticCombiner(
 	const CombinerCycleSelectors selectors = decodeCombinerCycleSelectors(
 		_work.combineMux,
 		useCycle2Selectors);
-	const ColorRGBA tex = unpackRGBA(_textureColor);
-	const ColorRGBA texNext = unpackRGBA(_textureColorNext);
+	const ColorRGBA tex0 = unpackRGBA(_texel0Color);
+	const ColorRGBA tex1Current = unpackRGBA(_texel1Color);
+	const ColorRGBA tex0Next = unpackRGBA(_texel0NextColor);
 	const ColorRGBA shade = unpackRGBA(_shadeColor);
 	const ColorRGBA combined = unpackRGBA(_baseColor);
 	const ColorRGBA prim = unpackRGBA(_work.primColor);
@@ -2032,12 +2121,12 @@ inline u32 applySyntheticCombiner(
 	const u8 primLodFrac = _work.primColorLodFrac;
 	const u8 k4 = clampU8FromS32(static_cast<s32>(_work.convertK4));
 	const u8 k5 = clampU8FromS32(static_cast<s32>(_work.convertK5));
-	ColorRGBA texel0 = tex;
-	ColorRGBA texel1 = tex;
+	ColorRGBA texel0 = tex0;
+	ColorRGBA texel1 = tex1Current;
 	if (useCycle2Selectors && _work.phase == static_cast<u8>(rvk2::RenderPhase::kCycle2)) {
 		// 2-cycle combiner hazard approximation:
 		// in cycle2, TEX1 may source the next pixel's TEX0.
-		texel1 = texNext;
+		texel1 = tex0Next;
 	}
 
 	const auto makeColorInputs = [&](
@@ -2060,7 +2149,7 @@ inline u32 applySyntheticCombiner(
 		in.center = _center;
 		in.scale = _scale;
 		in.combinedAlpha = combined.a;
-		in.texel0Alpha = tex.a;
+		in.texel0Alpha = texel0.a;
 		in.texel1Alpha = texel1.a;
 		in.primitiveAlpha = prim.a;
 		in.shadeAlpha = shade.a;
@@ -2078,7 +2167,7 @@ inline u32 applySyntheticCombiner(
 	const auto makeAlphaInputs = [&]() -> CombinerAlphaInputs {
 		CombinerAlphaInputs in{};
 		in.combined = combined.a;
-		in.texel0 = tex.a;
+		in.texel0 = texel0.a;
 		in.texel1 = texel1.a;
 		in.primitive = prim.a;
 		in.shade = shade.a;
@@ -2254,6 +2343,7 @@ inline u32 applySyntheticBlender(
 	u32 _selector0Color,
 	u32 _memoryColor,
 	u8 _memoryCoverage,
+	bool _memoryHiddenCoverage,
 	u32 _x,
 	u32 _y,
 	bool _cycle2Selectors = false,
@@ -2363,8 +2453,14 @@ inline u32 applySyntheticBlender(
 		_shadeAlpha);
 	if (_work.alphaCvgSel && (selectors.m1b & 0x3U) == 0U)
 		alphaA = inputCoverageAlpha;
-	const u8 memoryCoverageAlpha = static_cast<u8>(
-		(static_cast<u32>(coverage.destination) * 255U + 3U) / 7U);
+	const u8 memoryCoverageAlpha = [&]() -> u8 {
+		const u32 coverage4 =
+			std::min<u32>(
+				15U,
+				static_cast<u32>(coverage.destination)
+					+ (_memoryHiddenCoverage ? 8U : 0U));
+		return static_cast<u8>((coverage4 * 255U + 7U) / 15U);
+	}();
 	const u8 alphaB = selectAlphaB(selectors.m2b, alphaA, memoryCoverageAlpha);
 	if (_summary != nullptr && useCoverageControls) {
 		++_summary->blendCoverageEvalCount;
@@ -2470,6 +2566,7 @@ inline u32 applySyntheticBlender(
 	u32 _srcColor,
 	u32 _memoryColor,
 	u8 _memoryCoverage,
+	bool _memoryHiddenCoverage,
 	u32 _x,
 	u32 _y,
 	rvk2::ExecutorSummary * _summary = nullptr)
@@ -2480,6 +2577,7 @@ inline u32 applySyntheticBlender(
 		_srcColor,
 		_memoryColor,
 		_memoryCoverage,
+		_memoryHiddenCoverage,
 		_x,
 		_y,
 		false,
@@ -2532,12 +2630,15 @@ inline bool passesSyntheticCoverageWrite(
 	u32 _x,
 	u32 _y,
 	u8 * _resolvedCoverage = nullptr,
+	bool * _resolvedOverflow = nullptr,
 	rvk2::ExecutorSummary * _summary = nullptr)
 {
 	if (_work.phase == static_cast<u8>(rvk2::RenderPhase::kCopy)
 		|| _work.phase == static_cast<u8>(rvk2::RenderPhase::kFill)) {
 		if (_resolvedCoverage != nullptr)
 			*_resolvedCoverage = _dstCoverage;
+		if (_resolvedOverflow != nullptr)
+			*_resolvedOverflow = false;
 		return true;
 	}
 
@@ -2549,6 +2650,8 @@ inline bool passesSyntheticCoverageWrite(
 		evaluateSyntheticCoverage(_work, src.a, _dstCoverage, isImageReadEnabled(_work), _x, _y);
 	if (_resolvedCoverage != nullptr)
 		*_resolvedCoverage = coverage.resolved;
+	if (_resolvedOverflow != nullptr)
+		*_resolvedOverflow = coverage.overflow;
 	if (_summary != nullptr) {
 		++_summary->coverageWriteEvalCount;
 		if (coverage.resolved == 0U)
@@ -2747,12 +2850,16 @@ inline u32 chooseTriangleTextureSourceColor(
 	const rvk2::RenderWorkPacket & _work,
 	u32 _x,
 	u32 _y,
+	bool _texel1Slot = false,
 	u32 * _sourceBits = nullptr)
 {
-	const bool useTriangleTexture = _work.textured && _work.triangleTextureEnable;
+	rvk2::RenderWorkPacket sampleWork{};
+	const rvk2::RenderWorkPacket & texelWork =
+		selectTexelSlotWork(_work, _texel1Slot, sampleWork);
+	const bool useTriangleTexture = texelWork.textured && texelWork.triangleTextureEnable;
 	return useTriangleTexture
-		? evaluateTriangleTextureColor(_work, _x, _y, _sourceBits)
-		: (_work.textured ? pseudoTexel(_work, _x, _y, _sourceBits) : pseudoTriangleColor(_work, _x, _y));
+		? evaluateTriangleTextureColor(texelWork, _x, _y, _sourceBits)
+		: (texelWork.textured ? pseudoTexel(texelWork, _x, _y, _sourceBits) : pseudoTriangleColor(texelWork, _x, _y));
 }
 
 inline u32 chooseTriangleShadeSourceColor(
@@ -2778,14 +2885,17 @@ inline u32 chooseTriangleBaseColor(
 
 inline u32 runSyntheticPhasePipeline(
 	const rvk2::RenderWorkPacket & _work,
-	u32 _textureColor,
-	u32 _textureColorNext,
+	u32 _texel0Color,
+	u32 _texel1Color,
+	u32 _texel0NextColor,
 	u32 _shadeColor,
 	u32 _baseColor,
 	u32 _dstColor,
 	u8 _dstCoverage,
+	bool _dstHiddenCoverage,
 	u32 _cycle2Cycle1DstColor,
 	u8 _cycle2Cycle1DstCoverage,
+	bool _cycle2Cycle1DstHiddenCoverage,
 	u32 _x,
 	u32 _y,
 	u8 * _coverageDestination = nullptr,
@@ -2800,7 +2910,7 @@ inline u32 runSyntheticPhasePipeline(
 	u8 coverageDestination = static_cast<u8>(std::min<u32>(7U, static_cast<u32>(_dstCoverage & 0x7U)));
 	const u8 phase = _work.phase;
 	if (phase == static_cast<u8>(rvk2::RenderPhase::kCopy)) {
-		finalColor = _work.textured ? _textureColor : _baseColor;
+		finalColor = _work.textured ? _texel0Color : _baseColor;
 		combinerColor = finalColor;
 		blenderColor = finalColor;
 	}
@@ -2812,8 +2922,9 @@ inline u32 runSyntheticPhasePipeline(
 	else if (phase != static_cast<u8>(rvk2::RenderPhase::kCycle2)) {
 		combinerColor = applySyntheticCombiner(
 			_work,
-			_textureColor,
-			_textureColor,
+			_texel0Color,
+			_texel1Color,
+			_texel0NextColor,
 			_shadeColor,
 			_baseColor,
 			_dstColor,
@@ -2827,6 +2938,7 @@ inline u32 runSyntheticPhasePipeline(
 			combinerColor,
 			_dstColor,
 			coverageDestination,
+			_dstHiddenCoverage,
 			_x,
 			_y,
 			false,
@@ -2837,8 +2949,9 @@ inline u32 runSyntheticPhasePipeline(
 	else {
 		const u32 cycle1CombinedColor = applySyntheticCombiner(
 			_work,
-			_textureColor,
-			_textureColor,
+			_texel0Color,
+			_texel1Color,
+			_texel0NextColor,
 			_shadeColor,
 			_baseColor,
 			_dstColor,
@@ -2852,6 +2965,7 @@ inline u32 runSyntheticPhasePipeline(
 			cycle1CombinedColor,
 			_cycle2Cycle1DstColor,
 			_cycle2Cycle1DstCoverage,
+			_cycle2Cycle1DstHiddenCoverage,
 			_x,
 			_y,
 			false,
@@ -2859,8 +2973,9 @@ inline u32 runSyntheticPhasePipeline(
 			_summary);
 		combinerColor = applySyntheticCombiner(
 			_work,
-			_textureColor,
-			_textureColorNext,
+			_texel0Color,
+			_texel1Color,
+			_texel0NextColor,
 			_shadeColor,
 			cycle1CombinedColor,
 			cycle1Color,
@@ -2874,6 +2989,7 @@ inline u32 runSyntheticPhasePipeline(
 			cycle1Color,
 			_dstColor,
 			_dstCoverage,
+			_dstHiddenCoverage,
 			_x,
 			_y,
 			true,
@@ -2976,86 +3092,107 @@ void writeRect(
 		bool hasPrevPixelForCycle2 = false;
 		u32 prevMemoryColorForCycle2 = 0U;
 		u8 prevMemoryCoverageForCycle2 = 7U;
+		bool prevMemoryHiddenCoverageForCycle2 = false;
 		for (u32 x = bounds.x0; x <= bounds.x1; ++x) {
 			const size_t colorIdx = pixelIndex(_surface.width, static_cast<u16>(x), static_cast<u16>(y));
 			const u32 dstColor = _surface.pixels[colorIdx];
 			const u8 dstCoverage = !_surface.coverage.empty()
 				? static_cast<u8>(_surface.coverage[colorIdx] & 0x7U)
 				: 0U;
+			const bool dstHiddenCoverage = !_surface.hiddenCoverage.empty()
+				? (_surface.hiddenCoverage[colorIdx] & 0x1U) != 0U
+				: false;
 			const u32 pipelineDstColor = imageReadEnabledWork ? dstColor : 0x00000000U;
 			const u8 pipelineDstCoverage = imageReadEnabledWork ? dstCoverage : 7U;
+			const bool pipelineDstHiddenCoverage = imageReadEnabledWork ? dstHiddenCoverage : false;
 			u8 coverageDestination = pipelineDstCoverage;
 			u32 textureColor = 0U;
+			u32 texel1Color = 0U;
+			u32 texel0NextColor = 0U;
 			u32 combinerColor = 0U;
 			u32 blenderColor = 0U;
 			u32 finalColor = 0U;
 			u32 textureSourceBits = 0U;
 			u32 cycle2Cycle1DstColor = pipelineDstColor;
 			u8 cycle2Cycle1DstCoverage = pipelineDstCoverage;
+			bool cycle2Cycle1DstHiddenCoverage = pipelineDstHiddenCoverage;
 			if (cycle2Work && hasPrevPixelForCycle2) {
 				cycle2Cycle1DstColor = prevMemoryColorForCycle2;
 				cycle2Cycle1DstCoverage = prevMemoryCoverageForCycle2;
+				cycle2Cycle1DstHiddenCoverage = prevMemoryHiddenCoverageForCycle2;
 			}
-				if (_work.opKind == static_cast<u8>(rvk2::RasterOpKind::kFillRect)) {
-					finalColor = decodeFillColor(_work.fillColor, _work.colorImageSize);
-					textureColor = finalColor;
-					combinerColor = finalColor;
-					blenderColor = finalColor;
-				}
-				else {
-					textureColor = pseudoTexel(_work, x, y, &textureSourceBits);
-					const u32 textureColorNext = pseudoTexel(
-						_work,
-						std::min<u32>(x + 1U, bounds.x1),
-						y);
-					finalColor = runSyntheticPhasePipeline(
-						_work,
-						textureColor,
-						textureColorNext,
-						0xFFFFFFFFU,
-						textureColor,
-						pipelineDstColor,
-						pipelineDstCoverage,
-						cycle2Cycle1DstColor,
-						cycle2Cycle1DstCoverage,
-						x,
-						y,
-						&coverageDestination,
-						&combinerColor,
-						&blenderColor,
-						&_summary);
-				}
-				prevMemoryColorForCycle2 = pipelineDstColor;
-				prevMemoryCoverageForCycle2 = pipelineDstCoverage;
-				hasPrevPixelForCycle2 = true;
-				u32 alphaCompareColor = finalColor;
-				if (cycle2Work
-					&& (_work.alphaCompare & 0x1U) != 0U
-					&& _work.opKind != static_cast<u8>(rvk2::RasterOpKind::kFillRect)
-					&& x < bounds.x1) {
-					const u32 nextX = x + 1U;
-					const size_t nextColorIdx = pixelIndex(
-						_surface.width,
-						static_cast<u16>(nextX),
-						static_cast<u16>(y));
-					const u32 nextDstColor = _surface.pixels[nextColorIdx];
-					const u32 nextPipelineDstColor = imageReadEnabledWork ? nextDstColor : 0x00000000U;
-					const u32 nextTextureColor = pseudoTexel(_work, nextX, y);
-					alphaCompareColor = applySyntheticCombiner(
-						_work,
-						nextTextureColor,
-						nextTextureColor,
-						0xFFFFFFFFU,
-						nextTextureColor,
-						nextPipelineDstColor,
-						nextX,
-						y,
-						false,
-						nullptr);
-				}
-				if (!passesSyntheticAlphaCompare(_work, alphaCompareColor, x, y, &_summary))
-					continue;
+			if (_work.opKind == static_cast<u8>(rvk2::RasterOpKind::kFillRect)) {
+				finalColor = decodeFillColor(_work.fillColor, _work.colorImageSize);
+				textureColor = finalColor;
+				texel1Color = finalColor;
+				texel0NextColor = finalColor;
+				combinerColor = finalColor;
+				blenderColor = finalColor;
+			}
+			else {
+				textureColor = pseudoTexelForSlot(_work, x, y, false, &textureSourceBits);
+				texel1Color = pseudoTexelForSlot(_work, x, y, true, &textureSourceBits);
+				texel0NextColor = pseudoTexelForSlot(
+					_work,
+					std::min<u32>(x + 1U, bounds.x1),
+					y,
+					false,
+					&textureSourceBits);
+				finalColor = runSyntheticPhasePipeline(
+					_work,
+					textureColor,
+					texel1Color,
+					texel0NextColor,
+					0xFFFFFFFFU,
+					textureColor,
+					pipelineDstColor,
+					pipelineDstCoverage,
+					pipelineDstHiddenCoverage,
+					cycle2Cycle1DstColor,
+					cycle2Cycle1DstCoverage,
+					cycle2Cycle1DstHiddenCoverage,
+					x,
+					y,
+					&coverageDestination,
+					&combinerColor,
+					&blenderColor,
+					&_summary);
+			}
+			prevMemoryColorForCycle2 = pipelineDstColor;
+			prevMemoryCoverageForCycle2 = pipelineDstCoverage;
+			prevMemoryHiddenCoverageForCycle2 = pipelineDstHiddenCoverage;
+			hasPrevPixelForCycle2 = true;
+			u32 alphaCompareColor = finalColor;
+			if (cycle2Work
+				&& (_work.alphaCompare & 0x1U) != 0U
+				&& _work.opKind != static_cast<u8>(rvk2::RasterOpKind::kFillRect)
+				&& x < bounds.x1) {
+				const u32 nextX = x + 1U;
+				const size_t nextColorIdx = pixelIndex(
+					_surface.width,
+					static_cast<u16>(nextX),
+					static_cast<u16>(y));
+				const u32 nextDstColor = _surface.pixels[nextColorIdx];
+				const u32 nextPipelineDstColor = imageReadEnabledWork ? nextDstColor : 0x00000000U;
+				const u32 nextTexel0Color = pseudoTexelForSlot(_work, nextX, y, false, nullptr);
+				const u32 nextTexel1Color = pseudoTexelForSlot(_work, nextX, y, true, nullptr);
+				alphaCompareColor = applySyntheticCombiner(
+					_work,
+					nextTexel0Color,
+					nextTexel1Color,
+					nextTexel0Color,
+					0xFFFFFFFFU,
+					nextTexel0Color,
+					nextPipelineDstColor,
+					nextX,
+					y,
+					false,
+					nullptr);
+			}
+			if (!passesSyntheticAlphaCompare(_work, alphaCompareColor, x, y, &_summary))
+				continue;
 			u8 resolvedCoverage = coverageDestination;
+			bool coverageOverflow = false;
 			if (!passesSyntheticCoverageWrite(
 					_work,
 					finalColor,
@@ -3063,8 +3200,17 @@ void writeRect(
 					x,
 					y,
 					&resolvedCoverage,
+					&coverageOverflow,
 					&_summary))
 				continue;
+			bool resolvedHiddenCoverage = pipelineDstHiddenCoverage;
+			if (_work.phase != static_cast<u8>(rvk2::RenderPhase::kCopy)
+				&& _work.phase != static_cast<u8>(rvk2::RenderPhase::kFill)) {
+				if (_work.cvgDest == 3U)
+					resolvedHiddenCoverage = pipelineDstHiddenCoverage;
+				else
+					resolvedHiddenCoverage = coverageOverflow;
+			}
 			const u32 stageBucket = classifyStageDeltaBucket(_work);
 			++_summary.stageWriteClassCount[stageBucket];
 			if ((stageBlendSelectors.m1a & 0x3U) == 1U)
@@ -3120,6 +3266,8 @@ void writeRect(
 			_surface.pixels[colorIdx] = encodeSurfaceColor(writeColor, _work.colorImageSize);
 			if (!_surface.coverage.empty())
 				_surface.coverage[colorIdx] = static_cast<u8>(resolvedCoverage & 0x7U);
+			if (!_surface.hiddenCoverage.empty())
+				_surface.hiddenCoverage[colorIdx] = resolvedHiddenCoverage ? 1U : 0U;
 			_summary.outputLumaSum += static_cast<u64>(lumaFromRGBA(writeColor));
 			++_summary.colorWriteCount;
 		}
@@ -3180,6 +3328,7 @@ void writeTriangle(
 		bool hasPrevPixelForCycle2 = false;
 		u32 prevMemoryColorForCycle2 = 0U;
 		u8 prevMemoryCoverageForCycle2 = 7U;
+		bool prevMemoryHiddenCoverageForCycle2 = false;
 		const double py = static_cast<double>(y) + 0.5;
 		for (u32 x = bounds.x0; x <= bounds.x1; ++x) {
 			const double px = static_cast<double>(x) + 0.5;
@@ -3192,78 +3341,94 @@ void writeTriangle(
 			if (!inside)
 				continue;
 
-				const size_t colorIdx = pixelIndex(_surface.width, static_cast<u16>(x), static_cast<u16>(y));
-				const u32 dstColor = _surface.pixels[colorIdx];
-				const u8 dstCoverage = !_surface.coverage.empty()
-					? static_cast<u8>(_surface.coverage[colorIdx] & 0x7U)
-					: 0U;
-				const u32 pipelineDstColor = imageReadEnabledWork ? dstColor : 0x00000000U;
-				const u8 pipelineDstCoverage = imageReadEnabledWork ? dstCoverage : 7U;
-				u8 coverageDestination = pipelineDstCoverage;
-				u32 textureSourceBits = 0U;
-				const u32 textureColor = chooseTriangleTextureSourceColor(_work, x, y, &textureSourceBits);
-				const u32 textureColorNext = chooseTriangleTextureSourceColor(
+			const size_t colorIdx = pixelIndex(_surface.width, static_cast<u16>(x), static_cast<u16>(y));
+			const u32 dstColor = _surface.pixels[colorIdx];
+			const u8 dstCoverage = !_surface.coverage.empty()
+				? static_cast<u8>(_surface.coverage[colorIdx] & 0x7U)
+				: 0U;
+			const bool dstHiddenCoverage = !_surface.hiddenCoverage.empty()
+				? (_surface.hiddenCoverage[colorIdx] & 0x1U) != 0U
+				: false;
+			const u32 pipelineDstColor = imageReadEnabledWork ? dstColor : 0x00000000U;
+			const u8 pipelineDstCoverage = imageReadEnabledWork ? dstCoverage : 7U;
+			const bool pipelineDstHiddenCoverage = imageReadEnabledWork ? dstHiddenCoverage : false;
+			u8 coverageDestination = pipelineDstCoverage;
+			u32 textureSourceBits = 0U;
+			const u32 textureColor = chooseTriangleTextureSourceColor(_work, x, y, false, &textureSourceBits);
+			const u32 texel1Color = chooseTriangleTextureSourceColor(_work, x, y, true, &textureSourceBits);
+			const u32 texel0NextColor = chooseTriangleTextureSourceColor(
+				_work,
+				std::min<u32>(x + 1U, bounds.x1),
+				y,
+				false,
+				&textureSourceBits);
+			const u32 shadeColor = chooseTriangleShadeSourceColor(_work, x, y);
+			const u32 baseColor = chooseTriangleBaseColor(_work, textureColor, shadeColor);
+			u32 combinerColor = 0U;
+			u32 blenderColor = 0U;
+			u32 cycle2Cycle1DstColor = pipelineDstColor;
+			u8 cycle2Cycle1DstCoverage = pipelineDstCoverage;
+			bool cycle2Cycle1DstHiddenCoverage = pipelineDstHiddenCoverage;
+			if (cycle2Work && hasPrevPixelForCycle2) {
+				cycle2Cycle1DstColor = prevMemoryColorForCycle2;
+				cycle2Cycle1DstCoverage = prevMemoryCoverageForCycle2;
+				cycle2Cycle1DstHiddenCoverage = prevMemoryHiddenCoverageForCycle2;
+			}
+			const u32 finalColor = runSyntheticPhasePipeline(
+				_work,
+				textureColor,
+				texel1Color,
+				texel0NextColor,
+				shadeColor,
+				baseColor,
+				pipelineDstColor,
+				pipelineDstCoverage,
+				pipelineDstHiddenCoverage,
+				cycle2Cycle1DstColor,
+				cycle2Cycle1DstCoverage,
+				cycle2Cycle1DstHiddenCoverage,
+				x,
+				y,
+				&coverageDestination,
+				&combinerColor,
+				&blenderColor,
+				&_summary);
+			prevMemoryColorForCycle2 = pipelineDstColor;
+			prevMemoryCoverageForCycle2 = pipelineDstCoverage;
+			prevMemoryHiddenCoverageForCycle2 = pipelineDstHiddenCoverage;
+			hasPrevPixelForCycle2 = true;
+			u32 alphaCompareColor = finalColor;
+			if (cycle2Work
+				&& (_work.alphaCompare & 0x1U) != 0U
+				&& x < bounds.x1) {
+				const u32 nextX = x + 1U;
+				const size_t nextColorIdx = pixelIndex(
+					_surface.width,
+					static_cast<u16>(nextX),
+					static_cast<u16>(y));
+				const u32 nextDstColor = _surface.pixels[nextColorIdx];
+				const u32 nextPipelineDstColor = imageReadEnabledWork ? nextDstColor : 0x00000000U;
+				const u32 nextTexel0Color = chooseTriangleTextureSourceColor(_work, nextX, y, false, nullptr);
+				const u32 nextTexel1Color = chooseTriangleTextureSourceColor(_work, nextX, y, true, nullptr);
+				const u32 nextShadeColor = chooseTriangleShadeSourceColor(_work, nextX, y);
+				const u32 nextBaseColor = chooseTriangleBaseColor(_work, nextTexel0Color, nextShadeColor);
+				alphaCompareColor = applySyntheticCombiner(
 					_work,
-					std::min<u32>(x + 1U, bounds.x1),
-					y);
-				const u32 shadeColor = chooseTriangleShadeSourceColor(_work, x, y);
-				const u32 baseColor = chooseTriangleBaseColor(_work, textureColor, shadeColor);
-				u32 combinerColor = 0U;
-				u32 blenderColor = 0U;
-				u32 cycle2Cycle1DstColor = pipelineDstColor;
-				u8 cycle2Cycle1DstCoverage = pipelineDstCoverage;
-				if (cycle2Work && hasPrevPixelForCycle2) {
-					cycle2Cycle1DstColor = prevMemoryColorForCycle2;
-					cycle2Cycle1DstCoverage = prevMemoryCoverageForCycle2;
-				}
-				const u32 finalColor = runSyntheticPhasePipeline(
-					_work,
-					textureColor,
-					textureColorNext,
-					shadeColor,
-					baseColor,
-					pipelineDstColor,
-					pipelineDstCoverage,
-					cycle2Cycle1DstColor,
-					cycle2Cycle1DstCoverage,
-					x,
+					nextTexel0Color,
+					nextTexel1Color,
+					nextTexel0Color,
+					nextShadeColor,
+					nextBaseColor,
+					nextPipelineDstColor,
+					nextX,
 					y,
-					&coverageDestination,
-					&combinerColor,
-					&blenderColor,
-					&_summary);
-				prevMemoryColorForCycle2 = pipelineDstColor;
-				prevMemoryCoverageForCycle2 = pipelineDstCoverage;
-				hasPrevPixelForCycle2 = true;
-				u32 alphaCompareColor = finalColor;
-				if (cycle2Work
-					&& (_work.alphaCompare & 0x1U) != 0U
-					&& x < bounds.x1) {
-					const u32 nextX = x + 1U;
-					const size_t nextColorIdx = pixelIndex(
-						_surface.width,
-						static_cast<u16>(nextX),
-						static_cast<u16>(y));
-					const u32 nextDstColor = _surface.pixels[nextColorIdx];
-					const u32 nextPipelineDstColor = imageReadEnabledWork ? nextDstColor : 0x00000000U;
-					const u32 nextTextureColor = chooseTriangleTextureSourceColor(_work, nextX, y);
-					const u32 nextShadeColor = chooseTriangleShadeSourceColor(_work, nextX, y);
-					const u32 nextBaseColor = chooseTriangleBaseColor(_work, nextTextureColor, nextShadeColor);
-					alphaCompareColor = applySyntheticCombiner(
-						_work,
-						nextTextureColor,
-						nextTextureColor,
-						nextShadeColor,
-						nextBaseColor,
-						nextPipelineDstColor,
-						nextX,
-						y,
-						false,
-						nullptr);
-				}
-				if (!passesSyntheticAlphaCompare(_work, alphaCompareColor, x, y, &_summary))
-					continue;
+					false,
+					nullptr);
+			}
+			if (!passesSyntheticAlphaCompare(_work, alphaCompareColor, x, y, &_summary))
+				continue;
 			u8 resolvedCoverage = coverageDestination;
+			bool coverageOverflow = false;
 			if (!passesSyntheticCoverageWrite(
 					_work,
 					finalColor,
@@ -3271,8 +3436,17 @@ void writeTriangle(
 					x,
 					y,
 					&resolvedCoverage,
+					&coverageOverflow,
 					&_summary))
 				continue;
+			bool resolvedHiddenCoverage = pipelineDstHiddenCoverage;
+			if (_work.phase != static_cast<u8>(rvk2::RenderPhase::kCopy)
+				&& _work.phase != static_cast<u8>(rvk2::RenderPhase::kFill)) {
+				if (_work.cvgDest == 3U)
+					resolvedHiddenCoverage = pipelineDstHiddenCoverage;
+				else
+					resolvedHiddenCoverage = coverageOverflow;
+			}
 
 			if (_depthSurface != nullptr
 				&& phaseUsesDepth(_work.phase)
@@ -3347,6 +3521,8 @@ void writeTriangle(
 			_surface.pixels[colorIdx] = encodeSurfaceColor(writeColor, _work.colorImageSize);
 			if (!_surface.coverage.empty())
 				_surface.coverage[colorIdx] = static_cast<u8>(resolvedCoverage & 0x7U);
+			if (!_surface.hiddenCoverage.empty())
+				_surface.hiddenCoverage[colorIdx] = resolvedHiddenCoverage ? 1U : 0U;
 			_summary.outputLumaSum += static_cast<u64>(lumaFromRGBA(writeColor));
 			++_summary.colorWriteCount;
 		}
@@ -3595,6 +3771,8 @@ ExecutorOutput Executor::executeWithOutput(
 				surface.pixels.resize(static_cast<size_t>(surface.width) * static_cast<size_t>(surface.height), 0U);
 			if (surface.coverage.empty())
 				surface.coverage.resize(static_cast<size_t>(surface.width) * static_cast<size_t>(surface.height), 0U);
+			if (surface.hiddenCoverage.empty())
+				surface.hiddenCoverage.resize(static_cast<size_t>(surface.width) * static_cast<size_t>(surface.height), 0U);
 
 			const u64 writesBefore = summary.colorWriteCount;
 			if (work.opKind == static_cast<u8>(RasterOpKind::kTriangle)) {

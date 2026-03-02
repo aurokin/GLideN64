@@ -1675,6 +1675,98 @@ void testCycle2TexelNextPixelHazardConformance()
 		"cycle2 TEX1/TEX0 transition should alter presented pixels under next-pixel hazard semantics");
 }
 
+void testCycle1Texel1SecondaryTileConformance()
+{
+	rvk2::Executor executor;
+	rvk2::RenderWorkPacket background = makeFillWork(260ULL, 0x00B4A000U, 0x304050FFU);
+	background.rectLRX = 7U;
+	background.rectLRY = 3U;
+
+	rvk2::RenderWorkPacket base = makeTexRectWork(false);
+	base.sourcePacketId = 261ULL;
+	base.colorImageAddress = background.colorImageAddress;
+	base.colorImageWidth = 8U;
+	base.rectULX = 0U;
+	base.rectULY = 0U;
+	base.rectLRX = 7U;
+	base.rectLRY = 3U;
+	base.phase = static_cast<u8>(rvk2::RenderPhase::kCycle1);
+	base.cycleType = 0U;
+	base.otherModes = 0ULL;
+
+	constexpr u64 kCycle1ColorAMask = 0xFULL << (32U + 20U);
+	constexpr u64 kCycle1ColorBMask = 0xFULL << 28U;
+	constexpr u64 kCycle1ColorCMask = 0x1FULL << (32U + 15U);
+	constexpr u64 kCycle1ColorDMask = 0x7ULL << 15U;
+	constexpr u64 kCycle1AlphaAMask = 0x7ULL << (32U + 12U);
+	constexpr u64 kCycle1AlphaBMask = 0x7ULL << 12U;
+	constexpr u64 kCycle1AlphaCMask = 0x7ULL << (32U + 9U);
+	constexpr u64 kCycle1AlphaDMask = 0x7ULL << 9U;
+	constexpr u64 kCycle1SelectorMask =
+		kCycle1ColorAMask
+		| kCycle1ColorBMask
+		| kCycle1ColorCMask
+		| kCycle1ColorDMask
+		| kCycle1AlphaAMask
+		| kCycle1AlphaBMask
+		| kCycle1AlphaCMask
+		| kCycle1AlphaDMask;
+	base.combineMux &= ~kCycle1SelectorMask;
+	base.combineMux |=
+		(0ULL << (32U + 20U))
+		| (0ULL << 28U)
+		| (0ULL << (32U + 15U))
+		| (2ULL << 15U)         // color D: TEXEL1
+		| (0ULL << (32U + 12U))
+		| (0ULL << 12U)
+		| (0ULL << (32U + 9U))
+		| (2ULL << 9U);         // alpha D: TEXEL1
+
+	base.tile1Valid = true;
+	base.tile1Index = static_cast<u8>((base.tile + 1U) & 0x7U);
+	base.tile1Format = 4U;
+	base.tile1Size = 1U;
+	base.tile1Line = 0x22U;
+	base.tile1Tmem = 0x180U;
+	base.tile1Palette = 0xFU;
+	base.tile1Cmt = 2U;
+	base.tile1Cms = 1U;
+	base.tile1Maskt = 3U;
+	base.tile1Masks = 2U;
+	base.tile1Shiftt = 1U;
+	base.tile1Shifts = 4U;
+	base.tile1ULS = 0x0020U;
+	base.tile1ULT = 0x0040U;
+	base.tile1LRS = 0x01E0U;
+	base.tile1LRT = 0x00E0U;
+
+	rvk2::RenderWorkPacket fallback = base;
+	fallback.sourcePacketId = 262ULL;
+	fallback.tile1Valid = false;
+
+	const std::vector<rvk2::SubmissionBatchPacket> twoWorkBatches{makeBatchForWorkCount(2U)};
+	const rvk2::ExecutorOutput baseOut = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, base},
+		twoWorkBatches);
+	const rvk2::ExecutorOutput fallbackOut = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, fallback},
+		twoWorkBatches);
+
+	expectTrue(
+		baseOut.summary.colorWriteCount > 0ULL,
+		"cycle1 TEXEL1 secondary-tile baseline should write pixels");
+	expectEq(
+		baseOut.summary.colorWriteCount,
+		fallbackOut.summary.colorWriteCount,
+		"cycle1 TEXEL1 secondary-tile transition should preserve write coverage");
+	expectTrue(
+		baseOut.summary.presentHash != fallbackOut.summary.presentHash,
+		"cycle1 TEXEL1 secondary-tile transition should alter present hash");
+	expectTrue(
+		!presentFramesEqual(baseOut, fallbackOut),
+		"cycle1 TEXEL1 secondary-tile transition should alter presented pixels");
+}
+
 void testTMEM32AuthoritativePathConformance()
 {
 	rvk2::Executor executor;
@@ -3010,6 +3102,7 @@ int main()
 	testCycle2PhaseDistinctConformance();
 	testCycle2CombinerSelectorIsolationConformance();
 	testCycle2TexelNextPixelHazardConformance();
+	testCycle1Texel1SecondaryTileConformance();
 	testTMEM32AuthoritativePathConformance();
 	testFillPhaseIgnoresBlendCombinerConformance();
 	testCopyFillBypassAlphaCoverageConformance();

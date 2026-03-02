@@ -267,6 +267,25 @@ RenderWorkPacket buildRenderWorkPacket(
 	work.tileULT = tile.ult;
 	work.tileLRS = tile.lrs;
 	work.tileLRT = tile.lrt;
+	const u8 tile1Index = static_cast<u8>(((_op.tile & 0x7U) + 1U) & 0x7U);
+	const TileDescriptorState & tile1 = _tmemState.tiles[tile1Index];
+	work.tile1Valid = true;
+	work.tile1Index = tile1Index;
+	work.tile1Format = tile1.format;
+	work.tile1Size = tile1.size;
+	work.tile1Line = tile1.line;
+	work.tile1Tmem = tile1.tmem;
+	work.tile1Palette = tile1.palette;
+	work.tile1Cmt = tile1.cmt;
+	work.tile1Cms = tile1.cms;
+	work.tile1Maskt = tile1.maskt;
+	work.tile1Masks = tile1.masks;
+	work.tile1Shiftt = tile1.shiftt;
+	work.tile1Shifts = tile1.shifts;
+	work.tile1ULS = tile1.uls;
+	work.tile1ULT = tile1.ult;
+	work.tile1LRS = tile1.lrs;
+	work.tile1LRT = tile1.lrt;
 
 	work.tmemLoadKind = static_cast<u8>(_tmemState.lastLoad.kind);
 	work.tmemLoadTile = _tmemState.lastLoad.tile;
