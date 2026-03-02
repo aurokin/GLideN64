@@ -1005,7 +1005,7 @@ void testCoverageModeFlagConformance()
 		"coverage mode flags should alter blended output hash");
 }
 
-void testColorOnCvgOverflowBypassConformance()
+void testColorOnCvgOverflowWriteEnableConformance()
 {
 	rvk2::Executor executor;
 	rvk2::RenderWorkPacket background = makeFillWork(115ULL, 0x00B32000U, 0x405080FFU);
@@ -1045,10 +1045,16 @@ void testColorOnCvgOverflowBypassConformance()
 	expectTrue(
 		blendedOut.summary.presentHash != backgroundOut.summary.presentHash,
 		"baseline blend pass should modify background when color_on_cvg is disabled");
+	expectTrue(
+		colorOnCvgOut.summary.blendCoverageOverflowCount > 0ULL,
+		"color_on_cvg overflow scenario should observe coverage overflow");
+	expectTrue(
+		colorOnCvgOut.summary.presentHash != backgroundOut.summary.presentHash,
+		"color_on_cvg should still update color when coverage overflows");
 	expectEq(
 		colorOnCvgOut.summary.presentHash,
-		backgroundOut.summary.presentHash,
-		"color_on_cvg overflow path should preserve framebuffer memory color");
+		blendedOut.summary.presentHash,
+		"color_on_cvg overflow path should preserve normal blended color writes");
 	expectEq(
 		colorOnCvgOut.summary.colorWriteCount,
 		blendedOut.summary.colorWriteCount,
@@ -3371,7 +3377,7 @@ int main()
 	testDepthSurfaceAliasIsolationConformance();
 	testCoverageBlendFlagConformance();
 	testCoverageModeFlagConformance();
-	testColorOnCvgOverflowBypassConformance();
+	testColorOnCvgOverflowWriteEnableConformance();
 	testCycle2CoverageDestinationConformance();
 	testAlphaCompareConformance();
 	testMixedStateBatchSegmentationConformance();

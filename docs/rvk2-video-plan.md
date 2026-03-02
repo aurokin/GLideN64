@@ -39,8 +39,8 @@ Accuracy-first. RVK2-only path. No legacy renderer fallback.
    - first-cycle combiner now carries previous-pixel combined color feedback.
    - cycle2 alpha-compare next-pixel combiner lookahead now seeds from first-cycle combined feedback.
 2. Added conformance coverage for cycle1 `COMBINED` feedback hazard behavior.
-3. Corrected `color_on_cvg` blender semantics to n64brew behavior:
-   - on coverage overflow, bypass blend and take framebuffer memory color.
+3. Corrected `color_on_cvg` blender semantics to match the RDP programming manual:
+   - color writes are inhibited unless coverage overflows.
 4. Added conformance coverage for `color_on_cvg` overflow bypass.
 5. Corrected rectangle/scissor decode to pixel-space coordinates:
    - `SetScissor` and `TexRect/FillRect` edges now decode from 10.2 fixed-point into integer pixels.
@@ -58,6 +58,17 @@ Accuracy-first. RVK2-only path. No legacy renderer fallback.
 11. Corrected tile axis clamp semantics:
    - tile `ULS/ULT/LRS/LRT` bounds are now applied only when clamp mode is set.
 12. Fresh parity after clamp fix shows a stronger rendered signal jump (rmse `0.188514` vs prior `0.140786` against black reference).
+13. Corrected `color_on_cvg` write gating to RDP manual semantics:
+   - inhibit color writes unless coverage overflows.
+14. Added RVK2 debug-isolation toggles for rapid hypothesis testing:
+   - `REALITYVK_RVK2_DEBUG_DISABLE_CYCLE2_PREV_MEMORY`
+   - `REALITYVK_RVK2_DEBUG_FORCE_BLEND_DIVIDE`
+   - `REALITYVK_RVK2_DEBUG_SWAP_TMEM16`
+   - `REALITYVK_RVK2_DEBUG_DISABLE_TRIANGLE_WRITES`
+   - `REALITYVK_RVK2_DEBUG_DISABLE_TEXRECT_WRITES`
+15. Diagnostic sweep outcome:
+   - disabling cycle2 previous-memory behavior had no effect on this capture,
+   - disabling triangles or texrects both significantly changes luma/error profile, confirming both raster paths still carry high-risk semantics.
 
 ## What Deep-Dive Changed In Our Plan
 

@@ -127,6 +127,66 @@ DebugStageViewMode debugStageViewMode()
 	return mode;
 }
 
+bool debugDisableCycle2PrevMemoryColor()
+{
+	static const bool disabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_DISABLE_CYCLE2_PREV_MEMORY");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return disabled;
+}
+
+bool debugForceBlenderDivide()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_FORCE_BLEND_DIVIDE");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugSwapTmem16Samples()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_SWAP_TMEM16");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugDisableTriangleWrites()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_DISABLE_TRIANGLE_WRITES");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugDisableTexRectWrites()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_DISABLE_TEXRECT_WRITES");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
 inline bool parseUnsignedToken(const std::string & _token, u64 & _out)
 {
 	const std::string token = trimAsciiWhitespace(_token);
@@ -744,7 +804,10 @@ inline u8 readTmem8BitColor(u16 _offset, u16 _x, u16 _i)
 inline u16 readTmem16BitColor(u16 _offset, u16 _x, u16 _i)
 {
 	const u16 * tmem16 = reinterpret_cast<const u16 *>(TMEM);
-	return tmem16[((static_cast<u32>(_offset) << 2U) + (static_cast<u32>(_x) ^ static_cast<u32>(_i))) & 0x7FFU];
+	u16 value = tmem16[((static_cast<u32>(_offset) << 2U) + (static_cast<u32>(_x) ^ static_cast<u32>(_i))) & 0x7FFU];
+	if (debugSwapTmem16Samples())
+		value = static_cast<u16>((value << 8U) | (value >> 8U));
+	return value;
 }
 
 inline u16 swapU16(u16 _value)
@@ -2582,11 +2645,11 @@ inline u32 applySyntheticBlender(
 	}
 	ColorRGBA out = p;
 	const bool blendEnabled = _work.forceBlender || aaEnable;
-	const bool colorOnCvgMemoryBypass = _work.colorOnCvg && coverage.overflow;
+	const bool colorOnCvgInhibitColorWrite = _work.colorOnCvg && !coverage.overflow;
 	if (_summary != nullptr && blendEnabled)
 		++_summary->blenderEnabledOpCount;
-	if (colorOnCvgMemoryBypass) {
-		// color_on_cvg overflow bypass uses framebuffer memory color directly.
+	if (colorOnCvgInhibitColorWrite) {
+		// color_on_cvg inhibits color writes unless coverage wraps.
 		out.r = memory.r;
 		out.g = memory.g;
 		out.b = memory.b;
@@ -2594,7 +2657,9 @@ inline u32 applySyntheticBlender(
 	else if (blendEnabled) {
 		const u32 a5 = static_cast<u32>(alphaA >> 3U);
 		const u32 b5 = static_cast<u32>(alphaB >> 3U);
-		const bool useDivide = aaEnable && !_work.forceBlender;
+		const bool useDivide =
+			debugForceBlenderDivide()
+			|| (aaEnable && !_work.forceBlender);
 		if (_summary != nullptr) {
 			if (useDivide)
 				++_summary->blenderDivideOpCount;
@@ -3197,6 +3262,10 @@ void writeRect(
 	const rvk2::ExecutorConfig & _config,
 	rvk2::ExecutorSummary & _summary)
 {
+	if (_work.opKind == static_cast<u8>(rvk2::RasterOpKind::kTexRect)
+		&& debugDisableTexRectWrites()) {
+		return;
+	}
 	const DebugStageViewMode stageViewMode = debugStageViewMode();
 	const bool imageReadEnabledWork = isImageReadEnabled(_work);
 	const bool cycle2Work = _work.phase == static_cast<u8>(rvk2::RenderPhase::kCycle2);
@@ -3241,7 +3310,9 @@ void writeRect(
 			u32 cycle2Cycle1DstColor = pipelineDstColor;
 			u8 cycle2Cycle1DstCoverage = pipelineDstCoverage;
 			bool cycle2Cycle1DstHiddenCoverage = pipelineDstHiddenCoverage;
-			if (cycle2Work && hasPrevPixelForCycle2) {
+			if (cycle2Work
+				&& hasPrevPixelForCycle2
+				&& !debugDisableCycle2PrevMemoryColor()) {
 				cycle2Cycle1DstColor = prevMemoryColorForCycle2;
 				cycle2Cycle1DstCoverage = prevMemoryCoverageForCycle2;
 				cycle2Cycle1DstHiddenCoverage = prevMemoryHiddenCoverageForCycle2;
@@ -3413,6 +3484,8 @@ void writeTriangle(
 	const rvk2::ExecutorConfig & _config,
 	rvk2::ExecutorSummary & _summary)
 {
+	if (debugDisableTriangleWrites())
+		return;
 	const DebugStageViewMode stageViewMode = debugStageViewMode();
 	const bool imageReadEnabledWork = isImageReadEnabled(_work);
 	const bool cycle2Work = _work.phase == static_cast<u8>(rvk2::RenderPhase::kCycle2);
@@ -3500,7 +3573,9 @@ void writeTriangle(
 			u32 cycle2Cycle1DstColor = pipelineDstColor;
 			u8 cycle2Cycle1DstCoverage = pipelineDstCoverage;
 			bool cycle2Cycle1DstHiddenCoverage = pipelineDstHiddenCoverage;
-			if (cycle2Work && hasPrevPixelForCycle2) {
+			if (cycle2Work
+				&& hasPrevPixelForCycle2
+				&& !debugDisableCycle2PrevMemoryColor()) {
 				cycle2Cycle1DstColor = prevMemoryColorForCycle2;
 				cycle2Cycle1DstCoverage = prevMemoryCoverageForCycle2;
 				cycle2Cycle1DstHiddenCoverage = prevMemoryHiddenCoverageForCycle2;
