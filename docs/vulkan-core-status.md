@@ -19,7 +19,7 @@ This is the single execution tracker for the rewrite.
 13. Mixed-state stress conformance now covers rapid phase/depth/coverage/combiner/scissor transitions and batch-segmentation determinism.
 14. Packet trace semantic rows (`S`) now emit full coefficient schema (72 columns) and replay parser validates the expanded schema while preserving legacy compatibility.
 15. Synthetic texture sampling now consumes expanded texture/tile/load state for texrect and textured triangles (executor + replay aligned).
-16. VI/presentation path now consumes live VI register snapshots and selects presented surface by `VI_ORIGIN` when available.
+16. VI/presentation path now consumes live VI register snapshots and selects presented surface by exact/containing `VI_ORIGIN` match when available.
 17. Primitive depth source path (`otherModes.depthSource` + `SetPrimDepth`) is now modeled in executor + replay with deterministic conformance coverage.
 18. VI presenter now models deterministic gamma, divot, and interlace field behavior from VI status/register state.
 19. Alpha compare state is now modeled in synthetic executor/replay and covered by conformance.
@@ -29,6 +29,7 @@ This is the single execution tracker for the rewrite.
 23. VI presenter now applies VI type-aware decode behavior for 16bpp mode (`status.type=2`) with deterministic quantization.
 24. VI presenter now applies interlace field selection in register-stepping space (field-aware Y stepping) for serrated mode.
 25. VI presenter now enforces register-window edge clipping (out-of-range samples resolve to black) and blank output on invalid H/V windows.
+26. VI presentation now applies origin-relative base pixel offsets only when `VI_ORIGIN` maps to a selected surface.
 
 ## Phase Status
 
@@ -43,7 +44,7 @@ This is the single execution tracker for the rewrite.
 
 ## Completion Estimate
 
-Estimated overall roadmap completion: **~66%**.
+Estimated overall roadmap completion: **~67%**.
 
 Heuristic phase weighting used for this estimate:
 - A: 20%
@@ -57,7 +58,7 @@ Estimated phase progress used:
 - A: 100%
 - B: 74%
 - C: 65%
-- D: 66%
+- D: 70%
 - E: 0%
 - F: 0%
 
@@ -170,6 +171,10 @@ Estimated phase progress used:
    - register-driven sampling now treats out-of-range sample coordinates as clipped/black instead of edge-clamping
    - invalid VI H/V windows (`hEnd<=hStart` or unresolved `vEnd<=vStart`) now produce blank output instead of fallback sizing
    - unit coverage added for x/y sample overflow clipping and invalid window blank behavior
+27. Tightened VI origin-mapped presentation semantics:
+   - executor now resolves `VI_ORIGIN` to exact or containing render targets (address-range aware by color-image size)
+   - presenter now applies origin-relative source pixel offset when and only when the selected surface matches `VI_ORIGIN`
+   - unit coverage added for in-range `VI_ORIGIN` surface selection, origin-offset sampling, wrapped `vStart` handling, and no-match fallback behavior
 
 ## Current Bottlenecks
 

@@ -27,6 +27,8 @@ struct VIRegisterState {
 };
 
 struct VIFrameInput {
+	bool sourceAddressValid = false;
+	u32 sourceAddress = 0U;
 	u16 sourceWidth = 0U;
 	u16 sourceHeight = 0U;
 	const std::vector<u32> * sourcePixels = nullptr;

@@ -193,6 +193,59 @@ struct DepthSurface {
 	std::vector<s32> values;
 };
 
+inline u32 bitsPerPixelFromSurfaceSize(u8 _size)
+{
+	switch (_size & 0x3U) {
+	case 0U:
+		return 4U;
+	case 1U:
+		return 8U;
+	case 2U:
+		return 16U;
+	default:
+		return 32U;
+	}
+}
+
+bool chooseSurfaceForVIOrigin(
+	const std::unordered_map<u32, ColorSurface> & _surfaces,
+	u32 _viOriginAddress,
+	u32 & _outSurfaceAddress)
+{
+	const auto exact = _surfaces.find(_viOriginAddress);
+	if (exact != _surfaces.end()) {
+		_outSurfaceAddress = _viOriginAddress;
+		return true;
+	}
+
+	u32 bestAddress = 0U;
+	u32 bestDelta = std::numeric_limits<u32>::max();
+	bool found = false;
+	for (const auto & entry : _surfaces) {
+		const u32 surfaceAddress = entry.first;
+		const ColorSurface & surface = entry.second;
+		const u64 pixelCount = static_cast<u64>(surface.width) * static_cast<u64>(surface.height);
+		const u64 bitCount = pixelCount * static_cast<u64>(bitsPerPixelFromSurfaceSize(surface.size));
+		const u64 byteCount = (bitCount + 7ULL) >> 3U;
+		const u64 surfaceBegin = static_cast<u64>(surfaceAddress);
+		const u64 surfaceEnd = surfaceBegin + byteCount;
+		const u64 origin = static_cast<u64>(_viOriginAddress);
+		if (origin < surfaceBegin || origin >= surfaceEnd)
+			continue;
+		const u32 delta = static_cast<u32>(origin - surfaceBegin);
+		if (!found || delta < bestDelta) {
+			found = true;
+			bestDelta = delta;
+			bestAddress = surfaceAddress;
+		}
+	}
+
+	if (!found)
+		return false;
+	_outSurfaceAddress = bestAddress;
+	return true;
+}
+
 inline size_t pixelIndex(u16 _width, u16 _x, u16 _y)
 {
 	return static_cast<size_t>(_y) * static_cast<size_t>(_width) + static_cast<size_t>(_x);
@@ -1216,14 +1269,20 @@ ExecutorOutput Executor::executeWithOutput(
 
 	summary.surfaceCount = static_cast<u64>(surfaces.size());
 	u32 presentSurfaceAddress = lastSurfaceAddress;
+	bool viOriginMatchedSurface = false;
 	if (m_config.viRegistersValid) {
 		const u32 viOriginAddress = m_config.viOrigin & 0x00FFFFFFU;
-		if (surfaces.find(viOriginAddress) != surfaces.end())
-			presentSurfaceAddress = viOriginAddress;
+		u32 matchedSurfaceAddress = presentSurfaceAddress;
+		if (chooseSurfaceForVIOrigin(surfaces, viOriginAddress, matchedSurfaceAddress)) {
+			presentSurfaceAddress = matchedSurfaceAddress;
+			viOriginMatchedSurface = true;
+		}
 	}
 	const auto it = surfaces.find(presentSurfaceAddress);
 	if (it != surfaces.end()) {
 		VIFrameInput presentInput{};
+		presentInput.sourceAddressValid = viOriginMatchedSurface;
+		presentInput.sourceAddress = presentSurfaceAddress;
 		presentInput.sourceWidth = it->second.width;
 		presentInput.sourceHeight = it->second.height;
 		presentInput.sourcePixels = &it->second.pixels;

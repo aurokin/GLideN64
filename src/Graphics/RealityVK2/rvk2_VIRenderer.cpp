@@ -26,6 +26,7 @@ struct VIResolvedState
 	u8 interlaceField = 0U;
 	u8 aaMode = 0U;
 	u8 viType = 0U;
+	u64 sourceBasePixelOffset = 0ULL;
 	u16 sourceWidth = 0U;
 	u16 sourceHeight = 0U;
 	u32 outputWidth = 0U;
@@ -237,9 +238,11 @@ u32 deriveOutputHeightFromRegisters(const rvk2::VIRegisterState & _registers)
 {
 	const u32 vStart = (_registers.vStart >> 16U) & 0x3FFU;
 	u32 vEnd = _registers.vStart & 0x3FFU;
-	const bool isPal = (_registers.vSync & 0x3FFU) > 550U;
-	if (vEnd < vStart)
-		vEnd = isPal ? (44U + 576U) : (34U + 480U);
+	if (vEnd < vStart) {
+		const u32 vSync = _registers.vSync & 0x3FFU;
+		const u32 wrap = vSync != 0U ? (vSync + 1U) : 1024U;
+		vEnd += wrap;
+	}
 	if (vEnd <= vStart)
 		return 0U;
 	return std::max<u32>(1U, (vEnd - vStart) >> 1U);
@@ -290,6 +293,16 @@ VIResolvedState resolveVIState(
 		state.outputWidth = 0U;
 		state.outputHeight = 0U;
 		return state;
+	}
+
+	if (_input.sourceAddressValid) {
+		const u32 baseAddress = _input.sourceAddress & 0x00FFFFFFU;
+		const u32 originAddress = _input.registers.origin & 0x00FFFFFFU;
+		if (originAddress >= baseAddress) {
+			const u32 bytesPerPixel = state.viType == 2U ? 2U : (state.viType == 3U ? 4U : 2U);
+			if (bytesPerPixel != 0U)
+				state.sourceBasePixelOffset = static_cast<u64>(originAddress - baseAddress) / bytesPerPixel;
+		}
 	}
 
 	state.outputWidth = clampU32(
@@ -405,10 +418,10 @@ VIFrameSummary VIRenderer::present(
 	for (u32 y = 0U; y < outputHeight; ++y) {
 		for (u32 x = 0U; x < outputWidth; ++x) {
 			u32 pixel = 0U;
-				if (x >= contentX
-					&& x < contentX + contentWidth
-					&& y >= contentY
-					&& y < contentY + contentHeight) {
+			if (x >= contentX
+				&& x < contentX + contentWidth
+				&& y >= contentY
+				&& y < contentY + contentHeight) {
 				const u32 contentXLocal = x - contentX;
 				const u32 contentYLocal = y - contentY;
 				const u32 baseX = std::min<u32>(
@@ -418,81 +431,95 @@ VIFrameSummary VIRenderer::present(
 					viState.outputHeight - 1U,
 					(contentYLocal * static_cast<u32>(viState.outputHeight)) / contentHeight);
 
-					u32 sourceX = 0U;
-					u32 sourceY = 0U;
-					bool sampleValid = true;
-					if (viState.useRegisters) {
-						const u32 sampleXFP = viState.xStart + baseX * viState.xStep;
-						u32 sampleYFP = 0U;
-						if (viState.interlaced) {
-							const u32 fieldBaseY = baseY * 2U + static_cast<u32>(viState.interlaceField);
-							sampleYFP = viState.yStart + fieldBaseY * viState.yStep;
-						}
-						else
-							sampleYFP = viState.yStart + baseY * viState.yStep;
-						const u32 sampleXLimit = static_cast<u32>(viState.sourceWidth) << 10U;
-						const u32 sampleYLimit = static_cast<u32>(viState.sourceHeight) << 10U;
-						if (sampleXFP >= sampleXLimit || sampleYFP >= sampleYLimit)
-							sampleValid = false;
-						sourceX = std::min<u32>(
-							viState.sourceWidth - 1U,
-							sampleXFP >> 10U);
-						sourceY = std::min<u32>(
-							viState.sourceHeight - 1U,
-							sampleYFP >> 10U);
+				u32 sourceX = 0U;
+				u32 sourceY = 0U;
+				bool sampleValid = true;
+				if (viState.useRegisters) {
+					const u32 sampleXFP = viState.xStart + baseX * viState.xStep;
+					u32 sampleYFP = 0U;
+					if (viState.interlaced) {
+						const u32 fieldBaseY = baseY * 2U + static_cast<u32>(viState.interlaceField);
+						sampleYFP = viState.yStart + fieldBaseY * viState.yStep;
 					}
-					else {
-						sourceX = std::min<u32>(
-							viState.sourceWidth - 1U,
-							(baseX * static_cast<u32>(viState.sourceWidth)) / viState.outputWidth);
+					else
+						sampleYFP = viState.yStart + baseY * viState.yStep;
+					const u32 sampleXLimit = static_cast<u32>(viState.sourceWidth) << 10U;
+					const u32 sampleYLimit = static_cast<u32>(viState.sourceHeight) << 10U;
+					if (sampleXFP >= sampleXLimit || sampleYFP >= sampleYLimit)
+						sampleValid = false;
+					sourceX = std::min<u32>(
+						viState.sourceWidth - 1U,
+						sampleXFP >> 10U);
+					sourceY = std::min<u32>(
+						viState.sourceHeight - 1U,
+						sampleYFP >> 10U);
+				}
+				else {
+					sourceX = std::min<u32>(
+						viState.sourceWidth - 1U,
+						(baseX * static_cast<u32>(viState.sourceWidth)) / viState.outputWidth);
+					sourceY = std::min<u32>(
+						viState.sourceHeight - 1U,
+						(baseY * static_cast<u32>(viState.sourceHeight)) / viState.outputHeight);
+					if (viState.interlaced) {
 						sourceY = std::min<u32>(
 							viState.sourceHeight - 1U,
-							(baseY * static_cast<u32>(viState.sourceHeight)) / viState.outputHeight);
-						if (viState.interlaced) {
-							sourceY = std::min<u32>(
-								viState.sourceHeight - 1U,
 							sourceY * 2U + static_cast<u32>(viState.interlaceField));
-						}
-					}
-					if (sampleValid) {
-						const size_t sampleIndex = pixelIndex(_input.sourceWidth, sourceX, sourceY);
-						pixel = applyVITypeDecode((*_input.sourcePixels)[sampleIndex], viState.viType);
-						if (viState.aaMode != 0U && viState.aaMode != 3U) {
-							const u32 sourceXLeft = sourceX > 0U ? sourceX - 1U : sourceX;
-							const u32 sourceXRight = std::min<u32>(viState.sourceWidth - 1U, sourceX + 1U);
-							const u32 sourceYUp = sourceY > 0U ? sourceY - 1U : sourceY;
-							const u32 sourceYDown = std::min<u32>(viState.sourceHeight - 1U, sourceY + 1U);
-							const u32 leftPixel = applyVITypeDecode(
-								(*_input.sourcePixels)[pixelIndex(_input.sourceWidth, sourceXLeft, sourceY)],
-								viState.viType);
-							const u32 rightPixel = applyVITypeDecode(
-								(*_input.sourcePixels)[pixelIndex(_input.sourceWidth, sourceXRight, sourceY)],
-								viState.viType);
-							const u32 upPixel = applyVITypeDecode(
-								(*_input.sourcePixels)[pixelIndex(_input.sourceWidth, sourceX, sourceYUp)],
-								viState.viType);
-							const u32 downPixel = applyVITypeDecode(
-								(*_input.sourcePixels)[pixelIndex(_input.sourceWidth, sourceX, sourceYDown)],
-								viState.viType);
-							pixel = filterAAPixel(pixel, leftPixel, rightPixel, upPixel, downPixel, viState.aaMode);
-						}
-						if (viState.divotEnabled && viState.sourceWidth > 1U) {
-							const u32 sourceXLeft = sourceX > 0U ? sourceX - 1U : sourceX;
-							const u32 sourceXRight = std::min<u32>(viState.sourceWidth - 1U, sourceX + 1U);
-							const u32 leftPixel = applyVITypeDecode(
-								(*_input.sourcePixels)[pixelIndex(_input.sourceWidth, sourceXLeft, sourceY)],
-								viState.viType);
-							const u32 rightPixel = applyVITypeDecode(
-								(*_input.sourcePixels)[pixelIndex(_input.sourceWidth, sourceXRight, sourceY)],
-								viState.viType);
-							pixel = applyDivotToPixel(leftPixel, pixel, rightPixel);
-						}
 					}
 				}
-				if (viState.gammaDitherEnabled)
-					pixel = applyGammaDitherToPixel(pixel, x, y);
-				if (viState.gammaEnabled)
-					pixel = applyGammaToPixel(pixel);
+				if (sampleValid && viState.sourceBasePixelOffset != 0ULL) {
+					const u64 linearOffset =
+						viState.sourceBasePixelOffset
+						+ static_cast<u64>(sourceY) * static_cast<u64>(viState.sourceWidth)
+						+ static_cast<u64>(sourceX);
+					const u64 sourcePixelCount =
+						static_cast<u64>(viState.sourceWidth) * static_cast<u64>(viState.sourceHeight);
+					if (linearOffset >= sourcePixelCount)
+						sampleValid = false;
+					else {
+						sourceY = static_cast<u32>(linearOffset / static_cast<u64>(viState.sourceWidth));
+						sourceX = static_cast<u32>(linearOffset % static_cast<u64>(viState.sourceWidth));
+					}
+				}
+				if (sampleValid) {
+					const size_t sampleIndex = pixelIndex(_input.sourceWidth, sourceX, sourceY);
+					pixel = applyVITypeDecode((*_input.sourcePixels)[sampleIndex], viState.viType);
+					if (viState.aaMode != 0U && viState.aaMode != 3U) {
+						const u32 sourceXLeft = sourceX > 0U ? sourceX - 1U : sourceX;
+						const u32 sourceXRight = std::min<u32>(viState.sourceWidth - 1U, sourceX + 1U);
+						const u32 sourceYUp = sourceY > 0U ? sourceY - 1U : sourceY;
+						const u32 sourceYDown = std::min<u32>(viState.sourceHeight - 1U, sourceY + 1U);
+						const u32 leftPixel = applyVITypeDecode(
+							(*_input.sourcePixels)[pixelIndex(_input.sourceWidth, sourceXLeft, sourceY)],
+							viState.viType);
+						const u32 rightPixel = applyVITypeDecode(
+							(*_input.sourcePixels)[pixelIndex(_input.sourceWidth, sourceXRight, sourceY)],
+							viState.viType);
+						const u32 upPixel = applyVITypeDecode(
+							(*_input.sourcePixels)[pixelIndex(_input.sourceWidth, sourceX, sourceYUp)],
+							viState.viType);
+						const u32 downPixel = applyVITypeDecode(
+							(*_input.sourcePixels)[pixelIndex(_input.sourceWidth, sourceX, sourceYDown)],
+							viState.viType);
+						pixel = filterAAPixel(pixel, leftPixel, rightPixel, upPixel, downPixel, viState.aaMode);
+					}
+					if (viState.divotEnabled && viState.sourceWidth > 1U) {
+						const u32 sourceXLeft = sourceX > 0U ? sourceX - 1U : sourceX;
+						const u32 sourceXRight = std::min<u32>(viState.sourceWidth - 1U, sourceX + 1U);
+						const u32 leftPixel = applyVITypeDecode(
+							(*_input.sourcePixels)[pixelIndex(_input.sourceWidth, sourceXLeft, sourceY)],
+							viState.viType);
+						const u32 rightPixel = applyVITypeDecode(
+							(*_input.sourcePixels)[pixelIndex(_input.sourceWidth, sourceXRight, sourceY)],
+							viState.viType);
+						pixel = applyDivotToPixel(leftPixel, pixel, rightPixel);
+					}
+				}
+			}
+			if (viState.gammaDitherEnabled)
+				pixel = applyGammaDitherToPixel(pixel, x, y);
+			if (viState.gammaEnabled)
+				pixel = applyGammaToPixel(pixel);
 			if (_outputPixels != nullptr)
 				(*_outputPixels)[pixelIndex(outputWidth, x, y)] = pixel;
 			updateHashByte(hash, static_cast<u8>((pixel >> 0U) & 0xFFU));

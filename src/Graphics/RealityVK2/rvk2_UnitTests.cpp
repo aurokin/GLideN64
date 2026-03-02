@@ -1325,6 +1325,22 @@ void testVIRendererAspectScaling()
 	expectEq(viType16Pixels.size(), viType32Pixels.size(), "VIRenderer type decode pixel count mismatch");
 	expectEq(viType16Pixels[0], 0x10315200U, "VIRenderer type2 quantized sample mismatch");
 
+	rvk2::VIFrameInput viTypeOffsetInput = viTypeInput;
+	viTypeOffsetInput.sourceAddressValid = true;
+	viTypeOffsetInput.sourceAddress = 0U;
+	viTypeOffsetInput.registers.status = 2U;
+	viTypeOffsetInput.registers.origin = 2U;
+	std::vector<u32> viTypeOffsetPixels;
+	const rvk2::VIFrameSummary viTypeOffsetSummary =
+		rendererSquare.present(viTypeOffsetInput, &viTypeOffsetPixels);
+	expectEq(viTypeOffsetSummary.presentWidth, 2U, "VIRenderer type2 origin-offset width mismatch");
+	expectEq(viTypeOffsetSummary.presentHeight, 2U, "VIRenderer type2 origin-offset height mismatch");
+	expectEq(viTypeOffsetPixels.size(), static_cast<size_t>(4U), "VIRenderer type2 origin-offset pixel count mismatch");
+	expectEq(viTypeOffsetPixels[0], viType16Pixels[1], "VIRenderer type2 origin-offset sample (0,0) mismatch");
+	expectEq(viTypeOffsetPixels[1], viType16Pixels[2], "VIRenderer type2 origin-offset sample (1,0) mismatch");
+	expectEq(viTypeOffsetPixels[2], viType16Pixels[3], "VIRenderer type2 origin-offset sample (0,1) mismatch");
+	expectEq(viTypeOffsetPixels[3], 0x00000000U, "VIRenderer type2 origin-offset sample (1,1) mismatch");
+
 	std::vector<u32> divotSource{
 		0x000000FFU, 0xFFFFFFFFU, 0x000000FFU, 0x000000FFU,
 		0x000000FFU, 0xFFFFFFFFU, 0x000000FFU, 0x000000FFU,
@@ -1449,6 +1465,64 @@ void testVIRendererAspectScaling()
 	expectEq(clipPixels[2], 0x00000000U, "VIRenderer clip y-overflow sample mismatch");
 	expectEq(clipPixels[3], 0x00000000U, "VIRenderer clip xy-overflow sample mismatch");
 
+	std::vector<u32> originSource{
+		0x101010FFU, 0x202020FFU, 0x303030FFU, 0x404040FFU,
+		0x505050FFU, 0x606060FFU, 0x707070FFU, 0x808080FFU
+	};
+	rvk2::VIFrameInput originInput{};
+	originInput.sourceAddressValid = true;
+	originInput.sourceAddress = 0x00100000U;
+	originInput.sourceWidth = 4U;
+	originInput.sourceHeight = 2U;
+	originInput.sourcePixels = &originSource;
+	originInput.registers.valid = true;
+	originInput.registers.status = 3U;
+	originInput.registers.origin = originInput.sourceAddress + 8U;
+	originInput.registers.width = 4U;
+	originInput.registers.vSync = 525U;
+	originInput.registers.hStart = (0U << 16U) | 2U;
+	originInput.registers.vStart = (0U << 16U) | 4U;
+	originInput.registers.xScale = 1024U;
+	originInput.registers.yScale = 1024U;
+	std::vector<u32> originPixels;
+	const rvk2::VIFrameSummary originSummary =
+		rendererSquare.present(originInput, &originPixels);
+	expectEq(originSummary.presentWidth, 2U, "VIRenderer origin-offset width mismatch");
+	expectEq(originSummary.presentHeight, 2U, "VIRenderer origin-offset height mismatch");
+	expectEq(originPixels.size(), static_cast<size_t>(4U), "VIRenderer origin-offset pixel count mismatch");
+	expectEq(originPixels[0], originSource[2], "VIRenderer origin-offset sample (0,0) mismatch");
+	expectEq(originPixels[1], originSource[3], "VIRenderer origin-offset sample (1,0) mismatch");
+	expectEq(originPixels[2], originSource[6], "VIRenderer origin-offset sample (0,1) mismatch");
+	expectEq(originPixels[3], originSource[7], "VIRenderer origin-offset sample (1,1) mismatch");
+
+	originInput.registers.origin = originInput.sourceAddress + 32U;
+	std::vector<u32> originOutOfRangePixels;
+	const rvk2::VIFrameSummary originOutOfRangeSummary =
+		rendererSquare.present(originInput, &originOutOfRangePixels);
+	expectEq(originOutOfRangeSummary.presentWidth, 2U, "VIRenderer origin OOR width mismatch");
+	expectEq(originOutOfRangeSummary.presentHeight, 2U, "VIRenderer origin OOR height mismatch");
+	expectEq(originOutOfRangePixels.size(), static_cast<size_t>(4U), "VIRenderer origin OOR pixel count mismatch");
+	expectEq(originOutOfRangePixels[0], 0x00000000U, "VIRenderer origin OOR sample (0,0) mismatch");
+	expectEq(originOutOfRangePixels[1], 0x00000000U, "VIRenderer origin OOR sample (1,0) mismatch");
+	expectEq(originOutOfRangePixels[2], 0x00000000U, "VIRenderer origin OOR sample (0,1) mismatch");
+	expectEq(originOutOfRangePixels[3], 0x00000000U, "VIRenderer origin OOR sample (1,1) mismatch");
+
+	rvk2::VIFrameInput wrappedVStartInput{};
+	wrappedVStartInput.sourceWidth = 2U;
+	wrappedVStartInput.sourceHeight = 2U;
+	wrappedVStartInput.sourcePixels = &interlaceSource;
+	wrappedVStartInput.registers.valid = true;
+	wrappedVStartInput.registers.status = 3U;
+	wrappedVStartInput.registers.width = 2U;
+	wrappedVStartInput.registers.vSync = 5U;
+	wrappedVStartInput.registers.hStart = (0U << 16U) | 2U;
+	wrappedVStartInput.registers.vStart = (4U << 16U) | 2U;
+	wrappedVStartInput.registers.xScale = 1024U;
+	wrappedVStartInput.registers.yScale = 1024U;
+	const rvk2::VIFrameSummary wrappedVStartSummary = rendererSquare.present(wrappedVStartInput);
+	expectEq(wrappedVStartSummary.presentWidth, 2U, "VIRenderer wrapped vStart width mismatch");
+	expectEq(wrappedVStartSummary.presentHeight, 2U, "VIRenderer wrapped vStart height mismatch");
+
 	rvk2::VIFrameInput invalidWindowInput = clipInput;
 	invalidWindowInput.registers.xScale = 1024U;
 	invalidWindowInput.registers.yScale = 1024U;
@@ -1542,6 +1616,36 @@ void testExecutorVIOriginPresentationSelection()
 	expectTrue(
 		viOut.summary.presentHash != defaultOut.summary.presentHash,
 		"Executor VI origin should alter present hash when selecting another surface");
+
+	rvk2::ExecutorConfig viRangeConfig = viConfig;
+	viRangeConfig.viOrigin = fillA.colorImageAddress + 4U;
+	rvk2::Executor viRangeExecutor(viRangeConfig);
+	const rvk2::ExecutorOutput viRangeOut =
+		viRangeExecutor.executeWithOutput(workPackets, batches);
+	expectTrue(
+		!viRangeOut.presentFrame.pixels.empty(),
+		"Executor VI-range output should produce present pixels");
+	expectEq(
+		viRangeOut.presentFrame.pixels[0],
+		fillA.fillColor,
+		"Executor VI origin in-range should select containing render target");
+
+	rvk2::ExecutorConfig viNoMatchConfig = viConfig;
+	viNoMatchConfig.viOrigin = 0x00300000U;
+	rvk2::Executor viNoMatchExecutor(viNoMatchConfig);
+	const rvk2::ExecutorOutput viNoMatchOut =
+		viNoMatchExecutor.executeWithOutput(workPackets, batches);
+	expectTrue(
+		!viNoMatchOut.presentFrame.pixels.empty(),
+		"Executor VI no-match output should produce present pixels");
+	expectEq(
+		viNoMatchOut.presentFrame.pixels[0],
+		fillB.fillColor,
+		"Executor VI no-match should fall back to last render target");
+	expectEq(
+		viNoMatchOut.summary.presentHash,
+		defaultOut.summary.presentHash,
+		"Executor VI no-match hash should match default presentation");
 }
 
 void testExecutorTriangleCoefficientConsumption()
