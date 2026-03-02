@@ -314,12 +314,7 @@ DrawSemanticPacket buildDrawSemanticPacket(
 		semantic.tile = static_cast<u8>(bitRange(_packet.w0, 16, 3));
 	}
 
-	if (semantic.textured) {
-		const u32 tileIndex = semantic.tile & 0x7U;
-		const TileDescriptorState & tile = _tmemState.tiles[tileIndex];
-		if (tile.format == 0U && tile.size == 0U && tile.line == 0U && tile.tmem == 0U)
-			semantic.textured = false;
-	}
+	(void)_tmemState;
 
 	return semantic;
 }

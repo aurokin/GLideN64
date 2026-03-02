@@ -63,6 +63,12 @@ REALITYVK2_FRAME_FORENSICS_FILE=/tmp/rvk2-forensics.tsv ./scripts/paper_mario_pa
 python3 scripts/rvk2_forensics_summary.py --input /tmp/rvk2-forensics.tsv --active-only
 ```
 
+Key outputs to watch:
+- stage deltas: `stage_texel_to_combiner_delta_rate`, `stage_combiner_to_blender_delta_rate`, `stage_texel_to_final_delta_rate`
+- dominant packet classes: `stage_*_top_classes` (bucket tags such as `b10`, `b11`)
+- texel source split per write: `stage_texel_source_tmem_rate`, `stage_texel_source_rdram_rate`
+- workload mix: `work_*_share` and `write_*_share`
+
 ## Texture Pack Utilities
 
 ```bash

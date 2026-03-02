@@ -46,24 +46,38 @@ Total remaining work represented here: 100%.
 
 ## Progress Snapshot
 
-- Overall completion: **~60%**
-- Active focus: **P4/P5 with stage-tap-guided isolation**
+- Overall completion: **~67%**
+- Active focus: **P5 blender/coverage closure with class-bucket guidance**
 - Blockers: none (debug debt only)
 
-## Latest Stage Sweep (Paper Mario)
+## Latest Pipeline Class Signal (Paper Mario)
 
 Source artifacts:
 - `build/parity-runs/paper-mario/paper_mario_intro.<mode>.candidate.{ppm,png}`
-- `build/parity-runs/paper-mario/paper_mario_intro.<mode>.metrics.json`
+- `build/parity-runs/paper-mario/paper_mario_intro.metrics.json`
 
-Observed mode groups (rebuilt `build/release-vulkan-smoke` plugin):
-- Group A (identical outputs): `final` + `blender_out`
-- Group B (identical outputs): `texel_raw` + `combiner_out`
-- Group C (unique output): `vi_source`
+Using rebuilt `build/release-vulkan-smoke` plugin + `REALITYVK2_FRAME_FORENSICS_FILE`:
 
-Key implication:
-- For this scene/frame slice, combiner is currently behaving as pass-through from texel stage, while blender/late pixel controls are where output diverges from texel.
-- `vi_source` divergence confirms VI processing is materially changing the frame; it remains useful as a source-surface isolation view, not as a parity target by itself.
+- Parity metrics remain:
+  - `rmse = 0.017274`
+  - `mae = 0.002231`
+- Dominant work/write classes:
+  - `work_texrect_share = 0.525`
+  - `work_triangle_share = 0.475`
+  - `work_textured_share = 0.964`
+  - `write_texrect_share = 0.559`
+  - `write_triangle_share = 0.441`
+- Stage delta rates are high (active shading path, not pass-through):
+  - `stage_texel_to_combiner_delta_rate = 0.471`
+  - `stage_combiner_to_blender_delta_rate = 0.910`
+  - `stage_texel_to_final_delta_rate = 0.947`
+- Dominant mismatch classes:
+  - `b10 (force_blend|coverage)` mostly texrect writes
+  - `b11 (cycle2|force_blend|coverage)` mostly triangle writes
+- Texel source split:
+  - `stage_texel_source_tmem_rate = 0.424`
+  - `stage_texel_source_rdram_rate = 0.483`
+  - replacement/synthetic writes: `0`
 
 ## Latest Forensics Signal (Blender/Coverage Telemetry)
 
@@ -71,27 +85,49 @@ Using `REALITYVK2_FRAME_FORENSICS_FILE` + `scripts/rvk2_forensics_summary.py` on
 
 - `blend_enabled_rate = 1.0`
 - `blend_force_rate = 1.0`
-- `blend_coverage_zero_rate ≈ 0.533`
+- `blend_coverage_zero_rate ≈ 0.560`
+- `blend_coverage_overflow_rate ≈ 0.113`
 - Dominant alpha selector distribution:
   - A selector: `s0 ≈ 0.709`, `s3 ≈ 0.291`
   - B selector: `s0 ≈ 0.709`, `s2 ≈ 0.291`
 
 Implication:
-- Blender path is always active in this capture, and coverage resolve is suppressing a large fraction of blend coverage samples.
-- Immediate debugging should prioritize force-blender/coverage semantics and selector path validation before spending more cycles on combiner logic.
+- Blender path is always active in this capture, and force-blend + coverage classes dominate final writes.
+- Immediate debugging should stay focused on coverage/blender semantics in classes `b10` and `b11`, with TMEM/RDRAM split validation per class.
+
+## Latest Blender Semantics Pass
+
+- Switched forced-blender path toward documented no-divide behavior using 5-bit alpha weights.
+- Added divide vs no-divide telemetry:
+  - `blend_divide_rate = 0.0`
+  - `blend_nodivide_rate = 1.0` (Paper Mario active frames)
+- Parity improved after this pass:
+  - `rmse: 0.017899 -> 0.017274`
+  - `mae: 0.002317 -> 0.002231`
+- Quick stage sweep still shows:
+  - `final == blender_out`
+  - `texel_raw` remains distinct from final
+
+Implication:
+- No-divide forced blender remains the active path and should stay the baseline while we refine coverage destination/input semantics.
+- Remaining gap appears to be policy-level (coverage/blender inputs), not missing textured work.
 
 ## Immediate Work Queue
 
-1. Correlate `final` vs `texel_raw` divergence with packet classes to identify the first high-impact blender/coverage mismatch.
-2. Use new forensics counters to isolate dominant alpha selector paths and coverage/depth rejection sources in active frames.
-3. Use `vi_source` captures to validate source-surface coherence per frame window before spending more cycles on VI polish.
-4. Keep TMEM32 experimental work behind explicit opt-in until blender/coverage behavior is better constrained.
-5. After blender closure, re-run stage sweep and check whether `combiner_out` still collapses onto `texel_raw`.
+1. Close class `b10` (`force_blend|coverage`) coverage destination semantics in texrect path.
+2. Close class `b11` (`cycle2|force_blend|coverage`) cycle2 coverage handoff semantics for triangles.
+3. Reconcile TMEM vs RDRAM source influence by class to prevent policy drift between texrect and triangle paths.
+4. Keep TMEM32 experimental modes opt-in until class `b11` parity improves.
+5. Re-run full stage sweep (`final/texel_raw/combiner_out/blender_out/vi_source`) after each major coverage policy change.
 
 ## Update Log
 
 | Date | Change | Notes |
 | --- | --- | --- |
+| 2026-03-02 | Added class-bucket pipeline diagnostics and texel-source attribution for active writes. | New forensics fields now report stage deltas by packet class, textured work/write shares, texel source split (`TMEM` vs `RDRAM`) by class, and op-kind work/write distributions. |
+| 2026-03-02 | Landed per-surface 3-bit coverage buffer in executor path (conformance-compatible defaults). | Coverage destination no longer derives from destination alpha color directly; local gate remains green and telemetry now reflects coverage policy changes in dominant force-blend classes. |
+| 2026-03-02 | Removed semantic gate that forcibly disabled textured draws on zeroed tile descriptor. | Texture intent now follows opcode/packet semantics; telemetry confirms active textured work/write paths in Paper Mario capture. |
+| 2026-03-02 | Implemented forced-blender no-divide semantics pass and validated improvement. | Local gate stayed green; Paper Mario parity improved (`rmse 0.017274`, `mae 0.002231`) and telemetry confirms forced no-divide path dominance in active frames. |
 | 2026-03-02 | Added `scripts/rvk2_forensics_summary.py` and validated telemetry end-to-end. | Local gate + parity capture confirmed non-zero blender/coverage counters in frame-forensics output; current Paper Mario run shows blender forced on for all blended pixels and high coverage-zero share. |
 | 2026-03-02 | Added blender/coverage/depth telemetry counters to executor + frame forensics output. | New per-frame fields include combiner/blender op counts, alpha/coverage reject counts, depth eval/reject/update counts, dither activity, texture-edge/convert-one alpha forces, and blend alpha selector histograms. |
 | 2026-03-02 | Completed rebuilt-plugin stage sweep (`final`, `texel_raw`, `combiner_out`, `blender_out`, `vi_source`). | `final==blender_out`, `texel_raw==combiner_out`, and `vi_source` was unique; this narrows immediate work to blender/coverage semantics. |

@@ -11,6 +11,7 @@
 namespace rvk2 {
 
 constexpr u32 kExecutorDebugSurfaceSlots = 4U;
+constexpr u32 kExecutorStageDeltaClassBuckets = 32U;
 
 enum ExecutorPresentSelectionReason : u8
 {
@@ -115,14 +116,18 @@ struct ExecutorSummary {
 	u64 blenderEnabledOpCount = 0ULL;
 	u64 blenderForceOpCount = 0ULL;
 	u64 blenderAAOpCount = 0ULL;
+	u64 blenderDivideOpCount = 0ULL;
+	u64 blenderNoDivideOpCount = 0ULL;
 	u64 alphaCompareTestCount = 0ULL;
 	u64 alphaCompareRejectCount = 0ULL;
 	u64 coverageWriteTestCount = 0ULL;
 	u64 coverageWriteRejectCount = 0ULL;
 	u64 blendCoverageEvalCount = 0ULL;
 	u64 blendCoverageZeroCount = 0ULL;
+	u64 blendCoverageOverflowCount = 0ULL;
 	u64 coverageWriteEvalCount = 0ULL;
 	u64 coverageWriteZeroCount = 0ULL;
+	u64 coverageWriteOverflowCount = 0ULL;
 	u64 depthEvalCount = 0ULL;
 	u64 depthRejectCount = 0ULL;
 	u64 depthUpdateCount = 0ULL;
@@ -132,6 +137,31 @@ struct ExecutorSummary {
 	u64 convertOneAlphaForceCount = 0ULL;
 	std::array<u64, 4> blendAlphaASelectorCount{};
 	std::array<u64, 4> blendAlphaBSelectorCount{};
+	u64 stageTexelToCombinerDeltaCount = 0ULL;
+	u64 stageCombinerToBlenderDeltaCount = 0ULL;
+	u64 stageBlenderToFinalDeltaCount = 0ULL;
+	u64 stageTexelToFinalDeltaCount = 0ULL;
+	u64 stageTexturedWriteCount = 0ULL;
+	u64 stageTexturedRectWriteCount = 0ULL;
+	u64 stageTexturedTriangleWriteCount = 0ULL;
+	u64 stageTexelSourceReplacementWriteCount = 0ULL;
+	u64 stageTexelSourceTMEMWriteCount = 0ULL;
+	u64 stageTexelSourceRdramWriteCount = 0ULL;
+	u64 stageTexelSourceSyntheticWriteCount = 0ULL;
+	u64 workKindFillCount = 0ULL;
+	u64 workKindTexRectCount = 0ULL;
+	u64 workKindTriangleCount = 0ULL;
+	u64 workTexturedCount = 0ULL;
+	u64 writeKindFillCount = 0ULL;
+	u64 writeKindTexRectCount = 0ULL;
+	u64 writeKindTriangleCount = 0ULL;
+	std::array<u64, kExecutorStageDeltaClassBuckets> stageWriteClassCount{};
+	std::array<u64, kExecutorStageDeltaClassBuckets> stageTexelToFinalDeltaClassCount{};
+	std::array<u64, kExecutorStageDeltaClassBuckets> stageCombinerToBlenderDeltaClassCount{};
+	std::array<u64, kExecutorStageDeltaClassBuckets> stageTexelSourceReplacementClassCount{};
+	std::array<u64, kExecutorStageDeltaClassBuckets> stageTexelSourceTMEMClassCount{};
+	std::array<u64, kExecutorStageDeltaClassBuckets> stageTexelSourceRdramClassCount{};
+	std::array<u64, kExecutorStageDeltaClassBuckets> stageTexelSourceSyntheticClassCount{};
 	u64 outputLumaSum = 0ULL;
 	u64 presentHash = 1469598103934665603ULL;
 	u32 presentWidth = 0U;
