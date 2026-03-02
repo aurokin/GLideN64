@@ -32,6 +32,7 @@ This is the single execution tracker for the rewrite.
 26. VI presentation now applies origin-relative base pixel offsets only when `VI_ORIGIN` maps to a selected surface.
 27. VI register-driven sampling now treats `VI_WIDTH` as source line stride for linear address generation.
 28. VI presenter now models `VI_CTRL.DEDITHER_ENABLE` (bit 16) for 16bpp in compatible AA modes and treats `AA_MODE=REPLICATE` as the only no-resample path.
+29. VI register path now hard-fails reserved/invalid control states (`TYPE=1`, `VI_WIDTH=0`) to deterministic blank output.
 
 ## Phase Status
 
@@ -46,7 +47,7 @@ This is the single execution tracker for the rewrite.
 
 ## Completion Estimate
 
-Estimated overall roadmap completion: **~69%**.
+Estimated overall roadmap completion: **~70%**.
 
 Heuristic phase weighting used for this estimate:
 - A: 20%
@@ -60,7 +61,7 @@ Estimated phase progress used:
 - A: 100%
 - B: 74%
 - C: 65%
-- D: 79%
+- D: 82%
 - E: 0%
 - F: 0%
 
@@ -187,6 +188,10 @@ Estimated phase progress used:
    - `VI_CTRL.DEDITHER_ENABLE` now applies a deterministic 8-neighbor correction path for 16bpp when AA mode is `AA_ALWAYS` or `REPLICATE`
    - dedither is intentionally inactive for incompatible modes (`AA_NEEDED`/`RESAMPLE`) to avoid unsupported behavior drift
    - unit coverage added for dedither-on/off divergence and AA-mode-gated dedither behavior
+30. Hardened VI register fail-safe behavior:
+   - reserved VI type (`TYPE=1`) now resolves to blank output instead of undefined decode behavior
+   - register-driven presentation now requires non-zero `VI_WIDTH`; zero-width states deterministically blank
+   - unit coverage added for reserved type and zero-width blank-output behavior
 
 ## Current Bottlenecks
 

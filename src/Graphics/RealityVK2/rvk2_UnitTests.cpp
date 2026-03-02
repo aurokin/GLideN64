@@ -1336,6 +1336,13 @@ void testVIRendererAspectScaling()
 	expectEq(viType16Pixels.size(), viType32Pixels.size(), "VIRenderer type decode pixel count mismatch");
 	expectEq(viType16Pixels[0], 0x10315200U, "VIRenderer type2 quantized sample mismatch");
 
+	rvk2::VIFrameInput viTypeReservedInput = viTypeInput;
+	viTypeReservedInput.registers.status = 1U | (3U << 8U);
+	const rvk2::VIFrameSummary viTypeReservedSummary =
+		rendererSquare.present(viTypeReservedInput);
+	expectEq(viTypeReservedSummary.presentWidth, 0U, "VIRenderer reserved type width mismatch");
+	expectEq(viTypeReservedSummary.presentHeight, 0U, "VIRenderer reserved type height mismatch");
+
 	rvk2::VIFrameInput viTypeOffsetInput = viTypeInput;
 	viTypeOffsetInput.sourceAddressValid = true;
 	viTypeOffsetInput.sourceAddress = 0U;
@@ -1655,6 +1662,12 @@ void testVIRendererAspectScaling()
 	const rvk2::VIFrameSummary wrappedVStartSummary = rendererSquare.present(wrappedVStartInput);
 	expectEq(wrappedVStartSummary.presentWidth, 2U, "VIRenderer wrapped vStart width mismatch");
 	expectEq(wrappedVStartSummary.presentHeight, 2U, "VIRenderer wrapped vStart height mismatch");
+
+	rvk2::VIFrameInput invalidWidthInput = wrappedVStartInput;
+	invalidWidthInput.registers.width = 0U;
+	const rvk2::VIFrameSummary invalidWidthSummary = rendererSquare.present(invalidWidthInput);
+	expectEq(invalidWidthSummary.presentWidth, 0U, "VIRenderer zero VI width mismatch");
+	expectEq(invalidWidthSummary.presentHeight, 0U, "VIRenderer zero VI height mismatch");
 
 	rvk2::VIFrameInput invalidWindowInput = clipInput;
 	invalidWindowInput.registers.xScale = 1024U;

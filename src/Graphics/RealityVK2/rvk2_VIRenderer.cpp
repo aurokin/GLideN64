@@ -17,6 +17,8 @@ constexpr u32 kVIStatusDivotEnabled = 0x000010U;
 constexpr u32 kVIStatusSerrateEnabled = 0x000040U;
 constexpr u32 kVIStatusAAModeMask = 0x000300U;
 constexpr u32 kVIStatusDeditherEnabled = 0x010000U;
+constexpr u8 kVIType16Bpp = 2U;
+constexpr u8 kVIType32Bpp = 3U;
 
 struct VIResolvedState
 {
@@ -267,7 +269,7 @@ u8 quantize5To8(u8 _value)
 
 u32 applyVITypeDecode(u32 _pixel, u8 _viType)
 {
-	if (_viType != 2U)
+	if (_viType != kVIType16Bpp)
 		return _pixel;
 
 	const u8 r = quantize5To8(static_cast<u8>((_pixel >> 24U) & 0xFFU));
@@ -324,6 +326,11 @@ VIResolvedState resolveVIState(
 
 	state.useRegisters = true;
 	state.viType = static_cast<u8>(_input.registers.status & kVIStatusTypeMask);
+	if (state.viType != kVIType16Bpp && state.viType != kVIType32Bpp) {
+		state.outputWidth = 0U;
+		state.outputHeight = 0U;
+		return state;
+	}
 	state.deditherEnabled = (_input.registers.status & kVIStatusDeditherEnabled) != 0U;
 	state.gammaDitherEnabled = (_input.registers.status & kVIStatusGammaDitherEnabled) != 0U;
 	state.gammaEnabled = (_input.registers.status & kVIStatusGammaEnabled) != 0U;
@@ -332,6 +339,11 @@ VIResolvedState resolveVIState(
 	state.interlaceField = static_cast<u8>(_input.registers.vCurrentLine & 0x1U);
 	state.aaMode = static_cast<u8>((_input.registers.status & kVIStatusAAModeMask) >> 8U);
 	const u32 viWidth = _input.registers.width & 0x0FFFU;
+	if (viWidth == 0U) {
+		state.outputWidth = 0U;
+		state.outputHeight = 0U;
+		return state;
+	}
 	state.sourceLineStride = viWidth != 0U ? viWidth : static_cast<u32>(state.sourceWidth);
 	if (state.sourceLineStride == 0U)
 		state.sourceLineStride = static_cast<u32>(state.sourceWidth);
@@ -356,7 +368,7 @@ VIResolvedState resolveVIState(
 		const u32 baseAddress = _input.sourceAddress & 0x00FFFFFFU;
 		const u32 originAddress = _input.registers.origin & 0x00FFFFFFU;
 		if (originAddress >= baseAddress) {
-			const u32 bytesPerPixel = state.viType == 2U ? 2U : (state.viType == 3U ? 4U : 2U);
+			const u32 bytesPerPixel = state.viType == kVIType16Bpp ? 2U : 4U;
 			if (bytesPerPixel != 0U)
 				state.sourceBasePixelOffset = static_cast<u64>(originAddress - baseAddress) / bytesPerPixel;
 		}
@@ -543,7 +555,7 @@ VIFrameSummary VIRenderer::present(
 						viState.viType);
 					const bool deditherActive =
 						viState.deditherEnabled
-						&& viState.viType == 2U
+						&& viState.viType == kVIType16Bpp
 						&& (viState.aaMode == 0U || viState.aaMode == 3U);
 					const bool needsNeighborhood =
 						deditherActive || viState.aaMode != 3U || viState.divotEnabled;
