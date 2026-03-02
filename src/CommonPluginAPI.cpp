@@ -72,11 +72,4 @@ EXPORT void CALL FBGetFrameBufferInfo(void *pinfo)
 {
 	api().FBGetFrameBufferInfo(pinfo);
 }
-
-#ifndef MUPENPLUSAPI
-EXPORT void CALL FBWList(FrameBufferModifyEntry *plist, unsigned int size)
-{
-	api().FBWList(plist, size);
-}
-#endif
 }

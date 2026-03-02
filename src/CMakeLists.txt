@@ -2,7 +2,6 @@ cmake_minimum_required(VERSION 3.10)
 
 option(PANDORA "Set to ON if targeting an OpenPandora" ${PANDORA})
 option(ODROID "Set to ON if targeting an Odroid" ${ODROID})
-option(MUPENPLUSAPI "Set to ON for Mupen64Plus plugin" ${MUPENPLUSAPI})
 option(MESA "Set to ON to disable Raspberry Pi autodetection" ${MESA})
 option(VERO4K "Set to ON if targeting a Vero4k" ${VERO4K})
 option(ANDROID "Set to ON if targeting an Android device" ${ANDROID})
@@ -201,31 +200,26 @@ else(EXISTS "${CMAKE_FIND_ROOT_PATH}/opt/vc/include/bcm_host.h" AND NOT MESA)
   set(EGL_LIB -lEGL)
 endif(EXISTS "${CMAKE_FIND_ROOT_PATH}/opt/vc/include/bcm_host.h" AND NOT MESA)
 
-if(MUPENPLUSAPI)
-  add_definitions(
-	-DMUPENPLUSAPI
-		-DTXFILTER_LIB
-  )
-  include_directories( . inc )
-  set(RealityVK_SOURCES_UNIX
-	MupenPlusPluginAPI.cpp
-	mupenplus/CommonAPIImpl_mupenplus.cpp
-	mupenplus/MemoryStatus_mupenplus.cpp
-	mupenplus/MupenPlusAPIImpl.cpp
-	mupenplus/Config_mupenplus.cpp
-	Graphics/Host/mupen64plus/mupen64plus_DisplayWindow.cpp
-  )
+add_definitions(
+  -DMUPENPLUSAPI
+  -DTXFILTER_LIB
+)
+include_directories( . inc )
+set(RealityVK_SOURCES_UNIX
+  MupenPlusPluginAPI.cpp
+  mupenplus/CommonAPIImpl_mupenplus.cpp
+  mupenplus/MemoryStatus_mupenplus.cpp
+  mupenplus/MupenPlusAPIImpl.cpp
+  mupenplus/Config_mupenplus.cpp
+  Graphics/Host/mupen64plus/mupen64plus_DisplayWindow.cpp
+)
 
-  set(RealityVK_SOURCES_WIN ${RealityVK_SOURCES_UNIX}
-  )
-  if (ANDROID)
-      set(RealityVK_DLL_NAME libmupen64plus-video-RealityVK)
-  else()
-      set(RealityVK_DLL_NAME mupen64plus-video-RealityVK)
-  endif()
-else(MUPENPLUSAPI)
-  message(FATAL_ERROR "Vulkan-only branch currently supports only MUPENPLUSAPI builds.")
-endif(MUPENPLUSAPI)
+set(RealityVK_SOURCES_WIN ${RealityVK_SOURCES_UNIX})
+if (ANDROID)
+  set(RealityVK_DLL_NAME libmupen64plus-video-RealityVK)
+else()
+  set(RealityVK_DLL_NAME mupen64plus-video-RealityVK)
+endif()
 
 add_subdirectory( osal )
 include_directories( osal )
@@ -259,9 +253,7 @@ if(MINGW)
   add_definitions(
     -DMINGW
   )
-  if (NOT MUPENPLUSAPI)
-    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -static")
-  endif()
+  set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -static")
 endif(MINGW)
 
 if(WIN32)
@@ -341,11 +333,6 @@ if(NOT NO_OSD)
       set(FREETYPE_LIBRARIES ANDROID_FREETYPE)
   else(ANDROID)
       FIND_PACKAGE( Freetype REQUIRED )
-      # presume a qt build linked to freetype
-      # will be used with mingw
-      if (NOT MUPENPLUSAPI AND MINGW)
-        set(FREETYPE_LIBRARIES "")
-      endif()
   endif(ANDROID)
 
   include_directories( ${FREETYPE_INCLUDE_DIRS} )

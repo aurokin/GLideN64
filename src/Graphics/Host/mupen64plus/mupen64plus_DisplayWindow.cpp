@@ -47,7 +47,7 @@ DisplayWindow & DisplayWindow::get()
 void DisplayWindowMupen64plus::_setAttributes()
 {
 	LOG(LOG_VERBOSE, "_setAttributes");
-	// Vulkan-first branch: legacy context attributes are not used.
+	// Vulkan-only path does not require additional context attributes.
 }
 
 bool DisplayWindowMupen64plus::_start()
@@ -133,14 +133,14 @@ void DisplayWindowMupen64plus::_swapBuffers()
 		(*renderCallback)((gDP.changed&CHANGED_CPU_FB_WRITE) == 0 ? 1 : 0);
 	}
 
-	// Vulkan-only branch: never fall back to a legacy swap path.
-	if (!gfxContext.present()) {
-		static bool warned = false;
-		if (!warned) {
-			LOG(LOG_WARNING, "Vulkan present failed; legacy swap fallback is disabled in Vulkan-only branch.");
-			warned = true;
+		// Vulkan-only branch: no alternate swap path exists.
+		if (!gfxContext.present()) {
+			static bool warned = false;
+			if (!warned) {
+				LOG(LOG_WARNING, "Vulkan present failed; no alternate swap path is available in Vulkan-only branch.");
+				warned = true;
+			}
 		}
-	}
 }
 
 void DisplayWindowMupen64plus::_saveScreenshot()

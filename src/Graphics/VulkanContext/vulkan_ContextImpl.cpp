@@ -1219,10 +1219,10 @@ bool ContextImpl::blitFramebuffers(const graphics::Context::BlitFramebuffersPara
 
 		if (drawToDefault) {
 			// Depth blit to the default framebuffer is handled by higher-level
-			// fallback copy path. Do not enqueue partial color work and then fail.
+			// default-target copy path. Do not enqueue partial color work and then fail.
 			if (wantsDepth) {
 				vkFboTrace(
-					"op=blit_end readFbo=%u drawFbo=%u srcColorAttachment=%s colorOp=0 colorOk=0 depthOp=1 depthOk=0 depthReason=%s result=0 path=fallback_copy_required",
+					"op=blit_end readFbo=%u drawFbo=%u srcColorAttachment=%s colorOp=0 colorOk=0 depthOp=1 depthOk=0 depthReason=%s result=0 path=default_target_depth_copy_unavailable",
 					static_cast<u32>(_params.readBuffer),
 					static_cast<u32>(_params.drawBuffer),
 					bufferAttachmentName(graphics::bufferAttachment::COLOR_ATTACHMENT0),

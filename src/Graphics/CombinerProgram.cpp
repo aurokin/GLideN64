@@ -19,7 +19,7 @@ namespace graphics {
 		vecOptions.push_back(config.generalEmulation.enableCoverage);
 		vecOptions.push_back(config.frameBufferEmulation.N64DepthCompare == Config::dcFast ? 1 : 0);
 		vecOptions.push_back(config.frameBufferEmulation.N64DepthCompare == Config::dcCompatible ? 1 : 0);
-		// Keep reserved bit position stable after legacy blending path removal.
+		// Keep reserved bit position stable after blend-path cleanup.
 		vecOptions.push_back(0);
 		vecOptions.push_back(config.generalEmulation.enableFragmentDepthWrite);
 		vecOptions.push_back(config.generalEmulation.enableInaccurateTextureCoordinates);

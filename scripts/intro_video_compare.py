@@ -649,8 +649,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--runtime-root", default="/home/auro/code/mupen", help="LLM runtime root")
     parser.add_argument(
         "--reference-plugin",
-        default="/home/auro/code/realityvk-upstream/build-release/plugin/Release/mupen64plus-video-RealityVK.so",
-        help="Reference plugin binary",
+        default="/home/auro/code/gliden64-upstream/build-release/plugin/Release/mupen64plus-video-GLideN64.so",
+        help="Reference plugin binary (upstream GLideN64)",
     )
     parser.add_argument(
         "--candidate-plugin",

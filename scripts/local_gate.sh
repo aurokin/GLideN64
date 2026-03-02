@@ -37,24 +37,19 @@ fi
 
 validate_doc_links() {
   local removed_paths=(
-    "docs/realityvk-vs-upstream-flow.md"
-    "docs/vulkan-migration-plan.md"
-    "docs/vulkan-backend-intent.md"
-    "docs/n64-video-core-bug-matrix.md"
-    "docs/vulkan-core-future-map.md"
-    "docs/vulkan-core-owner-map.md"
-    "docs/vulkan-core-phase-a-checklist.md"
-    "docs/archive/"
+    "WORKFLOW.md"
+    "docs/local-smoke.md"
+    "docs/n64-runtime-validation-checklist.md"
+    "docs/vulkan-core-rebuild-plan.md"
+    "docs/references/n64/issue-research/"
   )
   local active_docs=(
     "${ROOT_DIR}/README.md"
-    "${ROOT_DIR}/WORKFLOW.md"
+    "${ROOT_DIR}/AGENTS.md"
     "${ROOT_DIR}/docs/README.md"
     "${ROOT_DIR}/docs/local-ci.md"
-    "${ROOT_DIR}/docs/local-smoke.md"
-    "${ROOT_DIR}/docs/n64-runtime-validation-checklist.md"
-    "${ROOT_DIR}/docs/vulkan-core-rebuild-plan.md"
     "${ROOT_DIR}/docs/vulkan-core-status.md"
+    "${ROOT_DIR}/docs/references/n64/README.md"
   )
 
   local stale_found=0

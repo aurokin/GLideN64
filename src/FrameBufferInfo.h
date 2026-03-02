@@ -19,20 +19,11 @@ namespace FBInfo {
 		unsigned int height;
 	};
 
-	struct FrameBufferModifyEntry
-	{
-		unsigned int addr;
-		unsigned int val;
-		unsigned int size;
-	};
-
 	class FBInfo {
 	public:
 		FBInfo();
 
 		void Write(u32 addr, u32 size);
-
-		void WriteList(FrameBufferModifyEntry *plist, u32 size);
 
 		void Read(u32 addr);
 

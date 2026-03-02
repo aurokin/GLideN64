@@ -14,10 +14,6 @@
 #include "Debugger.h"
 #include "osal_keys.h"
 
-#ifndef MUPENPLUSAPI
-#include "windows/RealityVK_windows.h"
-#endif
-
 Debugger g_debugger;
 
 using namespace graphics;
@@ -30,9 +26,6 @@ bool getCursorPos(long & _x, long & _y)
 #ifdef OS_WINDOWS
 	POINT pt;
 	const bool res = GetCursorPos(&pt) == TRUE;
-#ifndef MUPENPLUSAPI
-	ScreenToClient(hWnd, &pt);
-#else
 	static HWND hWnd = NULL;
 	if (hWnd == NULL) {
 		wchar_t caption[64];
@@ -52,7 +45,6 @@ bool getCursorPos(long & _x, long & _y)
 		hWnd = FindWindowExW(NULL, NULL, NULL, caption);
 	}
 	ScreenToClient(hWnd, &pt);
-#endif // MUPENPLUSAPI
 	_x = pt.x;
 	_y = pt.y;
 	return res;

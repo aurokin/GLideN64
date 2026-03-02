@@ -492,15 +492,15 @@ struct MicrocodeInfo
 	bool fast3DPersp = false;
 	bool texturePersp = true;
 	bool combineMatrices = false;
-	struct
-	{
-		// LVP is how microcodes other than F3DEX3 function
-		bool legacyVertexPipeline = true;
-		bool noOcclusionPlane = false;
-		bool branchOnZ = false;
-		u8 version = 0;
-	} f3dex3;
-};
+		struct
+		{
+			// LVP is how microcodes other than F3DEX3 function.
+			bool lvpVertexPipeline = true;
+			bool noOcclusionPlane = false;
+			bool branchOnZ = false;
+			u8 version = 0;
+		} f3dex3;
+	};
 
 struct GBIInfo
 {
@@ -520,7 +520,7 @@ struct GBIInfo
 	bool isNegativeY() const { return m_pCurrent != nullptr ? m_pCurrent->negativeY : true; }
 	bool isTexturePersp() const { return m_pCurrent != nullptr ? m_pCurrent->texturePersp: true; }
 	bool isCombineMatrices() const { return m_pCurrent != nullptr ? m_pCurrent->combineMatrices: false; }
-	bool isLegacyVertexPipeline() const { return m_pCurrent != nullptr ? m_pCurrent->f3dex3.legacyVertexPipeline : true; }
+	bool isLvpVertexPipeline() const { return m_pCurrent != nullptr ? m_pCurrent->f3dex3.lvpVertexPipeline : true; }
 	bool isNoOcclusionPlane() const { return m_pCurrent != nullptr ? m_pCurrent->f3dex3.noOcclusionPlane : false; }
 	bool isBranchOnZ() const { return m_pCurrent != nullptr ? m_pCurrent->f3dex3.branchOnZ : false; }
 	u8 f3dex3Version() const { return m_pCurrent != nullptr ? m_pCurrent->f3dex3.version : 0; }
@@ -581,4 +581,3 @@ extern GBIInfo GBI;
 	G_MWO_bLIGHT_8		= ucode##_MWO_bLIGHT_8;
 
 #endif
-

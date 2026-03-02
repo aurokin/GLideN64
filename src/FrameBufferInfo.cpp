@@ -7,7 +7,6 @@
 #include "DepthBuffer.h"
 #include "RSP.h"
 #include "VI.h"
-#include "Log.h"
 
 namespace FBInfo {
 
@@ -46,11 +45,6 @@ namespace FBInfo {
 		if (!findRes.first)
 			m_writeBuffers[findRes.second] = writeBuffer;
 		FrameBuffer_AddAddress(address, size);
-	}
-
-	void FBInfo::WriteList(FrameBufferModifyEntry *plist, u32 size)
-	{
-		LOG(LOG_WARNING, "FBWList size=%u", size);
 	}
 
 	void FBInfo::Read(u32 addr)

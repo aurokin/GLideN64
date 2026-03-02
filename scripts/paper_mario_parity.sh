@@ -7,8 +7,8 @@ SCENARIO_ID="${REALITYVK_PM_SCENARIO_ID:-paper_mario_intro}"
 
 CANDIDATE_PLUGIN="${REALITYVK_PM_CANDIDATE_PLUGIN:-${ROOT_DIR}/build/release-vulkan-smoke/plugin/Release/mupen64plus-video-RealityVK.so}"
 CANDIDATE_CORELIB="${REALITYVK_PM_CANDIDATE_CORELIB:-/home/auro/code/mupen/mupen64plus-core/projects/unix/libmupen64plus.so.2}"
-REFERENCE_PLUGIN="${REALITYVK_PM_REFERENCE_PLUGIN:-${CANDIDATE_PLUGIN}}"
-REFERENCE_CORELIB="${REALITYVK_PM_REFERENCE_CORELIB:-${CANDIDATE_CORELIB}}"
+REFERENCE_PLUGIN="${REALITYVK_PM_REFERENCE_PLUGIN:-/home/auro/code/gliden64-upstream/build-release/plugin/Release/mupen64plus-video-GLideN64.so}"
+REFERENCE_CORELIB="${REALITYVK_PM_REFERENCE_CORELIB:-/home/auro/code/mupen/mupen64plus-core-upstream/projects/unix/libmupen64plus.so.2}"
 
 CACHE_ROOT="${REALITYVK_PM_CACHE_ROOT:-${ROOT_DIR}/build/parity-cache/paper-mario}"
 RUN_ROOT="${REALITYVK_PM_RUN_ROOT:-${ROOT_DIR}/build/parity-runs/paper-mario}"
@@ -26,10 +26,6 @@ CAPTURE_RETRY_STEP_FRAMES="${REALITYVK_PM_CAPTURE_RETRY_STEP_FRAMES:-20}"
 CAPTURE_RETRY_RESUME_MS="${REALITYVK_PM_CAPTURE_RETRY_RESUME_MS:-250}"
 CAPTURE_MIN_NONBLACK_RATIO="${REALITYVK_PM_CAPTURE_MIN_NONBLACK_RATIO:-0.001}"
 CAPTURE_MIN_MEAN_LUMA="${REALITYVK_PM_CAPTURE_MIN_MEAN_LUMA:-0.002}"
-SCREENSHOT_FALLBACK="${REALITYVK_PM_SCREENSHOT_FALLBACK:-1}"
-SCREENSHOT_DIR="${REALITYVK_PM_SCREENSHOT_DIR:-${HOME}/.local/share/mupen64plus/screenshot}"
-FORCE_SCREENSHOT_CAPTURE="${REALITYVK_PM_FORCE_SCREENSHOT_CAPTURE:-0}"
-REFERENCE_FORCE_SCREENSHOT_CAPTURE="${REALITYVK_PM_REFERENCE_FORCE_SCREENSHOT_CAPTURE:-1}"
 # Paper Mario parity defaults to explicit agent-side flip so captures match live window orientation.
 # Override with REALITYVK_PM_DUMPFB_FLIP_Y=0 when raw dump orientation is needed.
 DUMPFB_FLIP_Y="${REALITYVK_PM_DUMPFB_FLIP_Y:-1}"
@@ -95,21 +91,6 @@ if ! [[ "${CAPTURE_MIN_MEAN_LUMA}" =~ ^[0-9]*\.?[0-9]+$ ]]; then
   exit 2
 fi
 
-if [[ "${SCREENSHOT_FALLBACK}" != "0" && "${SCREENSHOT_FALLBACK}" != "1" ]]; then
-  echo "ERROR: REALITYVK_PM_SCREENSHOT_FALLBACK must be 0 or 1." >&2
-  exit 2
-fi
-
-if [[ "${FORCE_SCREENSHOT_CAPTURE}" != "0" && "${FORCE_SCREENSHOT_CAPTURE}" != "1" ]]; then
-  echo "ERROR: REALITYVK_PM_FORCE_SCREENSHOT_CAPTURE must be 0 or 1." >&2
-  exit 2
-fi
-
-if [[ "${REFERENCE_FORCE_SCREENSHOT_CAPTURE}" != "0" && "${REFERENCE_FORCE_SCREENSHOT_CAPTURE}" != "1" ]]; then
-  echo "ERROR: REALITYVK_PM_REFERENCE_FORCE_SCREENSHOT_CAPTURE must be 0 or 1." >&2
-  exit 2
-fi
-
 if [[ "${DUMPFB_FLIP_Y}" != "0" && "${DUMPFB_FLIP_Y}" != "1" ]]; then
   echo "ERROR: REALITYVK_PM_DUMPFB_FLIP_Y must be 0 or 1." >&2
   exit 2
@@ -164,12 +145,6 @@ fi
 mkdir -p "${CACHE_ROOT}" "${RUN_ROOT}"
 
 REFERENCE_CAPTURE_METHOD_TAG="dumpfb_flip${DUMPFB_FLIP_Y}"
-if [[ "${REFERENCE_FORCE_SCREENSHOT_CAPTURE}" == "1" ]]; then
-  REFERENCE_CAPTURE_METHOD_TAG="screenshot"
-elif [[ "${FORCE_SCREENSHOT_CAPTURE}" == "1" ]]; then
-  REFERENCE_CAPTURE_METHOD_TAG="screenshot"
-fi
-
 REFERENCE_CAPTURE="${CACHE_ROOT}/${SCENARIO_ID}.${REFERENCE_CAPTURE_METHOD_TAG}.reference.ppm"
 CANDIDATE_CAPTURE="${RUN_ROOT}/${SCENARIO_ID}.candidate.ppm"
 DIFF_OUT="${RUN_ROOT}/${SCENARIO_ID}.diff.png"
@@ -179,9 +154,6 @@ REFERENCE_PNG="${RUN_ROOT}/${SCENARIO_ID}.reference.png"
 CANDIDATE_PNG="${RUN_ROOT}/${SCENARIO_ID}.candidate.png"
 
 CANDIDATE_CAPTURE_METHOD_TAG="dumpfb_flip${DUMPFB_FLIP_Y}"
-if [[ "${FORCE_SCREENSHOT_CAPTURE}" == "1" ]]; then
-  CANDIDATE_CAPTURE_METHOD_TAG="screenshot"
-fi
 
 SCENARIO_ARGS_ARRAY=()
 if [[ -n "${SCENARIO_ARGS// }" ]]; then
@@ -194,13 +166,11 @@ capture_plugin() {
   local plugin_path="$2"
   local out_path="$3"
   local corelib_path="${CANDIDATE_CORELIB}"
-  local force_screenshot_capture="${FORCE_SCREENSHOT_CAPTURE}"
   local require_no_depth_fail="0"
   local require_depth_stats="0"
   local depth_summary_out=""
   if [[ "${label}" == "reference" ]]; then
     corelib_path="${REFERENCE_CORELIB}"
-    force_screenshot_capture="${REFERENCE_FORCE_SCREENSHOT_CAPTURE}"
   fi
   if [[ "${label}" == "candidate" ]]; then
     require_no_depth_fail="${REQUIRE_NO_DEPTH_BLIT_FAIL}"
@@ -222,7 +192,6 @@ capture_plugin() {
   fi
 
   M64_CORELIB="${corelib_path}" \
-  REALITYVK_SMOKE_REQUIRE_BACKEND_PLUGIN=1 \
   REALITYVK_SMOKE_PLUGIN_VULKAN="${plugin_path}" \
   REALITYVK_SMOKE_REQUIRE_NO_DEPTH_BLIT_FAIL="${require_no_depth_fail}" \
   REALITYVK_SMOKE_REQUIRE_DEPTH_BLIT_STATS="${require_depth_stats}" \
@@ -233,9 +202,6 @@ capture_plugin() {
   REALITYVK_SMOKE_CAPTURE_RETRY_RESUME_MS="${CAPTURE_RETRY_RESUME_MS}" \
   REALITYVK_SMOKE_CAPTURE_MIN_NONBLACK_RATIO="${CAPTURE_MIN_NONBLACK_RATIO}" \
   REALITYVK_SMOKE_CAPTURE_MIN_MEAN_LUMA="${CAPTURE_MIN_MEAN_LUMA}" \
-  REALITYVK_SMOKE_SCREENSHOT_FALLBACK="${SCREENSHOT_FALLBACK}" \
-  REALITYVK_SMOKE_SCREENSHOT_DIR="${SCREENSHOT_DIR}" \
-  REALITYVK_SMOKE_FORCE_SCREENSHOT_CAPTURE="${force_screenshot_capture}" \
   REALITYVK_SMOKE_DUMPFB_FLIP_Y="${DUMPFB_FLIP_Y}" \
   REALITYVK_SMOKE_LAUNCH_WITH_PTY="${LAUNCH_WITH_PTY}" \
   "${cmd[@]}"

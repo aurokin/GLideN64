@@ -22,7 +22,6 @@ DEFAULT_PLUGIN="${ROOT_DIR}/build/local-gate/linux-release-cli/plugin/Release/mu
 AGENTCTL_TIMEOUT_SEC="${REALITYVK_SMOKE_AGENTCTL_TIMEOUT_SEC:-30}"
 STEP_CHUNK="${REALITYVK_SMOKE_STEP_CHUNK:-120}"
 SETTLE_FRAMES_AFTER_LOAD="${REALITYVK_SMOKE_SETTLE_FRAMES_AFTER_LOAD:-1}"
-REQUIRE_BACKEND_PLUGIN="${REALITYVK_SMOKE_REQUIRE_BACKEND_PLUGIN:-0}"
 LAUNCH_QUIET="${REALITYVK_SMOKE_LAUNCH_QUIET:-1}"
 LAUNCH_WITH_PTY="${REALITYVK_SMOKE_LAUNCH_WITH_PTY:-0}"
 REQUIRE_READBACK_MARKER="${REALITYVK_SMOKE_REQUIRE_READBACK_MARKER:-0}"
@@ -38,13 +37,10 @@ CAPTURE_RETRY_RESUME_MS="${REALITYVK_SMOKE_CAPTURE_RETRY_RESUME_MS:-250}"
 CAPTURE_MIN_NONBLACK_RATIO="${REALITYVK_SMOKE_CAPTURE_MIN_NONBLACK_RATIO:-0.001}"
 CAPTURE_MIN_MEAN_LUMA="${REALITYVK_SMOKE_CAPTURE_MIN_MEAN_LUMA:-0.002}"
 CAPTURE_DEBUG="${REALITYVK_SMOKE_CAPTURE_DEBUG:-0}"
-SCREENSHOT_FALLBACK="${REALITYVK_SMOKE_SCREENSHOT_FALLBACK:-1}"
-SCREENSHOT_DIR="${REALITYVK_SMOKE_SCREENSHOT_DIR:-${HOME}/.local/share/mupen64plus/screenshot}"
-FORCE_SCREENSHOT_CAPTURE="${REALITYVK_SMOKE_FORCE_SCREENSHOT_CAPTURE:-0}"
 DUMPFB_FLIP_Y="${REALITYVK_SMOKE_DUMPFB_FLIP_Y:-0}"
 
 usage() {
-  cat <<EOF
+  cat <<EOF_USAGE
 Usage:
   $0 --backend <name> --rom <path> --frames <count> --out <path> [options]
 
@@ -53,7 +49,7 @@ Options:
   --preset <name>      Framebuffer preset for agent dump (default: full).
   --scale-div <n>      Downscale factor for capture (default: 1).
   --socket <path>      Agent socket path (default: ${SOCKET_PATH}).
-EOF
+EOF_USAGE
 }
 
 while [[ $# -gt 0 ]]; do
@@ -101,6 +97,11 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ "${BACKEND}" != "Vulkan" ]]; then
+  echo "ERROR: paper_mario_smoke_runner.sh supports only --backend Vulkan." >&2
+  exit 2
+fi
 
 if [[ -z "${ROM_PATH}" ]]; then
   echo "ERROR: --rom is required." >&2
@@ -152,22 +153,11 @@ if [[ ! -f "${AGENTCTL}" ]]; then
   exit 2
 fi
 
-backend_upper="$(echo "${BACKEND}" | tr '[:lower:]' '[:upper:]')"
-backend_plugin_var="REALITYVK_SMOKE_PLUGIN_${backend_upper}"
-backend_plugin="${!backend_plugin_var:-}"
-if [[ "${REQUIRE_BACKEND_PLUGIN}" == "1" && -z "${backend_plugin}" ]]; then
-  echo "ERROR: backend-specific plugin path required but ${backend_plugin_var} is unset." >&2
-  exit 2
-fi
-if [[ -z "${backend_plugin}" ]]; then
-  backend_plugin="${REALITYVK_SMOKE_PLUGIN:-${DEFAULT_PLUGIN}}"
-fi
-
+backend_plugin="${REALITYVK_SMOKE_PLUGIN_VULKAN:-${REALITYVK_SMOKE_PLUGIN:-${DEFAULT_PLUGIN}}}"
 if [[ ! -f "${backend_plugin}" ]]; then
-  echo "ERROR: plugin binary not found for backend ${BACKEND}: ${backend_plugin}" >&2
+  echo "ERROR: Vulkan plugin binary not found: ${backend_plugin}" >&2
   exit 2
 fi
-
 backend_plugin_name="$(basename "${backend_plugin}")"
 PLUGIN_DEST="${PLUGIN_DIR}/${backend_plugin_name}"
 
@@ -193,16 +183,6 @@ fi
 
 if [[ "${CAPTURE_DEBUG}" != "0" && "${CAPTURE_DEBUG}" != "1" ]]; then
   echo "ERROR: REALITYVK_SMOKE_CAPTURE_DEBUG must be 0 or 1." >&2
-  exit 2
-fi
-
-if [[ "${SCREENSHOT_FALLBACK}" != "0" && "${SCREENSHOT_FALLBACK}" != "1" ]]; then
-  echo "ERROR: REALITYVK_SMOKE_SCREENSHOT_FALLBACK must be 0 or 1." >&2
-  exit 2
-fi
-
-if [[ "${FORCE_SCREENSHOT_CAPTURE}" != "0" && "${FORCE_SCREENSHOT_CAPTURE}" != "1" ]]; then
-  echo "ERROR: REALITYVK_SMOKE_FORCE_SCREENSHOT_CAPTURE must be 0 or 1." >&2
   exit 2
 fi
 
@@ -244,7 +224,6 @@ fi
 mkdir -p "${PLUGIN_DIR}"
 cp "${backend_plugin}" "${PLUGIN_DEST}"
 chmod 755 "${PLUGIN_DEST}"
-
 mkdir -p "$(dirname "${OUT_PATH}")"
 
 run_agentctl() {
@@ -303,7 +282,6 @@ if not capture_path.exists() or capture_path.stat().st_size == 0:
     raise SystemExit(2)
 
 data = capture_path.read_bytes()
-
 index = 0
 data_len = len(data)
 
@@ -343,10 +321,7 @@ try:
 except ValueError as exc:
     raise SystemExit(2) from exc
 
-if width <= 0 or height <= 0 or maxval <= 0:
-    raise SystemExit(2)
-
-if maxval > 255:
+if width <= 0 or height <= 0 or maxval <= 0 or maxval > 255:
     raise SystemExit(2)
 
 if magic == b"P6":
@@ -395,55 +370,13 @@ raise SystemExit(1)
 PY
 }
 
-capture_with_core_screenshot() {
-  local out_path="$1"
-  local scale_div="$2"
-  local screenshot_dir="${SCREENSHOT_DIR}"
-
-  if [[ "${PRESET}" != "full" ]]; then
-    echo "WARN: core screenshot fallback only supports preset=full (got '${PRESET}')." >&2
-    return 1
-  fi
-  if [[ ! -d "${screenshot_dir}" ]]; then
-    echo "WARN: core screenshot fallback directory does not exist: ${screenshot_dir}" >&2
-    return 1
-  fi
-
-  run_agentctl screenshot >/dev/null
-
-  local latest
-  latest="$(find "${screenshot_dir}" -maxdepth 1 -type f \( -name '*.png' -o -name '*.bmp' -o -name '*.jpg' -o -name '*.jpeg' \) -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -n1 | cut -d' ' -f2-)"
-  if [[ -z "${latest}" || ! -f "${latest}" ]]; then
-    echo "WARN: core screenshot fallback could not find a screenshot file in ${screenshot_dir}." >&2
-    return 1
-  fi
-
-  python3 - "${latest}" "${out_path}" "${scale_div}" <<'PY'
-import sys
-from pathlib import Path
-
-from PIL import Image
-
-src = Path(sys.argv[1])
-dst = Path(sys.argv[2])
-scale_div = max(1, int(sys.argv[3]))
-
-img = Image.open(src).convert("RGB")
-if scale_div > 1:
-    w = max(1, img.width // scale_div)
-    h = max(1, img.height // scale_div)
-    img = img.resize((w, h), Image.NEAREST)
-dst.parent.mkdir(parents=True, exist_ok=True)
-img.save(dst)
-PY
-}
-
 mupen_pid=""
 launch_log=""
 needs_depth_blit_log_checks=0
 if [[ "${REQUIRE_NO_DEPTH_BLIT_FAIL}" == "1" || "${REQUIRE_DEPTH_BLIT_STATS}" == "1" || -n "${DEPTH_BLIT_SUMMARY_OUT}" ]]; then
   needs_depth_blit_log_checks=1
 fi
+
 cleanup() {
   if [[ -n "${mupen_pid}" ]]; then
     if kill -0 "${mupen_pid}" >/dev/null 2>&1; then
@@ -545,18 +478,11 @@ step_frames "${FRAMES}"
 capture_ok=0
 capture_attempt=0
 while (( capture_attempt <= CAPTURE_RETRY_COUNT )); do
-  if [[ "${FORCE_SCREENSHOT_CAPTURE}" == "1" ]]; then
-    if ! capture_with_core_screenshot "${OUT_PATH}" "${SCALE_DIV}"; then
-      echo "ERROR: forced core screenshot capture failed." >&2
-      exit 1
-    fi
-  else
-    dumpfb_args=(dumpfb-preset "${OUT_PATH}" "${PRESET}" --scale-div "${SCALE_DIV}")
-    if [[ "${DUMPFB_FLIP_Y}" == "1" ]]; then
-      dumpfb_args+=(--flip-y)
-    fi
-    run_agentctl "${dumpfb_args[@]}" >/dev/null
+  dumpfb_args=(dumpfb-preset "${OUT_PATH}" "${PRESET}" --scale-div "${SCALE_DIV}")
+  if [[ "${DUMPFB_FLIP_Y}" == "1" ]]; then
+    dumpfb_args+=(--flip-y)
   fi
+  run_agentctl "${dumpfb_args[@]}" >/dev/null
 
   if [[ ! -s "${OUT_PATH}" ]]; then
     echo "ERROR: capture output was not produced: ${OUT_PATH}" >&2
@@ -601,20 +527,6 @@ while (( capture_attempt <= CAPTURE_RETRY_COUNT )); do
 
   capture_attempt="$(( capture_attempt + 1 ))"
 done
-
-if [[ "${capture_ok}" != "1" ]]; then
-  if [[ "${REQUIRE_NON_BLACK_CAPTURE}" == "1" && "${SCREENSHOT_FALLBACK}" == "1" ]]; then
-    echo "WARN: framebuffer dump remained black; attempting core screenshot fallback." >&2
-    if [[ "${CAPTURE_RETRY_RESUME_MS}" != "0" ]]; then
-      run_agentctl resume >/dev/null
-      sleep_ms "${CAPTURE_RETRY_RESUME_MS}"
-      run_agentctl pause >/dev/null
-    fi
-    if capture_with_core_screenshot "${OUT_PATH}" "${SCALE_DIV}" && capture_has_content "${OUT_PATH}"; then
-      capture_ok=1
-    fi
-  fi
-fi
 
 if [[ "${capture_ok}" != "1" ]]; then
   echo "ERROR: capture remained mostly black after ${CAPTURE_RETRY_COUNT} retries: ${OUT_PATH}" >&2

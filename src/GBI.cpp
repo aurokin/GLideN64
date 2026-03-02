@@ -52,7 +52,7 @@ struct SpecialMicrocodeInfo
 	bool NoN; // ucode does not use near clipping
 	bool negativeY; // Y is inverted
 	bool fast3DPerspNorm; // ucode is from Fast3D family and has G_PERSPNORMALIZE. See #1303
-	bool legacyVertexPipeline;
+	bool lvpVertexPipeline;
 	u32 crc;
 };
 
@@ -406,7 +406,7 @@ void GBIInfo::loadMicrocode(u32 uc_start, u32 uc_dstart, u16 uc_dsize)
 		current.NoN = info.NoN;
 		current.negativeY = info.negativeY;
 		current.fast3DPersp = info.fast3DPerspNorm;
-		current.f3dex3.legacyVertexPipeline = info.legacyVertexPipeline;
+			current.f3dex3.lvpVertexPipeline = info.lvpVertexPipeline;
 		LOG(LOG_VERBOSE, "Load microcode type: %d crc: 0x%08x romname: %s", current.type, uc_crc, RSP.romname);
 		_makeCurrent(&current);
 		return;
@@ -457,7 +457,7 @@ void GBIInfo::loadMicrocode(u32 uc_start, u32 uc_dstart, u16 uc_dsize)
 				}
 			}
 
-			current.f3dex3.legacyVertexPipeline = features.find("lvp") != features.end();
+			current.f3dex3.lvpVertexPipeline = features.find("lvp") != features.end();
 			current.f3dex3.noOcclusionPlane = features.find("noc") != features.end();
 			current.f3dex3.branchOnZ = features.find("brz") != features.end();
 			current.f3dex3.version = version;

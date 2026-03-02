@@ -107,7 +107,7 @@ bool normalizeRectWithColorImageSpace(const vulkan::DrawVertex & _src, vulkan::D
 
 } // namespace
 
-vulkan::DrawVertex normalizeFallbackVertex(const vulkan::DrawPacket & _packet, const vulkan::DrawVertex & _src)
+vulkan::DrawVertex normalizePacketVertex(const vulkan::DrawPacket & _packet, const vulkan::DrawVertex & _src)
 {
 	static const bool disablePositionNormalize = std::getenv("REALITYVK_VK_DISABLE_POSITION_NORMALIZE") != nullptr;
 	static const bool disableForceRasterRectTransform = std::getenv("REALITYVK_VK_DISABLE_FORCE_RASTER_RECT_TRANSFORM") != nullptr;
@@ -136,7 +136,7 @@ vulkan::DrawVertex normalizeFallbackVertex(const vulkan::DrawPacket & _packet, c
 		return dst;
 
 	// Some paths feed homogeneous coordinates with large w and clip-space-scaled x/y.
-	// Recover NDC first so triangle-mode legacy transform does not explode them off-screen.
+	// Recover NDC first so triangle-mode screen transform does not explode them off-screen.
 	const f32 absW = std::abs(_src.w);
 	if (absW > 2.0f) {
 		const f32 conservativeW = absW * 1.25f;
@@ -239,43 +239,43 @@ vulkan::DrawVertex normalizeFallbackVertex(const vulkan::DrawPacket & _packet, c
 				}
 				return dst;
 			}
+				if (normalizeRectWithGspViewport(_src, dst)) {
+					if (debugRectNormalize && debugRectNormalizeCount < debugRectNormalizeLimit) {
+						LOG(LOG_WARNING, "VK rect normalize debug: branch=gsp-secondary result=[%0.3f,%0.3f]", dst.x, dst.y);
+						++debugRectNormalizeCount;
+					}
+					return dst;
+				}
+				applyLegacyScreenTransform(dst.x, dst.y, _src.w);
+				if (debugRectNormalize && debugRectNormalizeCount < debugRectNormalizeLimit) {
+					LOG(LOG_WARNING, "VK rect normalize debug: branch=screen-transform-secondary result=[%0.3f,%0.3f]", dst.x, dst.y);
+					++debugRectNormalizeCount;
+				}
+				return dst;
+			}
+			// Rect vertices usually arrive in viewport space and should be normalized
+			// against the active RSP viewport instead of a fixed 640x640 basis.
 			if (normalizeRectWithGspViewport(_src, dst)) {
 				if (debugRectNormalize && debugRectNormalizeCount < debugRectNormalizeLimit) {
-					LOG(LOG_WARNING, "VK rect normalize debug: branch=gsp-fallback result=[%0.3f,%0.3f]", dst.x, dst.y);
+					LOG(LOG_WARNING, "VK rect normalize debug: branch=gsp result=[%0.3f,%0.3f]", dst.x, dst.y);
+					++debugRectNormalizeCount;
+				}
+			return dst;
+			}
+			if (normalizeVertexWithRasterViewport(_packet.state.raster, _src, dst)) {
+				if (debugRectNormalize && debugRectNormalizeCount < debugRectNormalizeLimit) {
+					LOG(LOG_WARNING, "VK rect normalize debug: branch=raster-secondary result=[%0.3f,%0.3f]", dst.x, dst.y);
 					++debugRectNormalizeCount;
 				}
 				return dst;
 			}
 			applyLegacyScreenTransform(dst.x, dst.y, _src.w);
 			if (debugRectNormalize && debugRectNormalizeCount < debugRectNormalizeLimit) {
-				LOG(LOG_WARNING, "VK rect normalize debug: branch=legacy-fallback result=[%0.3f,%0.3f]", dst.x, dst.y);
+				LOG(LOG_WARNING, "VK rect normalize debug: branch=screen-transform result=[%0.3f,%0.3f]", dst.x, dst.y);
 				++debugRectNormalizeCount;
 			}
 			return dst;
 		}
-		// Rect vertices usually arrive in viewport space and should be normalized
-		// against the active RSP viewport instead of a fixed 640x640 legacy basis.
-		if (normalizeRectWithGspViewport(_src, dst)) {
-			if (debugRectNormalize && debugRectNormalizeCount < debugRectNormalizeLimit) {
-				LOG(LOG_WARNING, "VK rect normalize debug: branch=gsp result=[%0.3f,%0.3f]", dst.x, dst.y);
-				++debugRectNormalizeCount;
-			}
-			return dst;
-		}
-		if (normalizeVertexWithRasterViewport(_packet.state.raster, _src, dst)) {
-			if (debugRectNormalize && debugRectNormalizeCount < debugRectNormalizeLimit) {
-				LOG(LOG_WARNING, "VK rect normalize debug: branch=raster-fallback result=[%0.3f,%0.3f]", dst.x, dst.y);
-				++debugRectNormalizeCount;
-			}
-			return dst;
-		}
-		applyLegacyScreenTransform(dst.x, dst.y, _src.w);
-		if (debugRectNormalize && debugRectNormalizeCount < debugRectNormalizeLimit) {
-			LOG(LOG_WARNING, "VK rect normalize debug: branch=legacy result=[%0.3f,%0.3f]", dst.x, dst.y);
-			++debugRectNormalizeCount;
-		}
-		return dst;
-	}
 
 	if (!normalizeVertexWithRasterViewport(_packet.state.raster, _src, dst))
 		return dst;
@@ -301,7 +301,7 @@ void normalizePacketPositions(vulkan::DrawPacket & _packet)
 	}
 
 	for (vulkan::DrawVertex & vertex : _packet.vertices)
-		vertex = normalizeFallbackVertex(_packet, vertex);
+		vertex = normalizePacketVertex(_packet, vertex);
 	_packet.positionsNormalized = true;
 
 	if (debugPositions && !_packet.vertices.empty()) {

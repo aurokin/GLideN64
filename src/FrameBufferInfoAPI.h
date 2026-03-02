@@ -17,18 +17,6 @@ extern "C" {
 *******************************************************************/
 EXPORT void CALL FBWrite(unsigned int addr, unsigned int size);
 
-struct FrameBufferModifyEntry;
-
-/******************************************************************
-  Function: FrameBufferWriteList
-  Purpose:  This function is called to notify the dll that the
-            frame buffer has been modified by CPU at the given address.
-  input:    FrameBufferModifyEntry *plist
-			size = size of the plist, max = 1024
-  output:   none
-*******************************************************************/
-EXPORT void CALL FBWList(FrameBufferModifyEntry *plist, unsigned int size);
-
 /******************************************************************
   Function: FrameBufferRead
   Purpose:  This function is called to notify the dll that the

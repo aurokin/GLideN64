@@ -1,21 +1,10 @@
 #ifndef COMMONPLUGINAPI_H
 #define COMMONPLUGINAPI_H
 
-#ifdef MUPENPLUSAPI
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
 #include "m64p_plugin.h"
-#elif defined (LEGACY_ZILMAR_SPEC)
-#include "windows/RealityVK_windows.h"
-#include "windows/Project64-plugin-spec/1_3/Video.h"
-#include "FrameBufferInfoAPI.h"
-#else
-#include "windows/RealityVK_windows.h"
-#include "windows/Project64-plugin-spec/Video.h"
-#include "FrameBufferInfoAPI.h"
-//#define RSPTHREAD
-#endif
 
 #ifdef RSPTHREAD
 #include <thread>
@@ -56,27 +45,6 @@ public:
 	void GetSharedDataPath(wchar_t * _strPath);
 	bool isRomOpen() const { return m_bRomOpen; }
 
-#ifndef MUPENPLUSAPI
-	// Zilmar
-	void DllTest(void* _hParent) {}
-	void DrawScreen() {}
-	void CloseDLL(void) {}
-
-	void CaptureScreen(const char * const _Directory);
-	void DllConfig(void* _hParent);
-	void GetDllInfo (PLUGIN_INFO * PluginInfo);
-	void ReadScreen(void **_dest, long *_width, long *_height);
-	void GetVideoSize(int32_t* width, int32_t* height);
-
-	void DllAbout(void* _hParent);
-	void DrawStatus(const char * lpString, int32_t RightAlign);
-
-	// FrameBufferInfo extension
-	void FBWrite(unsigned int addr, unsigned int size);
-	void FBWList(FrameBufferModifyEntry *plist, unsigned int size);
-	void FBRead(unsigned int addr);
-	void FBGetFrameBufferInfo(void *pinfo);
-#else
 	// MupenPlus
 	void ResizeVideoOutput(int _Width, int _Height);
 	void ReadScreen2(void * _dest, int * _width, int * _height, int _front);
@@ -96,7 +64,6 @@ public:
 	void FBWrite(unsigned int addr, unsigned int size);
 	void FBRead(unsigned int addr);
 	void FBGetFrameBufferInfo(void *pinfo);
-#endif
 
 	static PluginAPI & get();
 

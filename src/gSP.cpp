@@ -930,8 +930,8 @@ void gSPProcessVertex(u32 v, SPVertex * spVtx)
 
 	gSPClipVertex<VNUM>(v, spVtx);
 
-	if (gSP.geometryMode & G_LIGHTING) {
-		if (GBI.isLegacyVertexPipeline())
+		if (gSP.geometryMode & G_LIGHTING) {
+			if (GBI.isLvpVertexPipeline())
 		{
 			if (gSP.geometryMode & G_POINT_LIGHTING)
 				gSPPointLightVertex<VNUM>(v, vPos, spVtx);
