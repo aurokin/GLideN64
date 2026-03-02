@@ -10,17 +10,21 @@ namespace {
 constexpr u64 kFnvOffset = 1469598103934665603ULL;
 constexpr u64 kFnvPrime = 1099511628211ULL;
 constexpr u32 kVIStatusTypeMask = 0x3U;
+constexpr u32 kVIStatusGammaDitherEnabled = 0x000004U;
 constexpr u32 kVIStatusGammaEnabled = 0x000008U;
 constexpr u32 kVIStatusDivotEnabled = 0x000010U;
 constexpr u32 kVIStatusSerrateEnabled = 0x000040U;
+constexpr u32 kVIStatusAAModeMask = 0x000300U;
 
 struct VIResolvedState
 {
 	bool useRegisters = false;
+	bool gammaDitherEnabled = false;
 	bool gammaEnabled = false;
 	bool divotEnabled = false;
 	bool interlaced = false;
 	u8 interlaceField = 0U;
+	u8 aaMode = 0U;
 	u16 sourceWidth = 0U;
 	u16 sourceHeight = 0U;
 	u32 outputWidth = 0U;
@@ -130,6 +134,74 @@ u32 applyDivotToPixel(u32 _left, u32 _center, u32 _right)
 		| static_cast<u32>(ca);
 }
 
+inline u8 clampChannel(s32 _value)
+{
+	if (_value < 0)
+		return 0U;
+	if (_value > 255)
+		return 255U;
+	return static_cast<u8>(_value);
+}
+
+u32 applyGammaDitherToPixel(u32 _pixel, u32 _x, u32 _y)
+{
+	static constexpr int kBayer4x4[16] = {
+		-8, 0, -6, 2,
+		 4, -4, 6, -2,
+		-5, 3, -7, 1,
+		 7, -1, 5, -3
+	};
+	const s32 bayer = static_cast<s32>(kBayer4x4[(_y & 0x3U) * 4U + (_x & 0x3U)]);
+	const s32 dither = bayer >= 0 ? ((bayer + 2) >> 2U) : -(((-bayer) + 2) >> 2U);
+	const u8 r = clampChannel(static_cast<s32>((_pixel >> 24U) & 0xFFU) + dither);
+	const u8 g = clampChannel(static_cast<s32>((_pixel >> 16U) & 0xFFU) + dither);
+	const u8 b = clampChannel(static_cast<s32>((_pixel >> 8U) & 0xFFU) + dither);
+	const u8 a = static_cast<u8>(_pixel & 0xFFU);
+	return (static_cast<u32>(r) << 24U)
+		| (static_cast<u32>(g) << 16U)
+		| (static_cast<u32>(b) << 8U)
+		| static_cast<u32>(a);
+}
+
+u32 filterAAPixel(
+	u32 _center,
+	u32 _left,
+	u32 _right,
+	u32 _up,
+	u32 _down,
+	u8 _aaMode)
+{
+	if (_aaMode == 0U || _aaMode == 3U)
+		return _center;
+
+	const auto selectChannel = [](u32 _pixel, u32 _shift) -> u32 {
+		return (_pixel >> _shift) & 0xFFU;
+	};
+
+	const auto filterChannel = [&](u32 _shift) -> u8 {
+		const u32 center = selectChannel(_center, _shift);
+		const u32 left = selectChannel(_left, _shift);
+		const u32 right = selectChannel(_right, _shift);
+		const u32 up = selectChannel(_up, _shift);
+		const u32 down = selectChannel(_down, _shift);
+		u32 value = center;
+		if (_aaMode == 1U)
+			value = (center * 2U + left + right + 2U) / 4U;
+		else if (_aaMode == 2U)
+			value = (center * 2U + left + right + up + down + 3U) / 6U;
+		return static_cast<u8>(value & 0xFFU);
+	};
+
+	const u8 r = filterChannel(24U);
+	const u8 g = filterChannel(16U);
+	const u8 b = filterChannel(8U);
+	const u8 a = static_cast<u8>(_center & 0xFFU);
+	return (static_cast<u32>(r) << 24U)
+		| (static_cast<u32>(g) << 16U)
+		| (static_cast<u32>(b) << 8U)
+		| static_cast<u32>(a);
+}
+
 u32 deriveOutputWidthFromRegisters(const rvk2::VIRegisterState & _registers, u32 _fallback)
 {
 	const u32 hStart = (_registers.hStart >> 16U) & 0x3FFU;
@@ -171,10 +243,12 @@ VIResolvedState resolveVIState(
 	}
 
 	state.useRegisters = true;
+	state.gammaDitherEnabled = (_input.registers.status & kVIStatusGammaDitherEnabled) != 0U;
 	state.gammaEnabled = (_input.registers.status & kVIStatusGammaEnabled) != 0U;
 	state.divotEnabled = (_input.registers.status & kVIStatusDivotEnabled) != 0U;
 	state.interlaced = (_input.registers.status & kVIStatusSerrateEnabled) != 0U;
 	state.interlaceField = static_cast<u8>(_input.registers.vCurrentLine & 0x1U);
+	state.aaMode = static_cast<u8>((_input.registers.status & kVIStatusAAModeMask) >> 8U);
 	const u32 viWidth = _input.registers.width & 0x0FFFU;
 	if (viWidth != 0U)
 		state.sourceWidth = static_cast<u16>(clampU32(std::min<u32>(state.sourceWidth, viWidth), 1U, state.sourceWidth));
@@ -338,6 +412,17 @@ VIFrameSummary VIRenderer::present(
 					}
 					const size_t sampleIndex = pixelIndex(_input.sourceWidth, sourceX, sourceY);
 					pixel = (*_input.sourcePixels)[sampleIndex];
+					if (viState.aaMode != 0U && viState.aaMode != 3U) {
+						const u32 sourceXLeft = sourceX > 0U ? sourceX - 1U : sourceX;
+						const u32 sourceXRight = std::min<u32>(viState.sourceWidth - 1U, sourceX + 1U);
+						const u32 sourceYUp = sourceY > 0U ? sourceY - 1U : sourceY;
+						const u32 sourceYDown = std::min<u32>(viState.sourceHeight - 1U, sourceY + 1U);
+						const u32 leftPixel = (*_input.sourcePixels)[pixelIndex(_input.sourceWidth, sourceXLeft, sourceY)];
+						const u32 rightPixel = (*_input.sourcePixels)[pixelIndex(_input.sourceWidth, sourceXRight, sourceY)];
+						const u32 upPixel = (*_input.sourcePixels)[pixelIndex(_input.sourceWidth, sourceX, sourceYUp)];
+						const u32 downPixel = (*_input.sourcePixels)[pixelIndex(_input.sourceWidth, sourceX, sourceYDown)];
+						pixel = filterAAPixel(pixel, leftPixel, rightPixel, upPixel, downPixel, viState.aaMode);
+					}
 					if (viState.divotEnabled && viState.sourceWidth > 1U) {
 						const u32 sourceXLeft = sourceX > 0U ? sourceX - 1U : sourceX;
 						const u32 sourceXRight = std::min<u32>(viState.sourceWidth - 1U, sourceX + 1U);
@@ -346,6 +431,8 @@ VIFrameSummary VIRenderer::present(
 						pixel = applyDivotToPixel(leftPixel, pixel, rightPixel);
 					}
 				}
+				if (viState.gammaDitherEnabled)
+					pixel = applyGammaDitherToPixel(pixel, x, y);
 				if (viState.gammaEnabled)
 					pixel = applyGammaToPixel(pixel);
 			if (_outputPixels != nullptr)

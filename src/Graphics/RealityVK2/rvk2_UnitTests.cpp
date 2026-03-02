@@ -1224,6 +1224,78 @@ void testVIRendererAspectScaling()
 		gammaPixelsDiffer,
 		"VIRenderer gamma flag should alter sampled pixel values");
 
+	registerInput.registers.status = 2U | 0x000008U;
+	std::vector<u32> gammaNoDitherPixels;
+	const rvk2::VIFrameSummary gammaNoDitherSummary =
+		rendererSquare.present(registerInput, &gammaNoDitherPixels);
+	registerInput.registers.status = 2U | 0x000008U | 0x000004U;
+	std::vector<u32> gammaDitherPixels;
+	const rvk2::VIFrameSummary gammaDitherSummary =
+		rendererSquare.present(registerInput, &gammaDitherPixels);
+	expectTrue(
+		gammaNoDitherSummary.presentHash != gammaDitherSummary.presentHash,
+		"VIRenderer gamma dither flag should alter present hash");
+	bool gammaDitherPixelsDiffer = false;
+	if (gammaNoDitherPixels.size() == gammaDitherPixels.size()) {
+		for (size_t i = 0; i < gammaNoDitherPixels.size(); ++i) {
+			if (gammaNoDitherPixels[i] != gammaDitherPixels[i]) {
+				gammaDitherPixelsDiffer = true;
+				break;
+			}
+		}
+	}
+	expectTrue(
+		gammaDitherPixelsDiffer,
+		"VIRenderer gamma dither flag should alter sampled pixel values");
+
+	std::vector<u32> aaSource{
+		0x000000FFU, 0xFFFFFFFFU, 0x404040FFU, 0xFFFFFFFFU,
+		0x000000FFU, 0xFFFFFFFFU, 0x404040FFU, 0xFFFFFFFFU
+	};
+	rvk2::VIRendererConfig configWide{};
+	configWide.aspectX = 2U;
+	configWide.aspectY = 1U;
+	rvk2::VIRenderer rendererWide(configWide);
+	rvk2::VIFrameInput aaInput{};
+	aaInput.sourceWidth = 4U;
+	aaInput.sourceHeight = 2U;
+	aaInput.sourcePixels = &aaSource;
+	aaInput.registers.valid = true;
+	aaInput.registers.status = 2U;
+	aaInput.registers.width = 4U;
+	aaInput.registers.vSync = 525U;
+	aaInput.registers.hStart = (0U << 16U) | 4U;
+	aaInput.registers.vStart = (0U << 16U) | 4U;
+	aaInput.registers.xScale = 1024U;
+	aaInput.registers.yScale = 1024U;
+	std::vector<u32> aaMode0Pixels;
+	const rvk2::VIFrameSummary aaMode0Summary =
+		rendererWide.present(aaInput, &aaMode0Pixels);
+	aaInput.registers.status = 2U | (1U << 8U);
+	std::vector<u32> aaMode1Pixels;
+	const rvk2::VIFrameSummary aaMode1Summary =
+		rendererWide.present(aaInput, &aaMode1Pixels);
+	aaInput.registers.status = 2U | (2U << 8U);
+	std::vector<u32> aaMode2Pixels;
+	const rvk2::VIFrameSummary aaMode2Summary =
+		rendererWide.present(aaInput, &aaMode2Pixels);
+	expectTrue(
+		aaMode0Summary.presentHash != aaMode1Summary.presentHash,
+		"VIRenderer AA mode1 should alter present hash");
+	expectTrue(
+		aaMode1Summary.presentHash != aaMode2Summary.presentHash,
+		"VIRenderer AA mode2 should alter present hash");
+	expectTrue(
+		aaMode0Pixels.size() == aaMode1Pixels.size()
+			&& aaMode0Pixels.size() == aaMode2Pixels.size(),
+		"VIRenderer AA mode sampled pixel size mismatch");
+	expectTrue(
+		aaMode0Pixels != aaMode1Pixels,
+		"VIRenderer AA mode1 should alter sampled pixel values");
+	expectTrue(
+		aaMode1Pixels != aaMode2Pixels,
+		"VIRenderer AA mode2 should alter sampled pixel values");
+
 	std::vector<u32> divotSource{
 		0x000000FFU, 0xFFFFFFFFU, 0x000000FFU, 0x000000FFU,
 		0x000000FFU, 0xFFFFFFFFU, 0x000000FFU, 0x000000FFU,

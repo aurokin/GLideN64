@@ -25,6 +25,7 @@ This is the single execution tracker for the rewrite.
 19. Alpha compare state is now modeled in synthetic executor/replay and covered by conformance.
 20. Depth compare/update mode bits are now modeled in synthetic executor/replay and covered by conformance.
 21. Coverage mode flags (`cvgDest`, `cvgXAlpha`, `alphaCvgSel`, `colorOnCvg`, `forceBlender`, `blendMask`) are now modeled in synthetic executor/replay and covered by conformance.
+22. VI presenter now models `VI_STATUS` gamma-dither and AA-mode filtering behavior with deterministic unit coverage.
 
 ## Phase Status
 
@@ -39,7 +40,7 @@ This is the single execution tracker for the rewrite.
 
 ## Completion Estimate
 
-Estimated overall roadmap completion: **~62%**.
+Estimated overall roadmap completion: **~63%**.
 
 Heuristic phase weighting used for this estimate:
 - A: 20%
@@ -53,7 +54,7 @@ Estimated phase progress used:
 - A: 100%
 - B: 74%
 - C: 65%
-- D: 42%
+- D: 48%
 - E: 0%
 - F: 0%
 
@@ -150,6 +151,10 @@ Estimated phase progress used:
    - synthetic blender/replay path now incorporates coverage-mode weights/alpha effects and force-blender state
    - render-work hashing/replay model updated to include coverage-mode fields
    - conformance coverage added for coverage-mode flag behavior divergence
+23. Extended VI register behavior with gamma-dither + AA mode modeling:
+   - presenter now applies deterministic gamma-dither perturbation when `VI_STATUS_GAMMA_DITHER_ENABLE` is set
+   - presenter now applies deterministic VI AA-mode filtering for AA modes `1` and `2`
+   - unit coverage added for gamma-dither and AA-mode hash/pixel divergence
 
 ## Current Bottlenecks
 
