@@ -56,6 +56,13 @@ python3 scripts/rvk2_packet_trace_replay.py \
   --jobs 0 --strict
 ```
 
+## Frame Forensics Summary
+
+```bash
+REALITYVK2_FRAME_FORENSICS_FILE=/tmp/rvk2-forensics.tsv ./scripts/paper_mario_parity.sh
+python3 scripts/rvk2_forensics_summary.py --input /tmp/rvk2-forensics.tsv --active-only
+```
+
 ## Texture Pack Utilities
 
 ```bash

@@ -2196,9 +2196,15 @@ inline u32 applySyntheticCombiner(
 	u32 _dstColor,
 	u32 _x,
 	u32 _y,
-	bool _cycle2Selectors = false)
+	bool _cycle2Selectors = false,
+	rvk2::ExecutorSummary * _summary = nullptr)
 {
 	(void)_dstColor;
+	if (_summary != nullptr) {
+		++_summary->combinerOpCount;
+		if (_cycle2Selectors)
+			++_summary->combinerCycle2SelectorOpCount;
+	}
 	const bool useCycle2Selectors =
 		_cycle2Selectors
 		|| _work.phase == static_cast<u8>(rvk2::RenderPhase::kCycle1);
@@ -2453,7 +2459,8 @@ inline u32 applySyntheticBlender(
 	u32 _dstColor,
 	u32 _x,
 	u32 _y,
-	bool _cycle2Selectors = false)
+	bool _cycle2Selectors = false,
+	rvk2::ExecutorSummary * _summary = nullptr)
 {
 	(void)_blendParams;
 	ColorRGBA src = unpackRGBA(_srcColor);
@@ -2464,6 +2471,15 @@ inline u32 applySyntheticBlender(
 	const BlendMuxSelectors selectors = decodeBlendMuxSelectors(
 		_work,
 		_cycle2Selectors && _work.phase == static_cast<u8>(rvk2::RenderPhase::kCycle2));
+	if (_summary != nullptr) {
+		++_summary->blenderOpCount;
+		++_summary->blendAlphaASelectorCount[selectors.m1b & 0x3U];
+		++_summary->blendAlphaBSelectorCount[selectors.m2b & 0x3U];
+		if (_work.forceBlender)
+			++_summary->blenderForceOpCount;
+		if (aaEnable)
+			++_summary->blenderAAOpCount;
+	}
 	const auto selectColorSource = [](
 		u8 _selector,
 		u8 _src,
@@ -2527,8 +2543,15 @@ inline u32 applySyntheticBlender(
 	const SyntheticCoverageSample coverage = useCoverageControls
 		? evaluateSyntheticCoverage(_work, src.a, dst.a, _x, _y)
 		: SyntheticCoverageSample{};
+	if (_summary != nullptr && useCoverageControls) {
+		++_summary->blendCoverageEvalCount;
+		if (coverage.resolved == 0U)
+			++_summary->blendCoverageZeroCount;
+	}
 	ColorRGBA out = p;
 	const bool blendEnabled = _work.forceBlender || aaEnable;
+	if (_summary != nullptr && blendEnabled)
+		++_summary->blenderEnabledOpCount;
 	if (blendEnabled) {
 		const u32 a = static_cast<u32>(alphaA);
 		const u32 b = static_cast<u32>(alphaB);
@@ -2561,6 +2584,8 @@ inline u32 applySyntheticBlender(
 		const u32 ditherY = hasExplicitScissor(_work) ? (_y >> 1U) : _y;
 		const s32 bayer = bayerDither4x4(_x, ditherY);
 		if (colorDitherMode != 0U) {
+			if (_summary != nullptr)
+				++_summary->colorDitherApplyCount;
 			out.r = applySyntheticDitherMode(
 				out.r,
 				colorDitherMode,
@@ -2578,6 +2603,8 @@ inline u32 applySyntheticBlender(
 				syntheticNoiseSigned8(_work, _x, _y, 2U));
 		}
 		if (alphaDitherMode != 0U) {
+			if (_summary != nullptr)
+				++_summary->alphaDitherApplyCount;
 			out.a = applySyntheticDitherMode(
 				out.a,
 				alphaDitherMode,
@@ -2586,10 +2613,16 @@ inline u32 applySyntheticBlender(
 		}
 	}
 
-	if (isTextureEdgeEnabled(_work) && out.a > 0U && out.a < 128U)
+	if (isTextureEdgeEnabled(_work) && out.a > 0U && out.a < 128U) {
+		if (_summary != nullptr)
+			++_summary->textureEdgeAlphaPromoteCount;
 		out.a = 255U;
-	if (isConvertOneEnabled(_work))
+	}
+	if (isConvertOneEnabled(_work)) {
+		if (_summary != nullptr)
+			++_summary->convertOneAlphaForceCount;
 		out.a = 255U;
+	}
 	return packRGBA(out);
 }
 
@@ -2598,16 +2631,18 @@ inline u32 applySyntheticBlender(
 	u32 _srcColor,
 	u32 _dstColor,
 	u32 _x,
-	u32 _y)
+	u32 _y,
+	rvk2::ExecutorSummary * _summary = nullptr)
 {
-	return applySyntheticBlender(_work, _work.blendParams, _srcColor, _dstColor, _x, _y, false);
+	return applySyntheticBlender(_work, _work.blendParams, _srcColor, _dstColor, _x, _y, false, _summary);
 }
 
 inline bool passesSyntheticAlphaCompare(
 	const rvk2::RenderWorkPacket & _work,
 	u32 _pixel,
 	u32 _x,
-	u32 _y)
+	u32 _y,
+	rvk2::ExecutorSummary * _summary = nullptr)
 {
 	if (_work.phase == static_cast<u8>(rvk2::RenderPhase::kCopy)
 		|| _work.phase == static_cast<u8>(rvk2::RenderPhase::kFill))
@@ -2616,6 +2651,8 @@ inline bool passesSyntheticAlphaCompare(
 	const bool alphaCompareEnable = (_work.alphaCompare & 0x1U) != 0U;
 	if (!alphaCompareEnable)
 		return true;
+	if (_summary != nullptr)
+		++_summary->alphaCompareTestCount;
 
 	const u8 alpha = static_cast<u8>(_pixel & 0xFFU);
 	const bool ditherAlphaEnable = (_work.alphaCompare & 0x2U) != 0U;
@@ -2626,10 +2663,16 @@ inline bool passesSyntheticAlphaCompare(
 				+ static_cast<u32>(_work.syncEpoch & 0xFFU)
 				+ static_cast<u32>(_work.keyState & 0xFFULL))
 			& 0xFFU);
-		return alpha >= threshold;
+		const bool pass = alpha >= threshold;
+		if (!pass && _summary != nullptr)
+			++_summary->alphaCompareRejectCount;
+		return pass;
 	}
 	const u8 threshold = static_cast<u8>(_work.blendColor & 0xFFU);
-	return alpha >= threshold;
+	const bool pass = alpha >= threshold;
+	if (!pass && _summary != nullptr)
+		++_summary->alphaCompareRejectCount;
+	return pass;
 }
 
 inline bool passesSyntheticCoverageWrite(
@@ -2637,7 +2680,8 @@ inline bool passesSyntheticCoverageWrite(
 	u32 _pixel,
 	u32 _dstColor,
 	u32 _x,
-	u32 _y)
+	u32 _y,
+	rvk2::ExecutorSummary * _summary = nullptr)
 {
 	if (_work.phase == static_cast<u8>(rvk2::RenderPhase::kCopy)
 		|| _work.phase == static_cast<u8>(rvk2::RenderPhase::kFill))
@@ -2645,12 +2689,22 @@ inline bool passesSyntheticCoverageWrite(
 
 	if (!_work.colorOnCvg)
 		return true;
+	if (_summary != nullptr)
+		++_summary->coverageWriteTestCount;
 
 	const ColorRGBA src = unpackRGBA(_pixel);
 	const ColorRGBA dst = unpackRGBA(_dstColor);
 	const SyntheticCoverageSample coverage =
 		evaluateSyntheticCoverage(_work, src.a, dst.a, _x, _y);
-	return coverage.resolved != 0U;
+	if (_summary != nullptr) {
+		++_summary->coverageWriteEvalCount;
+		if (coverage.resolved == 0U)
+			++_summary->coverageWriteZeroCount;
+	}
+	const bool pass = coverage.resolved != 0U;
+	if (!pass && _summary != nullptr)
+		++_summary->coverageWriteRejectCount;
+	return pass;
 }
 
 inline s32 combineDYDerivative(s32 _dy, s32 _de, bool _lmajor)
@@ -2873,7 +2927,8 @@ inline u32 runSyntheticPhasePipeline(
 	u32 _y,
 	u32 * _coverageDestinationColor = nullptr,
 	u32 * _combinerOutputColor = nullptr,
-	u32 * _blenderOutputColor = nullptr)
+	u32 * _blenderOutputColor = nullptr,
+	rvk2::ExecutorSummary * _summary = nullptr)
 {
 	u32 finalColor = _baseColor;
 	u32 combinerColor = _baseColor;
@@ -2902,8 +2957,9 @@ inline u32 runSyntheticPhasePipeline(
 			_dstColor,
 			_x,
 			_y,
-			false);
-		blenderColor = applySyntheticBlender(_work, combinerColor, _dstColor, _x, _y);
+			false,
+			_summary);
+		blenderColor = applySyntheticBlender(_work, combinerColor, _dstColor, _x, _y, _summary);
 		finalColor = blenderColor;
 		if (_coverageDestinationColor != nullptr)
 			*_coverageDestinationColor = _dstColor;
@@ -2917,14 +2973,16 @@ inline u32 runSyntheticPhasePipeline(
 			_dstColor,
 			_x,
 			_y,
-			false);
+			false,
+			_summary);
 		const u32 cycle1Color = applySyntheticBlender(
 			_work,
 			cycle1CombinedColor,
 			_dstColor,
 			_x,
 			_y,
-			false);
+			false,
+			_summary);
 		combinerColor = applySyntheticCombiner(
 			_work,
 			_textureColor,
@@ -2933,7 +2991,8 @@ inline u32 runSyntheticPhasePipeline(
 			cycle1Color,
 			_x,
 			_y,
-			true);
+			true,
+			_summary);
 		blenderColor = applySyntheticBlender(
 			_work,
 			_work.blendParams,
@@ -2941,7 +3000,8 @@ inline u32 runSyntheticPhasePipeline(
 			cycle1Color,
 			_x,
 			_y,
-			true);
+			true,
+			_summary);
 		finalColor = blenderColor;
 		if (_coverageDestinationColor != nullptr)
 			*_coverageDestinationColor = cycle1Color;
@@ -3030,11 +3090,12 @@ void writeRect(
 					y,
 					&coverageDestinationColor,
 					&combinerColor,
-					&blenderColor);
+					&blenderColor,
+					&_summary);
 			}
-			if (!passesSyntheticAlphaCompare(_work, finalColor, x, y))
+			if (!passesSyntheticAlphaCompare(_work, finalColor, x, y, &_summary))
 				continue;
-			if (!passesSyntheticCoverageWrite(_work, finalColor, coverageDestinationColor, x, y))
+			if (!passesSyntheticCoverageWrite(_work, finalColor, coverageDestinationColor, x, y, &_summary))
 				continue;
 			const u32 writeColor = selectDebugStageRasterColor(
 				stageViewMode,
@@ -3128,10 +3189,11 @@ void writeTriangle(
 				y,
 				&coverageDestinationColor,
 				&combinerColor,
-				&blenderColor);
-			if (!passesSyntheticAlphaCompare(_work, finalColor, x, y))
+				&blenderColor,
+				&_summary);
+			if (!passesSyntheticAlphaCompare(_work, finalColor, x, y, &_summary))
 				continue;
-			if (!passesSyntheticCoverageWrite(_work, finalColor, coverageDestinationColor, x, y))
+			if (!passesSyntheticCoverageWrite(_work, finalColor, coverageDestinationColor, x, y, &_summary))
 				continue;
 
 			if (_depthSurface != nullptr
@@ -3139,15 +3201,20 @@ void writeTriangle(
 				&& _work.depthTest
 				&& _work.triangleZBufferEnable
 				&& (_work.depthCompareEnable || _work.depthUpdateEnable)) {
+				++_summary.depthEvalCount;
 				const s32 z = evaluateTriangleDepth(_work, x, y);
 				const size_t depthIdx = pixelIndex(_depthSurface->width, static_cast<u16>(x), static_cast<u16>(y));
 				if (depthIdx >= _depthSurface->values.size())
 					continue;
 				const s32 depthValue = _depthSurface->values[depthIdx];
-				if (!passesSyntheticDepthCompare(_work, z, depthValue))
+				if (!passesSyntheticDepthCompare(_work, z, depthValue)) {
+					++_summary.depthRejectCount;
 					continue;
-				if (shouldUpdateSyntheticDepth(_work, z, depthValue))
+				}
+				if (shouldUpdateSyntheticDepth(_work, z, depthValue)) {
 					_depthSurface->values[depthIdx] = z;
+					++_summary.depthUpdateCount;
+				}
 			}
 
 			const u32 writeColor = selectDebugStageRasterColor(
