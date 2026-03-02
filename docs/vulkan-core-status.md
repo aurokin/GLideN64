@@ -26,6 +26,7 @@ This is the single execution tracker for the rewrite.
 20. Depth compare/update mode bits are now modeled in synthetic executor/replay and covered by conformance.
 21. Coverage mode flags (`cvgDest`, `cvgXAlpha`, `alphaCvgSel`, `colorOnCvg`, `forceBlender`, `blendMask`) are now modeled in synthetic executor/replay and covered by conformance.
 22. VI presenter now models `VI_STATUS` gamma-dither and AA-mode filtering behavior with deterministic unit coverage.
+23. VI presenter now applies VI type-aware decode behavior for 16bpp mode (`status.type=2`) with deterministic quantization.
 
 ## Phase Status
 
@@ -40,7 +41,7 @@ This is the single execution tracker for the rewrite.
 
 ## Completion Estimate
 
-Estimated overall roadmap completion: **~63%**.
+Estimated overall roadmap completion: **~64%**.
 
 Heuristic phase weighting used for this estimate:
 - A: 20%
@@ -54,7 +55,7 @@ Estimated phase progress used:
 - A: 100%
 - B: 74%
 - C: 65%
-- D: 48%
+- D: 54%
 - E: 0%
 - F: 0%
 
@@ -155,6 +156,10 @@ Estimated phase progress used:
    - presenter now applies deterministic gamma-dither perturbation when `VI_STATUS_GAMMA_DITHER_ENABLE` is set
    - presenter now applies deterministic VI AA-mode filtering for AA modes `1` and `2`
    - unit coverage added for gamma-dither and AA-mode hash/pixel divergence
+24. Extended VI type decode behavior:
+   - presenter now applies deterministic VI type-aware decode for 16bpp path (`status.type=2`)
+   - sampled source pixels are quantized to 5/5/5/1-expanded RGBA before downstream VI filtering
+   - unit coverage added for type2 vs type3 hash divergence and quantized sample expectation
 
 ## Current Bottlenecks
 

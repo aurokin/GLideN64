@@ -25,6 +25,7 @@ struct VIResolvedState
 	bool interlaced = false;
 	u8 interlaceField = 0U;
 	u8 aaMode = 0U;
+	u8 viType = 0U;
 	u16 sourceWidth = 0U;
 	u16 sourceHeight = 0U;
 	u32 outputWidth = 0U;
@@ -202,6 +203,27 @@ u32 filterAAPixel(
 		| static_cast<u32>(a);
 }
 
+u8 quantize5To8(u8 _value)
+{
+	const u32 quantized = (static_cast<u32>(_value) * 31U + 127U) / 255U;
+	return static_cast<u8>((quantized * 255U + 15U) / 31U);
+}
+
+u32 applyVITypeDecode(u32 _pixel, u8 _viType)
+{
+	if (_viType != 2U)
+		return _pixel;
+
+	const u8 r = quantize5To8(static_cast<u8>((_pixel >> 24U) & 0xFFU));
+	const u8 g = quantize5To8(static_cast<u8>((_pixel >> 16U) & 0xFFU));
+	const u8 b = quantize5To8(static_cast<u8>((_pixel >> 8U) & 0xFFU));
+	const u8 a = static_cast<u8>((_pixel & 0xFFU) >= 128U ? 255U : 0U);
+	return (static_cast<u32>(r) << 24U)
+		| (static_cast<u32>(g) << 16U)
+		| (static_cast<u32>(b) << 8U)
+		| static_cast<u32>(a);
+}
+
 u32 deriveOutputWidthFromRegisters(const rvk2::VIRegisterState & _registers, u32 _fallback)
 {
 	const u32 hStart = (_registers.hStart >> 16U) & 0x3FFU;
@@ -243,6 +265,7 @@ VIResolvedState resolveVIState(
 	}
 
 	state.useRegisters = true;
+	state.viType = static_cast<u8>(_input.registers.status & kVIStatusTypeMask);
 	state.gammaDitherEnabled = (_input.registers.status & kVIStatusGammaDitherEnabled) != 0U;
 	state.gammaEnabled = (_input.registers.status & kVIStatusGammaEnabled) != 0U;
 	state.divotEnabled = (_input.registers.status & kVIStatusDivotEnabled) != 0U;
@@ -411,23 +434,35 @@ VIFrameSummary VIRenderer::present(
 							sourceY * 2U + static_cast<u32>(viState.interlaceField));
 					}
 					const size_t sampleIndex = pixelIndex(_input.sourceWidth, sourceX, sourceY);
-					pixel = (*_input.sourcePixels)[sampleIndex];
+					pixel = applyVITypeDecode((*_input.sourcePixels)[sampleIndex], viState.viType);
 					if (viState.aaMode != 0U && viState.aaMode != 3U) {
 						const u32 sourceXLeft = sourceX > 0U ? sourceX - 1U : sourceX;
 						const u32 sourceXRight = std::min<u32>(viState.sourceWidth - 1U, sourceX + 1U);
 						const u32 sourceYUp = sourceY > 0U ? sourceY - 1U : sourceY;
 						const u32 sourceYDown = std::min<u32>(viState.sourceHeight - 1U, sourceY + 1U);
-						const u32 leftPixel = (*_input.sourcePixels)[pixelIndex(_input.sourceWidth, sourceXLeft, sourceY)];
-						const u32 rightPixel = (*_input.sourcePixels)[pixelIndex(_input.sourceWidth, sourceXRight, sourceY)];
-						const u32 upPixel = (*_input.sourcePixels)[pixelIndex(_input.sourceWidth, sourceX, sourceYUp)];
-						const u32 downPixel = (*_input.sourcePixels)[pixelIndex(_input.sourceWidth, sourceX, sourceYDown)];
+						const u32 leftPixel = applyVITypeDecode(
+							(*_input.sourcePixels)[pixelIndex(_input.sourceWidth, sourceXLeft, sourceY)],
+							viState.viType);
+						const u32 rightPixel = applyVITypeDecode(
+							(*_input.sourcePixels)[pixelIndex(_input.sourceWidth, sourceXRight, sourceY)],
+							viState.viType);
+						const u32 upPixel = applyVITypeDecode(
+							(*_input.sourcePixels)[pixelIndex(_input.sourceWidth, sourceX, sourceYUp)],
+							viState.viType);
+						const u32 downPixel = applyVITypeDecode(
+							(*_input.sourcePixels)[pixelIndex(_input.sourceWidth, sourceX, sourceYDown)],
+							viState.viType);
 						pixel = filterAAPixel(pixel, leftPixel, rightPixel, upPixel, downPixel, viState.aaMode);
 					}
 					if (viState.divotEnabled && viState.sourceWidth > 1U) {
 						const u32 sourceXLeft = sourceX > 0U ? sourceX - 1U : sourceX;
 						const u32 sourceXRight = std::min<u32>(viState.sourceWidth - 1U, sourceX + 1U);
-						const u32 leftPixel = (*_input.sourcePixels)[pixelIndex(_input.sourceWidth, sourceXLeft, sourceY)];
-						const u32 rightPixel = (*_input.sourcePixels)[pixelIndex(_input.sourceWidth, sourceXRight, sourceY)];
+						const u32 leftPixel = applyVITypeDecode(
+							(*_input.sourcePixels)[pixelIndex(_input.sourceWidth, sourceXLeft, sourceY)],
+							viState.viType);
+						const u32 rightPixel = applyVITypeDecode(
+							(*_input.sourcePixels)[pixelIndex(_input.sourceWidth, sourceXRight, sourceY)],
+							viState.viType);
 						pixel = applyDivotToPixel(leftPixel, pixel, rightPixel);
 					}
 				}

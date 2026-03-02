@@ -1180,7 +1180,7 @@ void testVIRendererAspectScaling()
 	registerInput.sourceHeight = 4U;
 	registerInput.sourcePixels = &registerPixels;
 	registerInput.registers.valid = true;
-	registerInput.registers.status = 2U;
+	registerInput.registers.status = 3U;
 	registerInput.registers.width = 4U;
 	registerInput.registers.vSync = 525U;
 	registerInput.registers.hStart = (0U << 16U) | 2U;
@@ -1200,11 +1200,11 @@ void testVIRendererAspectScaling()
 	expectEq(sampledPixels[2], registerPixels[8], "VIRenderer register sample (0,1) mismatch");
 	expectEq(sampledPixels[3], registerPixels[10], "VIRenderer register sample (1,1) mismatch");
 
-	registerInput.registers.status = 2U;
+	registerInput.registers.status = 3U;
 	std::vector<u32> noGammaPixels;
 	const rvk2::VIFrameSummary noGammaSummary =
 		rendererSquare.present(registerInput, &noGammaPixels);
-	registerInput.registers.status = 2U | 0x000008U;
+	registerInput.registers.status = 3U | 0x000008U;
 	std::vector<u32> gammaPixels;
 	const rvk2::VIFrameSummary gammaSummary =
 		rendererSquare.present(registerInput, &gammaPixels);
@@ -1224,11 +1224,11 @@ void testVIRendererAspectScaling()
 		gammaPixelsDiffer,
 		"VIRenderer gamma flag should alter sampled pixel values");
 
-	registerInput.registers.status = 2U | 0x000008U;
+	registerInput.registers.status = 3U | 0x000008U;
 	std::vector<u32> gammaNoDitherPixels;
 	const rvk2::VIFrameSummary gammaNoDitherSummary =
 		rendererSquare.present(registerInput, &gammaNoDitherPixels);
-	registerInput.registers.status = 2U | 0x000008U | 0x000004U;
+	registerInput.registers.status = 3U | 0x000008U | 0x000004U;
 	std::vector<u32> gammaDitherPixels;
 	const rvk2::VIFrameSummary gammaDitherSummary =
 		rendererSquare.present(registerInput, &gammaDitherPixels);
@@ -1261,7 +1261,7 @@ void testVIRendererAspectScaling()
 	aaInput.sourceHeight = 2U;
 	aaInput.sourcePixels = &aaSource;
 	aaInput.registers.valid = true;
-	aaInput.registers.status = 2U;
+	aaInput.registers.status = 3U;
 	aaInput.registers.width = 4U;
 	aaInput.registers.vSync = 525U;
 	aaInput.registers.hStart = (0U << 16U) | 4U;
@@ -1271,11 +1271,11 @@ void testVIRendererAspectScaling()
 	std::vector<u32> aaMode0Pixels;
 	const rvk2::VIFrameSummary aaMode0Summary =
 		rendererWide.present(aaInput, &aaMode0Pixels);
-	aaInput.registers.status = 2U | (1U << 8U);
+	aaInput.registers.status = 3U | (1U << 8U);
 	std::vector<u32> aaMode1Pixels;
 	const rvk2::VIFrameSummary aaMode1Summary =
 		rendererWide.present(aaInput, &aaMode1Pixels);
-	aaInput.registers.status = 2U | (2U << 8U);
+	aaInput.registers.status = 3U | (2U << 8U);
 	std::vector<u32> aaMode2Pixels;
 	const rvk2::VIFrameSummary aaMode2Summary =
 		rendererWide.present(aaInput, &aaMode2Pixels);
@@ -1296,6 +1296,35 @@ void testVIRendererAspectScaling()
 		aaMode1Pixels != aaMode2Pixels,
 		"VIRenderer AA mode2 should alter sampled pixel values");
 
+	std::vector<u32> viTypeSource{
+		0x12345678U, 0x89ABCDEFU,
+		0x0A1B2C3DU, 0x44556677U
+	};
+	rvk2::VIFrameInput viTypeInput{};
+	viTypeInput.sourceWidth = 2U;
+	viTypeInput.sourceHeight = 2U;
+	viTypeInput.sourcePixels = &viTypeSource;
+	viTypeInput.registers.valid = true;
+	viTypeInput.registers.status = 3U;
+	viTypeInput.registers.width = 2U;
+	viTypeInput.registers.vSync = 525U;
+	viTypeInput.registers.hStart = (0U << 16U) | 2U;
+	viTypeInput.registers.vStart = (0U << 16U) | 4U;
+	viTypeInput.registers.xScale = 1024U;
+	viTypeInput.registers.yScale = 1024U;
+	std::vector<u32> viType32Pixels;
+	const rvk2::VIFrameSummary viType32Summary =
+		rendererSquare.present(viTypeInput, &viType32Pixels);
+	viTypeInput.registers.status = 2U;
+	std::vector<u32> viType16Pixels;
+	const rvk2::VIFrameSummary viType16Summary =
+		rendererSquare.present(viTypeInput, &viType16Pixels);
+	expectTrue(
+		viType32Summary.presentHash != viType16Summary.presentHash,
+		"VIRenderer type2 decode should alter present hash vs type3");
+	expectEq(viType16Pixels.size(), viType32Pixels.size(), "VIRenderer type decode pixel count mismatch");
+	expectEq(viType16Pixels[0], 0x10315200U, "VIRenderer type2 quantized sample mismatch");
+
 	std::vector<u32> divotSource{
 		0x000000FFU, 0xFFFFFFFFU, 0x000000FFU, 0x000000FFU,
 		0x000000FFU, 0xFFFFFFFFU, 0x000000FFU, 0x000000FFU,
@@ -1307,7 +1336,7 @@ void testVIRendererAspectScaling()
 	divotInput.sourceHeight = 4U;
 	divotInput.sourcePixels = &divotSource;
 	divotInput.registers.valid = true;
-	divotInput.registers.status = 2U;
+	divotInput.registers.status = 3U;
 	divotInput.registers.width = 4U;
 	divotInput.registers.vSync = 525U;
 	divotInput.registers.hStart = (0U << 16U) | 4U;
@@ -1317,7 +1346,7 @@ void testVIRendererAspectScaling()
 	std::vector<u32> noDivotPixels;
 	const rvk2::VIFrameSummary noDivotSummary =
 		rendererSquare.present(divotInput, &noDivotPixels);
-	divotInput.registers.status = 2U | 0x000010U;
+	divotInput.registers.status = 3U | 0x000010U;
 	std::vector<u32> withDivotPixels;
 	const rvk2::VIFrameSummary withDivotSummary =
 		rendererSquare.present(divotInput, &withDivotPixels);
@@ -1338,7 +1367,7 @@ void testVIRendererAspectScaling()
 	interlaceInput.sourceHeight = 4U;
 	interlaceInput.sourcePixels = &interlaceSource;
 	interlaceInput.registers.valid = true;
-	interlaceInput.registers.status = 2U;
+	interlaceInput.registers.status = 3U;
 	interlaceInput.registers.width = 2U;
 	interlaceInput.registers.vSync = 525U;
 	interlaceInput.registers.hStart = (0U << 16U) | 2U;
@@ -1348,7 +1377,7 @@ void testVIRendererAspectScaling()
 	std::vector<u32> nonInterlacedPixels;
 	const rvk2::VIFrameSummary nonInterlacedSummary =
 		rendererSquare.present(interlaceInput, &nonInterlacedPixels);
-	interlaceInput.registers.status = 2U | 0x000040U;
+	interlaceInput.registers.status = 3U | 0x000040U;
 	interlaceInput.registers.vCurrentLine = 1U;
 	std::vector<u32> interlacedPixels;
 	const rvk2::VIFrameSummary interlacedSummary =
@@ -1417,7 +1446,7 @@ void testExecutorVIOriginPresentationSelection()
 
 	rvk2::ExecutorConfig viConfig = defaultConfig;
 	viConfig.viRegistersValid = true;
-	viConfig.viStatus = 2U;
+	viConfig.viStatus = 3U;
 	viConfig.viOrigin = fillA.colorImageAddress;
 	viConfig.viWidth = 2U;
 	viConfig.viVSync = 525U;
