@@ -11,6 +11,7 @@
 #include "rvk2_SubmissionPlan.h"
 #include "rvk2_SyntheticTriangle.h"
 #include "rvk2_TMEMModel.h"
+#include "rvk2_TextureReplacement.h"
 #include "rvk2_Types.h"
 #include "rvk2_VIRenderer.h"
 
@@ -2015,6 +2016,112 @@ void testExecutorFrameOutput()
 		"Executor output pixel count mismatch");
 }
 
+void testTextureReplacementContract()
+{
+	rvk2::RenderWorkPacket base{};
+	base.textured = true;
+	base.textureImageFormat = 2U;
+	base.textureImageSize = 2U;
+	base.textureImageWidth = 64U;
+	base.textureImageAddress = 0x00123400U;
+	base.tile = 3U;
+	base.tileFormat = 2U;
+	base.tileSize = 2U;
+	base.tileLine = 32U;
+	base.tileTmem = 0x80U;
+	base.tilePalette = 5U;
+	base.tileCms = 1U;
+	base.tileCmt = 2U;
+	base.tileMasks = 4U;
+	base.tileMaskt = 5U;
+	base.tileShifts = 1U;
+	base.tileShiftt = 2U;
+	base.tileULS = 0U;
+	base.tileULT = 0U;
+	base.tileLRS = 124U;
+	base.tileLRT = 60U;
+	base.tmemLoadKind = static_cast<u8>(rvk2::TmemLoadKind::kTLUT);
+	base.tmemLoadTile = 3U;
+	base.tmemLoadULS = 0U;
+	base.tmemLoadULT = 0U;
+	base.tmemLoadLRS = 124U;
+	base.tmemLoadLRT = 60U;
+	base.tmemLoadDXT = 44U;
+	base.keyState = 0x0F0E0D0C0B0A0908ULL;
+	base.convertState = 0x0102030405060708ULL;
+
+	rvk2::TextureReplacementRequest requestA{};
+	requestA.work = &base;
+	requestA.s = 17;
+	requestA.t = -9;
+	requestA.w = 33;
+	requestA.perspective = true;
+
+	const rvk2::TextureReplacementKey keyA =
+		rvk2::buildTextureReplacementKey(requestA);
+	const rvk2::TextureReplacementKey keyB =
+		rvk2::buildTextureReplacementKey(requestA);
+	expectEq(
+		keyA.deterministicKey,
+		keyB.deterministicKey,
+		"texture replacement key must be deterministic for stable input");
+	expectEq(
+		keyA.nativeTextureHash,
+		keyB.nativeTextureHash,
+		"texture replacement native hash must be deterministic");
+	expectEq(
+		keyA.paletteHash,
+		keyB.paletteHash,
+		"texture replacement palette hash must be deterministic");
+	expectTrue(
+		keyA.nativeWidth > 0U && keyA.nativeHeight > 0U,
+		"texture replacement key must expose positive native dimensions");
+
+	rvk2::TextureReplacementCacheKey cacheA =
+		rvk2::buildTextureReplacementCacheKey(keyA);
+	rvk2::TextureReplacementCacheKey cacheB =
+		rvk2::buildTextureReplacementCacheKey(keyB);
+	expectEq(
+		cacheA.hi,
+		cacheB.hi,
+		"texture replacement cache key hi must be deterministic");
+	expectEq(
+		cacheA.lo,
+		cacheB.lo,
+		"texture replacement cache key lo must be deterministic");
+
+	rvk2::RenderWorkPacket textureAddressVariant = base;
+	textureAddressVariant.textureImageAddress ^= 0x1000U;
+	rvk2::TextureReplacementRequest requestTextureVariant = requestA;
+	requestTextureVariant.work = &textureAddressVariant;
+	const rvk2::TextureReplacementKey keyTextureVariant =
+		rvk2::buildTextureReplacementKey(requestTextureVariant);
+	expectTrue(
+		keyTextureVariant.nativeTextureHash != keyA.nativeTextureHash,
+		"texture replacement native hash must react to source image address changes");
+	expectTrue(
+		keyTextureVariant.deterministicKey != keyA.deterministicKey,
+		"texture replacement deterministic key must react to source image address changes");
+
+	rvk2::RenderWorkPacket paletteVariant = base;
+	paletteVariant.tilePalette ^= 0x3U;
+	rvk2::TextureReplacementRequest requestPaletteVariant = requestA;
+	requestPaletteVariant.work = &paletteVariant;
+	const rvk2::TextureReplacementKey keyPaletteVariant =
+		rvk2::buildTextureReplacementKey(requestPaletteVariant);
+	expectTrue(
+		keyPaletteVariant.paletteHash != keyA.paletteHash,
+		"texture replacement palette hash must react to palette selection changes");
+
+	rvk2::TextureReplacementRequest requestCoordVariant = requestA;
+	requestCoordVariant.s += 1;
+	const rvk2::TextureReplacementKey keyCoordVariant =
+		rvk2::buildTextureReplacementKey(requestCoordVariant);
+	expectTrue(
+		keyCoordVariant.deterministicKey != keyA.deterministicKey,
+		"texture replacement deterministic key must react to coordinate changes");
+}
+
 } // namespace
 
 int main()
@@ -2034,6 +2141,7 @@ int main()
 	testExecutorVIOriginPresentationSelection();
 	testExecutorTriangleCoefficientConsumption();
 	testExecutorFrameOutput();
+	testTextureReplacementContract();
 
 	if (g_failures == 0) {
 		std::printf("rvk2 unit tests: PASS\n");

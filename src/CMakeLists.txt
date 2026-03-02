@@ -111,6 +111,7 @@ set(RealityVK_SOURCES
   Graphics/RealityVK2/rvk2_RuntimeSwitch.cpp
   Graphics/RealityVK2/rvk2_SubmissionPlan.cpp
   Graphics/RealityVK2/rvk2_TMEMModel.cpp
+  Graphics/RealityVK2/rvk2_TextureReplacement.cpp
   Graphics/RealityVK2/rvk2_TraceOutput.cpp
   Graphics/RealityVK2/rvk2_Validation.cpp
   Graphics/RealityVK2/rvk2_VIRenderer.cpp
@@ -547,6 +548,7 @@ if(REALITYVK_BUILD_RVK2_TESTS)
 		Graphics/RealityVK2/rvk2_Runtime.cpp
 		Graphics/RealityVK2/rvk2_SubmissionPlan.cpp
 		Graphics/RealityVK2/rvk2_TMEMModel.cpp
+		Graphics/RealityVK2/rvk2_TextureReplacement.cpp
 		Graphics/RealityVK2/rvk2_VIRenderer.cpp
 	)
 	set_target_properties(rvk2_unit_tests PROPERTIES

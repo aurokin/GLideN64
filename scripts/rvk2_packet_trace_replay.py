@@ -4037,6 +4037,29 @@ def _is_image_read_enabled(work: RenderWorkRecord) -> bool:
     return (_mode1_word(work) & (1 << 6)) != 0
 
 
+def _is_aa_enabled(work: RenderWorkRecord) -> bool:
+    return (_mode1_word(work) & (1 << 3)) != 0
+
+
+def _is_pipeline_mode_enabled(work: RenderWorkRecord) -> bool:
+    return (_mode0_word(work) & (1 << 23)) != 0
+
+
+def _decode_blend_mux_selectors(work: RenderWorkRecord, cycle2_selectors: bool) -> tuple[int, int, int, int]:
+    mode1 = _mode1_word(work)
+    if cycle2_selectors:
+        m1a = (mode1 >> 28) & 0x3
+        m1b = (mode1 >> 24) & 0x3
+        m2a = (mode1 >> 20) & 0x3
+        m2b = (mode1 >> 16) & 0x3
+    else:
+        m1a = (mode1 >> 30) & 0x3
+        m1b = (mode1 >> 26) & 0x3
+        m2a = (mode1 >> 22) & 0x3
+        m2b = (mode1 >> 18) & 0x3
+    return m1a, m1b, m2a, m2b
+
+
 def _decode_depth_mode(work: RenderWorkRecord) -> int:
     return (_mode1_word(work) >> 10) & 0x3
 
@@ -4851,6 +4874,7 @@ def _apply_synthetic_blender(
     x: int,
     y: int,
     blend_params: Optional[int] = None,
+    cycle2_selectors: bool = False,
 ) -> int:
     active_blend_params = (work.blend_params if blend_params is None else blend_params) & 0xFFFFFFFF
     src_r, src_g, src_b, src_a = _unpack_rgba(src_color)
@@ -4886,6 +4910,54 @@ def _apply_synthetic_blender(
     src_g = mix_channel(src_g, fog_g, fog_mix)
     src_b = mix_channel(src_b, fog_b, fog_mix)
 
+    pipeline_mode = _is_pipeline_mode_enabled(work)
+    aa_enabled = _is_aa_enabled(work)
+    use_cycle2_selectors = cycle2_selectors and work.phase == RENDER_PHASE_CYCLE2
+    sel_m1a, sel_m1b, sel_m2a, sel_m2b = _decode_blend_mux_selectors(work, use_cycle2_selectors)
+
+    def select_color_source(selector: int, src_ch: int, dst_ch: int, blend_ch: int, fog_ch: int, prim_ch: int) -> int:
+        mode = selector & 0x3
+        if mode == 0:
+            return src_ch
+        if mode == 1:
+            return dst_ch
+        if mode == 2:
+            return blend_ch
+        return prim_ch if pipeline_mode else fog_ch
+
+    def select_alpha_source(selector: int, src_alpha: int, dst_alpha: int, blend_alpha: int, fog_alpha: int, prim_alpha: int) -> int:
+        mode = selector & 0x3
+        if mode == 0:
+            return src_alpha
+        if mode == 1:
+            return dst_alpha
+        if mode == 2:
+            return blend_alpha
+        return prim_alpha if pipeline_mode else fog_alpha
+
+    def mix_quarter(base: int, injected: int) -> int:
+        return (base * 3 + injected + 2) // 4
+
+    src_sel_r = select_color_source(sel_m1b, src_r, dst_r, blend_r, fog_r, prim_r)
+    src_sel_g = select_color_source(sel_m1b, src_g, dst_g, blend_g, fog_g, prim_g)
+    src_sel_b = select_color_source(sel_m1b, src_b, dst_b, blend_b, fog_b, prim_b)
+    dst_sel_r = select_color_source(sel_m2b, src_r, dst_r, blend_r, fog_r, prim_r)
+    dst_sel_g = select_color_source(sel_m2b, src_g, dst_g, blend_g, fog_g, prim_g)
+    dst_sel_b = select_color_source(sel_m2b, src_b, dst_b, blend_b, fog_b, prim_b)
+    src_sel_alpha = select_alpha_source(sel_m1a, src_a, dst_a, blend_a, fog_a, prim_a)
+    dst_sel_alpha = select_alpha_source(sel_m2a, src_a, dst_a, blend_a, fog_a, prim_a)
+
+    src_r = mix_quarter(src_r, src_sel_r)
+    src_g = mix_quarter(src_g, src_sel_g)
+    src_b = mix_quarter(src_b, src_sel_b)
+    src_a = mix_quarter(src_a, src_sel_alpha)
+    dst_resolved_r = mix_quarter(dst_r, dst_sel_r)
+    dst_resolved_g = mix_quarter(dst_g, dst_sel_g)
+    dst_resolved_b = mix_quarter(dst_b, dst_sel_b)
+    dst_resolved_a = mix_quarter(dst_a, dst_sel_alpha)
+    src_weight += src_sel_alpha >> 4
+    dst_weight += dst_sel_alpha >> 4
+
     use_coverage_controls = (
         work.color_on_cvg
         or work.cvg_x_alpha
@@ -4894,9 +4966,13 @@ def _apply_synthetic_blender(
         or work.cvg_dest != 0
         or work.blend_mask != 0
     )
+    coverage_input = 0
+    coverage_destination = 0
     resolved_coverage = 0
     if use_coverage_controls:
-        _, _, resolved_coverage = _evaluate_synthetic_coverage(work, src_a, dst_a, x, y)
+        coverage_input, coverage_destination, resolved_coverage = _evaluate_synthetic_coverage(
+            work, src_a, dst_resolved_a, x, y
+        )
         if work.cvg_x_alpha:
             coverage_alpha_scale = (resolved_coverage * 255 + 3) // 7
             src_a = (src_a * coverage_alpha_scale + 127) // 255
@@ -4909,8 +4985,13 @@ def _apply_synthetic_blender(
     dst_weight = (dst_weight * (256 - src_alpha) + 127) // 256
 
     if use_coverage_controls:
-        src_weight += resolved_coverage * 16
-        dst_weight += (7 - resolved_coverage) * 8
+        src_coverage_scale = 20 if aa_enabled else 12
+        dst_coverage_scale = 12 if aa_enabled else 6
+        src_weight += resolved_coverage * src_coverage_scale
+        dst_weight += (7 - resolved_coverage) * dst_coverage_scale
+        if pipeline_mode:
+            src_weight += coverage_input * 2
+            dst_weight += coverage_destination
         src_weight += work.blend_mask & 0x3
         dst_weight += (work.blend_mask >> 2) & 0x3
         if work.force_blender:
@@ -4925,12 +5006,26 @@ def _apply_synthetic_blender(
     if src_weight == 0 and dst_weight == 0:
         src_weight = 1
 
-    out_r = _blend_channel(src_r, dst_r, src_weight, dst_weight)
-    out_g = _blend_channel(src_g, dst_g, src_weight, dst_weight)
-    out_b = _blend_channel(src_b, dst_b, src_weight, dst_weight)
-    out_a = _blend_channel(src_a, dst_a, src_weight, dst_weight)
+    out_r = _blend_channel(src_r, dst_resolved_r, src_weight, dst_weight)
+    out_g = _blend_channel(src_g, dst_resolved_g, src_weight, dst_weight)
+    out_b = _blend_channel(src_b, dst_resolved_b, src_weight, dst_weight)
+    out_a = _blend_channel(src_a, dst_resolved_a, src_weight, dst_weight)
     if use_coverage_controls and work.alpha_cvg_sel:
         out_a = (resolved_coverage * 255 + 3) // 7
+    if use_coverage_controls and aa_enabled:
+        coverage_alpha = (resolved_coverage * 255 + 3) // 7
+        out_a = (out_a * 3 + coverage_alpha + 2) // 4
+    if pipeline_mode:
+        out_r = mix_channel(out_r, prim_r, 24)
+        out_g = mix_channel(out_g, prim_g, 24)
+        out_b = mix_channel(out_b, prim_b, 24)
+    if use_coverage_controls and not aa_enabled:
+        def quantize_coverage_lane(value: int) -> int:
+            lane = (value * 7 + 127) // 255
+            return (lane * 255 + 3) // 7
+        out_r = quantize_coverage_lane(out_r)
+        out_g = quantize_coverage_lane(out_g)
+        out_b = quantize_coverage_lane(out_b)
 
     color_dither_mode = _decode_color_dither_mode(work)
     alpha_dither_mode = _decode_alpha_dither_mode(work)
@@ -5103,6 +5198,7 @@ def _run_synthetic_phase_pipeline(
         x,
         y,
         blend_params=stage2_blend_params,
+        cycle2_selectors=True,
     )
 
 

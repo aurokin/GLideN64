@@ -72,6 +72,16 @@ inline bool isImageReadEnabled(const rvk2::RenderWorkPacket & _work)
 	return (mode1Word(_work) & (1U << 6U)) != 0U;
 }
 
+inline bool isAAEnabled(const rvk2::RenderWorkPacket & _work)
+{
+	return (mode1Word(_work) & (1U << 3U)) != 0U;
+}
+
+inline bool isPipelineModeEnabled(const rvk2::RenderWorkPacket & _work)
+{
+	return (mode0Word(_work) & (1U << 23U)) != 0U;
+}
+
 inline u8 decodeDepthMode(const rvk2::RenderWorkPacket & _work)
 {
 	return static_cast<u8>((mode1Word(_work) >> 10U) & 0x3U);
@@ -126,6 +136,35 @@ inline u8 decodeColorDitherMode(const rvk2::RenderWorkPacket & _work)
 inline bool isTextureEdgeEnabled(const rvk2::RenderWorkPacket & _work)
 {
 	return (mode1Word(_work) & (1U << 15U)) != 0U;
+}
+
+struct BlendMuxSelectors
+{
+	u8 m1a = 0U;
+	u8 m1b = 0U;
+	u8 m2a = 0U;
+	u8 m2b = 0U;
+};
+
+inline BlendMuxSelectors decodeBlendMuxSelectors(
+	const rvk2::RenderWorkPacket & _work,
+	bool _cycle2Selectors)
+{
+	const u32 mode1 = mode1Word(_work);
+	BlendMuxSelectors selectors{};
+	if (_cycle2Selectors) {
+		selectors.m1a = static_cast<u8>((mode1 >> 28U) & 0x3U);
+		selectors.m1b = static_cast<u8>((mode1 >> 24U) & 0x3U);
+		selectors.m2a = static_cast<u8>((mode1 >> 20U) & 0x3U);
+		selectors.m2b = static_cast<u8>((mode1 >> 16U) & 0x3U);
+	}
+	else {
+		selectors.m1a = static_cast<u8>((mode1 >> 30U) & 0x3U);
+		selectors.m1b = static_cast<u8>((mode1 >> 26U) & 0x3U);
+		selectors.m2a = static_cast<u8>((mode1 >> 22U) & 0x3U);
+		selectors.m2b = static_cast<u8>((mode1 >> 18U) & 0x3U);
+	}
+	return selectors;
 }
 
 inline s64 absS64(s64 _value)
@@ -1047,7 +1086,8 @@ inline u32 applySyntheticBlender(
 	u32 _srcColor,
 	u32 _dstColor,
 	u32 _x,
-	u32 _y)
+	u32 _y,
+	bool _cycle2Selectors = false)
 {
 	ColorRGBA src = unpackRGBA(_srcColor);
 	const ColorRGBA dst = unpackRGBA(_dstColor);
@@ -1082,6 +1122,90 @@ inline u32 applySyntheticBlender(
 	src.g = mixChannel(src.g, fogState.g, fogMix);
 	src.b = mixChannel(src.b, fogState.b, fogMix);
 
+	const bool pipelineMode = isPipelineModeEnabled(_work);
+	const bool aaEnable = isAAEnabled(_work);
+	const BlendMuxSelectors selectors = decodeBlendMuxSelectors(
+		_work,
+		_cycle2Selectors && _work.phase == static_cast<u8>(rvk2::RenderPhase::kCycle2));
+	const auto selectColorSource = [pipelineMode](
+		u8 _selector,
+		u8 _src,
+		u8 _dst,
+		u8 _blend,
+		u8 _fog,
+		u8 _prim) -> u8 {
+		switch (_selector & 0x3U) {
+		case 0U:
+			return _src;
+		case 1U:
+			return _dst;
+		case 2U:
+			return _blend;
+		default:
+			return pipelineMode ? _prim : _fog;
+		}
+	};
+	const auto selectAlphaSource = [pipelineMode](
+		u8 _selector,
+		u8 _srcA,
+		u8 _dstA,
+		u8 _blendA,
+		u8 _fogA,
+		u8 _primA) -> u8 {
+		switch (_selector & 0x3U) {
+		case 0U:
+			return _srcA;
+		case 1U:
+			return _dstA;
+		case 2U:
+			return _blendA;
+		default:
+			return pipelineMode ? _primA : _fogA;
+		}
+	};
+	const auto mixQuarter = [](u8 _base, u8 _injected) -> u8 {
+		return static_cast<u8>(
+			(static_cast<u32>(_base) * 3U + static_cast<u32>(_injected) + 2U) / 4U);
+	};
+	const ColorRGBA srcSelectorColor{
+		selectColorSource(selectors.m1b, src.r, dst.r, blendState.r, fogState.r, primState.r),
+		selectColorSource(selectors.m1b, src.g, dst.g, blendState.g, fogState.g, primState.g),
+		selectColorSource(selectors.m1b, src.b, dst.b, blendState.b, fogState.b, primState.b),
+		selectColorSource(selectors.m1b, src.a, dst.a, blendState.a, fogState.a, primState.a)
+	};
+	const ColorRGBA dstSelectorColor{
+		selectColorSource(selectors.m2b, src.r, dst.r, blendState.r, fogState.r, primState.r),
+		selectColorSource(selectors.m2b, src.g, dst.g, blendState.g, fogState.g, primState.g),
+		selectColorSource(selectors.m2b, src.b, dst.b, blendState.b, fogState.b, primState.b),
+		selectColorSource(selectors.m2b, src.a, dst.a, blendState.a, fogState.a, primState.a)
+	};
+	const u8 srcSelectorAlpha = selectAlphaSource(
+		selectors.m1a,
+		src.a,
+		dst.a,
+		blendState.a,
+		fogState.a,
+		primState.a);
+	const u8 dstSelectorAlpha = selectAlphaSource(
+		selectors.m2a,
+		src.a,
+		dst.a,
+		blendState.a,
+		fogState.a,
+		primState.a);
+	src.r = mixQuarter(src.r, srcSelectorColor.r);
+	src.g = mixQuarter(src.g, srcSelectorColor.g);
+	src.b = mixQuarter(src.b, srcSelectorColor.b);
+	src.a = mixQuarter(src.a, srcSelectorAlpha);
+	ColorRGBA dstResolved{
+		mixQuarter(dst.r, dstSelectorColor.r),
+		mixQuarter(dst.g, dstSelectorColor.g),
+		mixQuarter(dst.b, dstSelectorColor.b),
+		mixQuarter(dst.a, dstSelectorAlpha)
+	};
+	srcWeight += static_cast<u32>(srcSelectorAlpha >> 4U);
+	dstWeight += static_cast<u32>(dstSelectorAlpha >> 4U);
+
 	const bool useCoverageControls =
 		_work.colorOnCvg
 		|| _work.cvgXAlpha
@@ -1090,7 +1214,7 @@ inline u32 applySyntheticBlender(
 		|| _work.cvgDest != 0U
 		|| _work.blendMask != 0U;
 	const SyntheticCoverageSample coverage = useCoverageControls
-		? evaluateSyntheticCoverage(_work, src.a, dst.a, _x, _y)
+		? evaluateSyntheticCoverage(_work, src.a, dstResolved.a, _x, _y)
 		: SyntheticCoverageSample{};
 	if (useCoverageControls && _work.cvgXAlpha) {
 		const u32 coverageAlphaScale =
@@ -1107,8 +1231,14 @@ inline u32 applySyntheticBlender(
 	dstWeight = (dstWeight * (256U - srcAlpha) + 127U) / 256U;
 
 	if (useCoverageControls) {
-		srcWeight += static_cast<u32>(coverage.resolved) * 16U;
-		dstWeight += static_cast<u32>(7U - coverage.resolved) * 8U;
+		const u32 srcCoverageScale = aaEnable ? 20U : 12U;
+		const u32 dstCoverageScale = aaEnable ? 12U : 6U;
+		srcWeight += static_cast<u32>(coverage.resolved) * srcCoverageScale;
+		dstWeight += static_cast<u32>(7U - coverage.resolved) * dstCoverageScale;
+		if (pipelineMode) {
+			srcWeight += static_cast<u32>(coverage.input) * 2U;
+			dstWeight += static_cast<u32>(coverage.destination);
+		}
 		srcWeight += static_cast<u32>(_work.blendMask & 0x3U);
 		dstWeight += static_cast<u32>((_work.blendMask >> 2U) & 0x3U);
 		if (_work.forceBlender) {
@@ -1126,12 +1256,32 @@ inline u32 applySyntheticBlender(
 		srcWeight = 1U;
 
 	ColorRGBA out{};
-	out.r = blendChannel(src.r, dst.r, srcWeight, dstWeight);
-	out.g = blendChannel(src.g, dst.g, srcWeight, dstWeight);
-	out.b = blendChannel(src.b, dst.b, srcWeight, dstWeight);
-	out.a = blendChannel(src.a, dst.a, srcWeight, dstWeight);
+	out.r = blendChannel(src.r, dstResolved.r, srcWeight, dstWeight);
+	out.g = blendChannel(src.g, dstResolved.g, srcWeight, dstWeight);
+	out.b = blendChannel(src.b, dstResolved.b, srcWeight, dstWeight);
+	out.a = blendChannel(src.a, dstResolved.a, srcWeight, dstWeight);
 	if (useCoverageControls && _work.alphaCvgSel)
 		out.a = static_cast<u8>((static_cast<u32>(coverage.resolved) * 255U + 3U) / 7U);
+	if (useCoverageControls && aaEnable) {
+		const u8 coverageAlpha = static_cast<u8>(
+			(static_cast<u32>(coverage.resolved) * 255U + 3U) / 7U);
+		out.a = static_cast<u8>(
+			(static_cast<u32>(out.a) * 3U + static_cast<u32>(coverageAlpha) + 2U) / 4U);
+	}
+	if (pipelineMode) {
+		out.r = mixChannel(out.r, primState.r, 24U);
+		out.g = mixChannel(out.g, primState.g, 24U);
+		out.b = mixChannel(out.b, primState.b, 24U);
+	}
+	if (useCoverageControls && !aaEnable) {
+		const auto quantizeCoverageLane = [](u8 _value) -> u8 {
+			const u32 lane = (static_cast<u32>(_value) * 7U + 127U) / 255U;
+			return static_cast<u8>((lane * 255U + 3U) / 7U);
+		};
+		out.r = quantizeCoverageLane(out.r);
+		out.g = quantizeCoverageLane(out.g);
+		out.b = quantizeCoverageLane(out.b);
+	}
 
 	const u8 colorDitherMode = decodeColorDitherMode(_work);
 	const u8 alphaDitherMode = decodeAlphaDitherMode(_work);
@@ -1177,7 +1327,7 @@ inline u32 applySyntheticBlender(
 	u32 _x,
 	u32 _y)
 {
-	return applySyntheticBlender(_work, _work.blendParams, _srcColor, _dstColor, _x, _y);
+	return applySyntheticBlender(_work, _work.blendParams, _srcColor, _dstColor, _x, _y, false);
 }
 
 inline bool passesSyntheticAlphaCompare(
@@ -1486,7 +1636,14 @@ inline u32 runSyntheticPhasePipeline(
 		cycle1Color,
 		_x,
 		_y);
-	return applySyntheticBlender(_work, stage2BlendParams, stage2CombinedColor, cycle1Color, _x, _y);
+	return applySyntheticBlender(
+		_work,
+		stage2BlendParams,
+		stage2CombinedColor,
+		cycle1Color,
+		_x,
+		_y,
+		true);
 }
 
 inline bool phaseUsesDepth(u8 _phase)

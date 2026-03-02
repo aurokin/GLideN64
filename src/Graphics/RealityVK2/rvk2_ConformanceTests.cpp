@@ -1728,6 +1728,180 @@ void testTextureExtendedModeConformance()
 		"texture lut transition should alter present hash");
 }
 
+void testBlendMuxSelectorConformance()
+{
+	rvk2::Executor executor;
+	rvk2::RenderWorkPacket background = makeFillWork(190ULL, 0x00B41000U, 0x304050FFU);
+	background.rectLRX = 5U;
+	background.rectLRY = 3U;
+
+	rvk2::RenderWorkPacket base = makeTexRectWork(false);
+	base.sourcePacketId = 191ULL;
+	base.colorImageAddress = background.colorImageAddress;
+	base.colorImageWidth = 8U;
+	base.rectULX = 0U;
+	base.rectULY = 0U;
+	base.rectLRX = 5U;
+	base.rectLRY = 3U;
+	base.otherModes = 0ULL;
+	base.otherModes |= (1ULL << 6U);  // imageRead
+	base.otherModes |= (1ULL << 14U); // forceBlender
+	base.otherModes |= (1ULL << 22U); // c1_m2a = 1
+	base.otherModes |= (1ULL << 18U); // c1_m2b = 1
+	base.blendParams = 0x00A04020U;
+	base.keyState = 0x0102030405060708ULL;
+	base.convertState = 0x1112131415161718ULL;
+
+	rvk2::RenderWorkPacket selectorVariant = base;
+	selectorVariant.sourcePacketId = 192ULL;
+	selectorVariant.otherModes &= ~(
+		(0x3ULL << 30U)
+		| (0x3ULL << 26U)
+		| (0x3ULL << 22U)
+		| (0x3ULL << 18U));
+	selectorVariant.otherModes |= (1ULL << 30U);
+	selectorVariant.otherModes |= (2ULL << 26U);
+	selectorVariant.otherModes |= (2ULL << 22U);
+	selectorVariant.otherModes |= (3ULL << 18U);
+
+	const std::vector<rvk2::SubmissionBatchPacket> twoWorkBatches{makeBatchForWorkCount(2U)};
+	const rvk2::ExecutorOutput baseOut = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, base},
+		twoWorkBatches);
+	const rvk2::ExecutorOutput selectorOut = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, selectorVariant},
+		twoWorkBatches);
+
+	expectTrue(
+		baseOut.summary.colorWriteCount > 0ULL,
+		"blend mux selector baseline should write pixels");
+	expectEq(
+		selectorOut.summary.colorWriteCount,
+		baseOut.summary.colorWriteCount,
+		"blend mux selector transition should preserve write coverage");
+	expectTrue(
+		selectorOut.summary.presentHash != baseOut.summary.presentHash,
+		"blend mux selector transition should alter present hash");
+	expectTrue(
+		!presentFramesEqual(selectorOut, baseOut),
+		"blend mux selector transition should alter presented pixels");
+
+	rvk2::RenderWorkPacket cycle2Base = base;
+	cycle2Base.sourcePacketId = 193ULL;
+	cycle2Base.phase = static_cast<u8>(rvk2::RenderPhase::kCycle2);
+	cycle2Base.otherModes &= ~(
+		(0x3ULL << 28U)
+		| (0x3ULL << 24U)
+		| (0x3ULL << 20U)
+		| (0x3ULL << 16U));
+	cycle2Base.otherModes |= (1ULL << 28U);
+	cycle2Base.otherModes |= (1ULL << 20U);
+
+	rvk2::RenderWorkPacket cycle2Variant = cycle2Base;
+	cycle2Variant.sourcePacketId = 194ULL;
+	cycle2Variant.otherModes &= ~(
+		(0x3ULL << 28U)
+		| (0x3ULL << 24U)
+		| (0x3ULL << 20U)
+		| (0x3ULL << 16U));
+	cycle2Variant.otherModes |= (2ULL << 28U);
+	cycle2Variant.otherModes |= (3ULL << 24U);
+	cycle2Variant.otherModes |= (2ULL << 20U);
+	cycle2Variant.otherModes |= (3ULL << 16U);
+
+	const rvk2::ExecutorOutput cycle2BaseOut = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, cycle2Base},
+		twoWorkBatches);
+	const rvk2::ExecutorOutput cycle2VariantOut = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, cycle2Variant},
+		twoWorkBatches);
+	expectEq(
+		cycle2VariantOut.summary.colorWriteCount,
+		cycle2BaseOut.summary.colorWriteCount,
+		"cycle2 blend mux transition should preserve write coverage");
+	expectTrue(
+		cycle2VariantOut.summary.presentHash != cycle2BaseOut.summary.presentHash,
+		"cycle2 blend mux transition should alter present hash");
+}
+
+void testAAPipelineModeConformance()
+{
+	rvk2::Executor executor;
+	rvk2::RenderWorkPacket background = makeFillWork(195ULL, 0x00B42000U, 0x506070FFU);
+	background.rectLRX = 5U;
+	background.rectLRY = 3U;
+
+	rvk2::RenderWorkPacket base = makeTexRectWork(false);
+	base.sourcePacketId = 196ULL;
+	base.colorImageAddress = background.colorImageAddress;
+	base.colorImageWidth = 8U;
+	base.rectULX = 0U;
+	base.rectULY = 0U;
+	base.rectLRX = 5U;
+	base.rectLRY = 3U;
+	base.otherModes = (1ULL << 6U);
+	base.blendParams = 0x80C06040U;
+	base.colorOnCvg = true;
+	base.cvgXAlpha = true;
+	base.alphaCvgSel = true;
+	base.forceBlender = true;
+	base.cvgDest = 1U;
+	base.blendMask = 0x3U;
+	base.keyState = 0x8899AABBCCDDEEFFULL;
+	base.convertState = 0x1021324354657687ULL;
+
+	rvk2::RenderWorkPacket aaVariant = base;
+	aaVariant.sourcePacketId = 197ULL;
+	aaVariant.otherModes |= (1ULL << 3U);
+
+	rvk2::RenderWorkPacket pipelineVariant = base;
+	pipelineVariant.sourcePacketId = 198ULL;
+	pipelineVariant.otherModes |= (1ULL << (32U + 23U));
+
+	rvk2::RenderWorkPacket aaPipelineVariant = pipelineVariant;
+	aaPipelineVariant.sourcePacketId = 199ULL;
+	aaPipelineVariant.otherModes |= (1ULL << 3U);
+
+	const std::vector<rvk2::SubmissionBatchPacket> twoWorkBatches{makeBatchForWorkCount(2U)};
+	const rvk2::ExecutorOutput baseOut = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, base},
+		twoWorkBatches);
+	const rvk2::ExecutorOutput aaOut = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, aaVariant},
+		twoWorkBatches);
+	const rvk2::ExecutorOutput pipelineOut = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, pipelineVariant},
+		twoWorkBatches);
+	const rvk2::ExecutorOutput aaPipelineOut = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, aaPipelineVariant},
+		twoWorkBatches);
+
+	expectTrue(
+		baseOut.summary.colorWriteCount > 0ULL,
+		"AA/pipeline conformance baseline should write pixels");
+	expectEq(
+		aaOut.summary.colorWriteCount,
+		baseOut.summary.colorWriteCount,
+		"AA enable transition should preserve write coverage");
+	expectEq(
+		pipelineOut.summary.colorWriteCount,
+		baseOut.summary.colorWriteCount,
+		"pipeline mode transition should preserve write coverage");
+	expectEq(
+		aaPipelineOut.summary.colorWriteCount,
+		baseOut.summary.colorWriteCount,
+		"AA+pipeline transition should preserve write coverage");
+	expectTrue(
+		aaOut.summary.presentHash != baseOut.summary.presentHash,
+		"AA enable transition should alter present hash");
+	expectTrue(
+		pipelineOut.summary.presentHash != baseOut.summary.presentHash,
+		"pipeline mode transition should alter present hash");
+	expectTrue(
+		aaPipelineOut.summary.presentHash != aaOut.summary.presentHash,
+		"AA+pipeline transition should alter present hash beyond AA-only path");
+}
+
 void testVIDFieldInterlaceConformance()
 {
 	const u32 colorAddress = 0x00B50000U;
@@ -2036,6 +2210,8 @@ int main()
 	testTextureFilterConformance();
 	testCombinerKeyConvertConformance();
 	testTextureExtendedModeConformance();
+	testBlendMuxSelectorConformance();
+	testAAPipelineModeConformance();
 	testVIDFieldInterlaceConformance();
 	testVIFilterModeConformance();
 	testVIFailSafeConformance();
