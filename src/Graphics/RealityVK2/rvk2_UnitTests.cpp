@@ -370,10 +370,10 @@ void testRDPStateTransitions()
 	setScissor.w0 = (0x2DU << 24) | (0x123U << 12) | 0x456U;
 	setScissor.w1 = (0x789U << 12) | 0xABCU;
 	engine.apply(setScissor);
-	expectEq(engine.snapshot().scissorXH, static_cast<u16>(0x123U), "SetScissor XH mismatch");
-	expectEq(engine.snapshot().scissorYH, static_cast<u16>(0x456U), "SetScissor YH mismatch");
-	expectEq(engine.snapshot().scissorXL, static_cast<u16>(0x789U), "SetScissor XL mismatch");
-	expectEq(engine.snapshot().scissorYL, static_cast<u16>(0xABCU), "SetScissor YL mismatch");
+	expectEq(engine.snapshot().scissorXH, static_cast<u16>(0x123U >> 2U), "SetScissor XH mismatch");
+	expectEq(engine.snapshot().scissorYH, static_cast<u16>(0x456U >> 2U), "SetScissor YH mismatch");
+	expectEq(engine.snapshot().scissorXL, static_cast<u16>(0x789U >> 2U), "SetScissor XL mismatch");
+	expectEq(engine.snapshot().scissorYL, static_cast<u16>(0xABCU >> 2U), "SetScissor YL mismatch");
 
 	rvk2::CommandPacket setColor{};
 	setColor.id = 4ULL;
@@ -845,9 +845,9 @@ void testRuntimeDrawSemanticCapture()
 	expectTrue(!fill.depthTest, "Draw semantic fill should not be depth-tested");
 	expectEq(fill.syncEpoch, 1U, "Draw semantic fill sync epoch mismatch");
 	expectEq(fill.rectULX, static_cast<u16>(0U), "Draw semantic fill ULX mismatch");
-	expectEq(fill.rectULY, static_cast<u16>(0x22U), "Draw semantic fill ULY mismatch");
+	expectEq(fill.rectULY, static_cast<u16>(0x22U >> 2U), "Draw semantic fill ULY mismatch");
 	expectEq(fill.rectLRX, static_cast<u16>(0U), "Draw semantic fill LRX mismatch");
-	expectEq(fill.rectLRY, static_cast<u16>(0x11U), "Draw semantic fill LRY mismatch");
+	expectEq(fill.rectLRY, static_cast<u16>(0x11U >> 2U), "Draw semantic fill LRY mismatch");
 
 	const std::vector<rvk2::RasterOpPacket> & rasterOps = runtime.rasterOps();
 	expectEq(rasterOps.size(), static_cast<size_t>(2U), "Runtime raster op capture count mismatch");
@@ -1143,10 +1143,10 @@ void testTexRectSemanticExtraction()
 	expectEq(texrect.sourceOpcode, static_cast<u8>(0x24U), "TexRect semantic opcode mismatch");
 	expectEq(texrect.tile, static_cast<u8>(4U), "TexRect semantic tile mismatch");
 	expectTrue(!texrect.texRectFlip, "TexRect semantic flip mismatch");
-	expectEq(texrect.rectULX, static_cast<u16>(0x080U), "TexRect semantic ULX mismatch");
-	expectEq(texrect.rectULY, static_cast<u16>(0x0A0U), "TexRect semantic ULY mismatch");
-	expectEq(texrect.rectLRX, static_cast<u16>(0x120U), "TexRect semantic LRX mismatch");
-	expectEq(texrect.rectLRY, static_cast<u16>(0x140U), "TexRect semantic LRY mismatch");
+	expectEq(texrect.rectULX, static_cast<u16>(0x080U >> 2U), "TexRect semantic ULX mismatch");
+	expectEq(texrect.rectULY, static_cast<u16>(0x0A0U >> 2U), "TexRect semantic ULY mismatch");
+	expectEq(texrect.rectLRX, static_cast<u16>(0x120U >> 2U), "TexRect semantic LRX mismatch");
+	expectEq(texrect.rectLRY, static_cast<u16>(0x140U >> 2U), "TexRect semantic LRY mismatch");
 	expectEq(texrect.texS, static_cast<s16>(0x1234), "TexRect semantic S mismatch");
 	expectEq(texrect.texT, static_cast<s16>(0x5678), "TexRect semantic T mismatch");
 	expectEq(texrect.texDSDX, static_cast<s16>(0xFF10), "TexRect semantic DSDX mismatch");

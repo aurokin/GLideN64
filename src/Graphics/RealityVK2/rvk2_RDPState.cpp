@@ -182,10 +182,11 @@ void RDPStateEngine::applySetCombineMode(const CommandPacket & _packet)
 void RDPStateEngine::applySetScissor(const CommandPacket & _packet)
 {
 	m_snapshot.scissorMode = static_cast<u8>(bitRange(_packet.w1, 24, 2));
-	m_snapshot.scissorXH = static_cast<u16>(bitRange(_packet.w0, 12, 12));
-	m_snapshot.scissorYH = static_cast<u16>(bitRange(_packet.w0, 0, 12));
-	m_snapshot.scissorXL = static_cast<u16>(bitRange(_packet.w1, 12, 12));
-	m_snapshot.scissorYL = static_cast<u16>(bitRange(_packet.w1, 0, 12));
+	// Scissor edges are encoded in 10.2 fixed-point pixel units.
+	m_snapshot.scissorXH = static_cast<u16>(bitRange(_packet.w0, 12, 12) >> 2U);
+	m_snapshot.scissorYH = static_cast<u16>(bitRange(_packet.w0, 0, 12) >> 2U);
+	m_snapshot.scissorXL = static_cast<u16>(bitRange(_packet.w1, 12, 12) >> 2U);
+	m_snapshot.scissorYL = static_cast<u16>(bitRange(_packet.w1, 0, 12) >> 2U);
 	m_snapshot.changedMask |= rdp_state_changed::kScissor;
 }
 

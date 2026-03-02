@@ -25,32 +25,32 @@ Accuracy-first. RVK2-only path. No legacy renderer fallback.
 10. Hidden coverage bit-plane is now persisted per surface and consumed by blender memory-coverage alpha paths.
 11. TEXEL1 now samples secondary tile descriptors (tile+1) for combiner inputs; cycle2 hazard override remains next-pixel TEX0.
 
-## Remaining Work Map (15%)
+## Remaining Work Map (9%)
 
-1. `P5` cycle semantics closure (combiner/blender/coverage/depth): **3%**
-2. `P3` authoritative TMEM path closure (especially 32b): **5%**
-3. `P4` raster/coefficient edge behavior: **4%**
-4. `P2` present-source determinism polish: **2%**
-5. `P6` VI finishing polish: **1%**
+1. `P5` cycle semantics closure (combiner/blender/coverage/depth): **2%**
+2. `P3` authoritative TMEM path closure (especially 32b): **3%**
+3. `P4` raster/coefficient edge behavior: **2%**
+4. `P2` present-source determinism polish: **1.5%**
+5. `P6` VI finishing polish: **0.5%**
 
 ## Latest Batch (2026-03-02)
 
-1. Completed hidden-coverage propagation through rect+triangle write paths:
-   - per-pixel hidden coverage now persists across resizes and feeds coverage-memory alpha behavior.
-2. Added secondary-tile TEXEL1 sampling path:
-   - combiner TEXEL1 input now samples tile+1 descriptors instead of aliasing TEXEL0.
-   - cycle2 keeps next-pixel TEX0 hazard override for TEXEL1 when cycle2 selectors are active.
-3. Tightened RDRAM texel row-stride selection:
-   - when tile/block/tlut load context is active and tile line is valid, RDRAM sampling now prefers tile-line stride over texture-image width stride.
-4. Added conformance coverage for cycle1 TEXEL1 secondary-tile behavior.
-5. Corrected copy/fill coverage semantics in synthetic write logic:
-   - copy/fill coverage now resolves to full coverage (`7`) and clears hidden coverage carry-through.
-6. Added conformance coverage for fill-seeded memory-coverage behavior in subsequent image-read blends.
-7. Kept local gate green after this batch.
-8. Re-validated 2-cycle blender hazards against n64brew command notes:
-   - retained previous-pixel memory color/coverage behavior for cycle1 of 2-cycle mode.
-9. Implemented second-cycle shade-alpha next-pixel hazard in synthetic blender path.
-10. Added conformance coverage for cycle2 shade-alpha next-pixel behavior and kept gate green.
+1. Fixed first-cycle combiner `COMBINED` feedback hazard behavior:
+   - first-cycle combiner now carries previous-pixel combined color feedback.
+   - cycle2 alpha-compare next-pixel combiner lookahead now seeds from first-cycle combined feedback.
+2. Added conformance coverage for cycle1 `COMBINED` feedback hazard behavior.
+3. Corrected `color_on_cvg` blender semantics to n64brew behavior:
+   - on coverage overflow, bypass blend and take framebuffer memory color.
+4. Added conformance coverage for `color_on_cvg` overflow bypass.
+5. Corrected rectangle/scissor decode to pixel-space coordinates:
+   - `SetScissor` and `TexRect/FillRect` edges now decode from 10.2 fixed-point into integer pixels.
+6. Updated unit tests and trace-replay script (`scripts/rvk2_packet_trace_replay.py`) to stay schema-v1-consistent with the new decode semantics.
+7. Fresh parity run with fresh trace+forensics now shows clear signal jump:
+   - non-black candidate capture (reference remains black in this scenario),
+   - render-work rect bounds collapse to framebuffer scale (`max_lrx`: fill=319, texrect=307, tri=320),
+   - selected present surface width now near VI width (`321` vs prior `~1041`),
+   - VI source/output luminance and non-black sample counts increased substantially.
+8. Local gate remains green (release+debug unit+conformance).
 
 ## What Deep-Dive Changed In Our Plan
 

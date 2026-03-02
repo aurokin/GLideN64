@@ -2485,9 +2485,16 @@ inline u32 applySyntheticBlender(
 	}
 	ColorRGBA out = p;
 	const bool blendEnabled = _work.forceBlender || aaEnable;
+	const bool colorOnCvgMemoryBypass = _work.colorOnCvg && coverage.overflow;
 	if (_summary != nullptr && blendEnabled)
 		++_summary->blenderEnabledOpCount;
-	if (blendEnabled) {
+	if (colorOnCvgMemoryBypass) {
+		// color_on_cvg overflow bypass uses framebuffer memory color directly.
+		out.r = memory.r;
+		out.g = memory.g;
+		out.b = memory.b;
+	}
+	else if (blendEnabled) {
 		const u32 a5 = static_cast<u32>(alphaA >> 3U);
 		const u32 b5 = static_cast<u32>(alphaB >> 3U);
 		const bool useDivide = aaEnable && !_work.forceBlender;
@@ -2510,12 +2517,6 @@ inline u32 applySyntheticBlender(
 		out.r = blendChannelResolved(p.r, m.r);
 		out.g = blendChannelResolved(p.g, m.g);
 		out.b = blendChannelResolved(p.b, m.b);
-	}
-	if (_work.colorOnCvg && !coverage.overflow) {
-		// color_on_cvg path: when coverage did not overflow, select blender 2B input directly.
-		out.r = m.r;
-		out.g = m.g;
-		out.b = m.b;
 	}
 	out.a = src.a;
 
@@ -2905,6 +2906,8 @@ inline u32 runSyntheticPhasePipeline(
 	u32 _shadeColor,
 	u32 _shadeColorNext,
 	u32 _baseColor,
+	u32 _cycle1CombinedFeedbackColor,
+	bool _hasCycle1CombinedFeedback,
 	u32 _dstColor,
 	u8 _dstCoverage,
 	bool _dstHiddenCoverage,
@@ -2916,11 +2919,14 @@ inline u32 runSyntheticPhasePipeline(
 	u8 * _coverageDestination = nullptr,
 	u32 * _combinerOutputColor = nullptr,
 	u32 * _blenderOutputColor = nullptr,
+	u32 * _cycle1CombinedColor = nullptr,
 	rvk2::ExecutorSummary * _summary = nullptr)
 {
 	u32 finalColor = _baseColor;
 	u32 combinerColor = _baseColor;
 	u32 blenderColor = _baseColor;
+	u32 cycle1CombinedColor =
+		_hasCycle1CombinedFeedback ? _cycle1CombinedFeedbackColor : _baseColor;
 	const u8 shadeAlpha = static_cast<u8>(_shadeColor & 0xFFU);
 	const u8 shadeAlphaNext = static_cast<u8>(_shadeColorNext & 0xFFU);
 	u8 coverageDestination = static_cast<u8>(std::min<u32>(7U, static_cast<u32>(_dstCoverage & 0x7U)));
@@ -2930,26 +2936,29 @@ inline u32 runSyntheticPhasePipeline(
 		finalColor = _work.textured ? _texel0Color : _baseColor;
 		combinerColor = finalColor;
 		blenderColor = finalColor;
+		cycle1CombinedColor = finalColor;
 	}
 	else if (phase == static_cast<u8>(rvk2::RenderPhase::kFill)) {
 		coverageDestination = 7U;
 		finalColor = _baseColor;
 		combinerColor = finalColor;
 		blenderColor = finalColor;
+		cycle1CombinedColor = finalColor;
 	}
 	else if (phase != static_cast<u8>(rvk2::RenderPhase::kCycle2)) {
-		combinerColor = applySyntheticCombiner(
+		cycle1CombinedColor = applySyntheticCombiner(
 			_work,
 			_texel0Color,
 			_texel1Color,
 			_texel0NextColor,
 			_shadeColor,
-			_baseColor,
+			cycle1CombinedColor,
 			_dstColor,
 			_x,
 			_y,
 			false,
 			_summary);
+		combinerColor = cycle1CombinedColor;
 		blenderColor = applySyntheticBlender(
 			_work,
 			combinerColor,
@@ -2966,13 +2975,13 @@ inline u32 runSyntheticPhasePipeline(
 		finalColor = blenderColor;
 	}
 	else {
-		const u32 cycle1CombinedColor = applySyntheticCombiner(
+		cycle1CombinedColor = applySyntheticCombiner(
 			_work,
 			_texel0Color,
 			_texel1Color,
 			_texel0NextColor,
 			_shadeColor,
-			_baseColor,
+			cycle1CombinedColor,
 			_dstColor,
 			_x,
 			_y,
@@ -3025,6 +3034,8 @@ inline u32 runSyntheticPhasePipeline(
 		*_combinerOutputColor = combinerColor;
 	if (_blenderOutputColor != nullptr)
 		*_blenderOutputColor = blenderColor;
+	if (_cycle1CombinedColor != nullptr)
+		*_cycle1CombinedColor = cycle1CombinedColor;
 	return finalColor;
 }
 
@@ -3114,6 +3125,8 @@ void writeRect(
 		u32 prevMemoryColorForCycle2 = 0U;
 		u8 prevMemoryCoverageForCycle2 = 7U;
 		bool prevMemoryHiddenCoverageForCycle2 = false;
+		bool hasPrevCycle1CombinedColor = false;
+		u32 prevCycle1CombinedColor = 0U;
 		for (u32 x = bounds.x0; x <= bounds.x1; ++x) {
 			const size_t colorIdx = pixelIndex(_surface.width, static_cast<u16>(x), static_cast<u16>(y));
 			const u32 dstColor = _surface.pixels[colorIdx];
@@ -3132,6 +3145,7 @@ void writeRect(
 			u32 texel0NextColor = 0U;
 			u32 combinerColor = 0U;
 			u32 blenderColor = 0U;
+			u32 cycle1CombinedColor = 0U;
 			u32 finalColor = 0U;
 			u32 textureSourceBits = 0U;
 			u32 cycle2Cycle1DstColor = pipelineDstColor;
@@ -3149,6 +3163,7 @@ void writeRect(
 				texel0NextColor = finalColor;
 				combinerColor = finalColor;
 				blenderColor = finalColor;
+				cycle1CombinedColor = finalColor;
 			}
 			else {
 				textureColor = pseudoTexelForSlot(_work, x, y, false, &textureSourceBits);
@@ -3167,6 +3182,8 @@ void writeRect(
 					0xFFFFFFFFU,
 					0xFFFFFFFFU,
 					textureColor,
+					prevCycle1CombinedColor,
+					hasPrevCycle1CombinedColor,
 					pipelineDstColor,
 					pipelineDstCoverage,
 					pipelineDstHiddenCoverage,
@@ -3178,12 +3195,15 @@ void writeRect(
 					&coverageDestination,
 					&combinerColor,
 					&blenderColor,
+					&cycle1CombinedColor,
 					&_summary);
 			}
 			prevMemoryColorForCycle2 = pipelineDstColor;
 			prevMemoryCoverageForCycle2 = pipelineDstCoverage;
 			prevMemoryHiddenCoverageForCycle2 = pipelineDstHiddenCoverage;
 			hasPrevPixelForCycle2 = true;
+			prevCycle1CombinedColor = cycle1CombinedColor;
+			hasPrevCycle1CombinedColor = true;
 			u32 alphaCompareColor = finalColor;
 			if (cycle2Work
 				&& (_work.alphaCompare & 0x1U) != 0U
@@ -3204,7 +3224,7 @@ void writeRect(
 					nextTexel1Color,
 					nextTexel0Color,
 					0xFFFFFFFFU,
-					nextTexel0Color,
+					cycle1CombinedColor,
 					nextPipelineDstColor,
 					nextX,
 					y,
@@ -3351,6 +3371,8 @@ void writeTriangle(
 		u32 prevMemoryColorForCycle2 = 0U;
 		u8 prevMemoryCoverageForCycle2 = 7U;
 		bool prevMemoryHiddenCoverageForCycle2 = false;
+		bool hasPrevCycle1CombinedColor = false;
+		u32 prevCycle1CombinedColor = 0U;
 		const double py = static_cast<double>(y) + 0.5;
 		for (u32 x = bounds.x0; x <= bounds.x1; ++x) {
 			const double px = static_cast<double>(x) + 0.5;
@@ -3392,6 +3414,7 @@ void writeTriangle(
 			const u32 baseColor = chooseTriangleBaseColor(_work, textureColor, shadeColor);
 			u32 combinerColor = 0U;
 			u32 blenderColor = 0U;
+			u32 cycle1CombinedColor = 0U;
 			u32 cycle2Cycle1DstColor = pipelineDstColor;
 			u8 cycle2Cycle1DstCoverage = pipelineDstCoverage;
 			bool cycle2Cycle1DstHiddenCoverage = pipelineDstHiddenCoverage;
@@ -3408,6 +3431,8 @@ void writeTriangle(
 				shadeColor,
 				shadeColorNext,
 				baseColor,
+				prevCycle1CombinedColor,
+				hasPrevCycle1CombinedColor,
 				pipelineDstColor,
 				pipelineDstCoverage,
 				pipelineDstHiddenCoverage,
@@ -3419,11 +3444,14 @@ void writeTriangle(
 				&coverageDestination,
 				&combinerColor,
 				&blenderColor,
+				&cycle1CombinedColor,
 				&_summary);
 			prevMemoryColorForCycle2 = pipelineDstColor;
 			prevMemoryCoverageForCycle2 = pipelineDstCoverage;
 			prevMemoryHiddenCoverageForCycle2 = pipelineDstHiddenCoverage;
 			hasPrevPixelForCycle2 = true;
+			prevCycle1CombinedColor = cycle1CombinedColor;
+			hasPrevCycle1CombinedColor = true;
 			u32 alphaCompareColor = finalColor;
 			if (cycle2Work
 				&& (_work.alphaCompare & 0x1U) != 0U
@@ -3438,14 +3466,13 @@ void writeTriangle(
 				const u32 nextTexel0Color = chooseTriangleTextureSourceColor(_work, nextX, y, false, nullptr);
 				const u32 nextTexel1Color = chooseTriangleTextureSourceColor(_work, nextX, y, true, nullptr);
 				const u32 nextShadeColor = chooseTriangleShadeSourceColor(_work, nextX, y);
-				const u32 nextBaseColor = chooseTriangleBaseColor(_work, nextTexel0Color, nextShadeColor);
 				alphaCompareColor = applySyntheticCombiner(
 					_work,
 					nextTexel0Color,
 					nextTexel1Color,
 					nextTexel0Color,
 					nextShadeColor,
-					nextBaseColor,
+					cycle1CombinedColor,
 					nextPipelineDstColor,
 					nextX,
 					y,

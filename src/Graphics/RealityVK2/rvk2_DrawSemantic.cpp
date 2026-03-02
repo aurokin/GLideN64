@@ -230,10 +230,11 @@ DrawSemanticPacket buildDrawSemanticPacket(
 		semantic.drawType = 3U;
 
 	if (semantic.drawType == 2U || semantic.drawType == 3U) {
-		semantic.rectULX = static_cast<u16>(bitRange(_packet.w1, 12, 12));
-		semantic.rectULY = static_cast<u16>(bitRange(_packet.w1, 0, 12));
-		semantic.rectLRX = static_cast<u16>(bitRange(_packet.w0, 12, 12));
-		semantic.rectLRY = static_cast<u16>(bitRange(_packet.w0, 0, 12));
+		// Rectangle edges are encoded in 10.2 fixed-point pixel units.
+		semantic.rectULX = static_cast<u16>(bitRange(_packet.w1, 12, 12) >> 2U);
+		semantic.rectULY = static_cast<u16>(bitRange(_packet.w1, 0, 12) >> 2U);
+		semantic.rectLRX = static_cast<u16>(bitRange(_packet.w0, 12, 12) >> 2U);
+		semantic.rectLRY = static_cast<u16>(bitRange(_packet.w0, 0, 12) >> 2U);
 	}
 
 	if (semantic.drawType == 2U) {

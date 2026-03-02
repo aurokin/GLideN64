@@ -1005,6 +1005,56 @@ void testCoverageModeFlagConformance()
 		"coverage mode flags should alter blended output hash");
 }
 
+void testColorOnCvgOverflowBypassConformance()
+{
+	rvk2::Executor executor;
+	rvk2::RenderWorkPacket background = makeFillWork(115ULL, 0x00B32000U, 0x405080FFU);
+	background.rectLRX = 5U;
+	background.rectLRY = 3U;
+
+	rvk2::RenderWorkPacket overlay = makeTexRectWork(false);
+	overlay.sourcePacketId = 116ULL;
+	overlay.colorImageAddress = background.colorImageAddress;
+	overlay.colorImageWidth = 8U;
+	overlay.rectULX = 0U;
+	overlay.rectULY = 0U;
+	overlay.rectLRX = 5U;
+	overlay.rectLRY = 3U;
+	overlay.phase = static_cast<u8>(rvk2::RenderPhase::kCycle1);
+	overlay.cycleType = 0U;
+	overlay.otherModes = (1ULL << 6U) | (1ULL << 14U); // imageRead + forceBlender
+	overlay.blendParams = 0U;
+	overlay.cvgDest = 0U;
+	overlay.colorOnCvg = true;
+
+	rvk2::RenderWorkPacket overlayNoColorOnCvg = overlay;
+	overlayNoColorOnCvg.sourcePacketId = 117ULL;
+	overlayNoColorOnCvg.colorOnCvg = false;
+
+	const std::vector<rvk2::SubmissionBatchPacket> oneWorkBatch{makeBatchForWorkCount(1U)};
+	const std::vector<rvk2::SubmissionBatchPacket> twoWorkBatch{makeBatchForWorkCount(2U)};
+	const rvk2::ExecutorOutput backgroundOut =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{background}, oneWorkBatch);
+	const rvk2::ExecutorOutput blendedOut = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, overlayNoColorOnCvg},
+		twoWorkBatch);
+	const rvk2::ExecutorOutput colorOnCvgOut = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, overlay},
+		twoWorkBatch);
+
+	expectTrue(
+		blendedOut.summary.presentHash != backgroundOut.summary.presentHash,
+		"baseline blend pass should modify background when color_on_cvg is disabled");
+	expectEq(
+		colorOnCvgOut.summary.presentHash,
+		backgroundOut.summary.presentHash,
+		"color_on_cvg overflow path should preserve framebuffer memory color");
+	expectEq(
+		colorOnCvgOut.summary.colorWriteCount,
+		blendedOut.summary.colorWriteCount,
+		"color_on_cvg overflow path should keep draw write coverage unchanged");
+}
+
 void testCycle2CoverageDestinationConformance()
 {
 	rvk2::Executor executor;
@@ -1752,6 +1802,59 @@ void testCycle2ShadeAlphaNextPixelHazardConformance()
 	expectTrue(
 		hazardOut.presentFrame.pixels[0] == hazardOut.presentFrame.pixels[1],
 		"cycle2 shade-alpha hazard should read next-pixel shade alpha in second blender cycle");
+}
+
+void testCycle1CombinedFeedbackHazardConformance()
+{
+	rvk2::Executor executor;
+	rvk2::RenderWorkPacket work = makeTexRectWork(false);
+	work.sourcePacketId = 522ULL;
+	work.colorImageAddress = 0x00B4C000U;
+	work.colorImageWidth = 8U;
+	work.rectULX = 0U;
+	work.rectULY = 0U;
+	work.rectLRX = 7U;
+	work.rectLRY = 0U;
+	work.phase = static_cast<u8>(rvk2::RenderPhase::kCycle1);
+	work.cycleType = 0U;
+	work.otherModes = 0ULL;
+
+	// Cycle1 combiner equation: output D only.
+	// Hazard variant: D=COMBINED (undefined first-cycle feedback path).
+	rvk2::RenderWorkPacket combinedHazard = work;
+	combinedHazard.combineMux = 0ULL;
+	// Direct variant: D=TEX0 (no feedback dependency).
+	rvk2::RenderWorkPacket texelDirect = work;
+	constexpr u64 kCycle1ColorDMask = 0x7ULL << 15U;
+	constexpr u64 kCycle1AlphaDMask = 0x7ULL << 9U;
+	texelDirect.combineMux &= ~(kCycle1ColorDMask | kCycle1AlphaDMask);
+	texelDirect.combineMux |= (1ULL << 15U); // color D = TEX0
+	texelDirect.combineMux |= (1ULL << 9U);  // alpha D = TEX0
+
+	const std::vector<rvk2::SubmissionBatchPacket> oneWorkBatch{makeBatchForWorkCount(1U)};
+	const rvk2::ExecutorOutput hazardOut = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{combinedHazard},
+		oneWorkBatch);
+	const rvk2::ExecutorOutput directOut = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{texelDirect},
+		oneWorkBatch);
+
+	expectTrue(
+		hazardOut.summary.colorWriteCount > 0ULL,
+		"cycle1 combined-feedback hazard baseline should write pixels");
+	expectEq(
+		hazardOut.summary.colorWriteCount,
+		directOut.summary.colorWriteCount,
+		"cycle1 combined-feedback transition should preserve write coverage");
+	expectTrue(
+		hazardOut.summary.presentHash != directOut.summary.presentHash,
+		"cycle1 combined-feedback transition should alter present hash");
+	expectTrue(
+		hazardOut.presentFrame.pixels.size() >= 2U && directOut.presentFrame.pixels.size() >= 2U,
+		"cycle1 combined-feedback scene should produce at least two present pixels");
+	expectTrue(
+		hazardOut.presentFrame.pixels[0] == hazardOut.presentFrame.pixels[1],
+		"cycle1 combined-feedback hazard should read previous pixel combined output");
 }
 
 void testCycle1Texel1SecondaryTileConformance()
@@ -3268,6 +3371,7 @@ int main()
 	testDepthSurfaceAliasIsolationConformance();
 	testCoverageBlendFlagConformance();
 	testCoverageModeFlagConformance();
+	testColorOnCvgOverflowBypassConformance();
 	testCycle2CoverageDestinationConformance();
 	testAlphaCompareConformance();
 	testMixedStateBatchSegmentationConformance();
@@ -3280,6 +3384,7 @@ int main()
 	testCycle2CombinerSelectorIsolationConformance();
 	testCycle2TexelNextPixelHazardConformance();
 	testCycle2ShadeAlphaNextPixelHazardConformance();
+	testCycle1CombinedFeedbackHazardConformance();
 	testCycle1Texel1SecondaryTileConformance();
 	testTMEM32AuthoritativePathConformance();
 	testFillPhaseIgnoresBlendCombinerConformance();

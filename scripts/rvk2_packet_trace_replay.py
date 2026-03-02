@@ -1784,10 +1784,11 @@ def _apply_rdp_packet(snapshot: RDPStateSnapshot, packet: PacketRecord) -> None:
         snapshot.changed_mask |= RDP_STATE_CHANGED_COMBINE
     elif packet.opcode == CMD_SET_SCISSOR:
         snapshot.scissor_mode = _bit_range(packet.w1, 24, 2)
-        snapshot.scissor_xh = _bit_range(packet.w0, 12, 12)
-        snapshot.scissor_yh = _bit_range(packet.w0, 0, 12)
-        snapshot.scissor_xl = _bit_range(packet.w1, 12, 12)
-        snapshot.scissor_yl = _bit_range(packet.w1, 0, 12)
+        # Scissor edges are encoded as 10.2 fixed-point pixel coordinates.
+        snapshot.scissor_xh = _bit_range(packet.w0, 12, 12) >> 2
+        snapshot.scissor_yh = _bit_range(packet.w0, 0, 12) >> 2
+        snapshot.scissor_xl = _bit_range(packet.w1, 12, 12) >> 2
+        snapshot.scissor_yl = _bit_range(packet.w1, 0, 12) >> 2
         snapshot.changed_mask |= RDP_STATE_CHANGED_SCISSOR
     elif packet.opcode == CMD_SET_FILL_COLOR:
         snapshot.fill_color = packet.w1
@@ -2268,10 +2269,11 @@ def _build_draw_semantic(
         draw_type = 3
 
     if draw_type in (2, 3):
-        rect_ulx = _bit_range(packet.w1, 12, 12)
-        rect_uly = _bit_range(packet.w1, 0, 12)
-        rect_lrx = _bit_range(packet.w0, 12, 12)
-        rect_lry = _bit_range(packet.w0, 0, 12)
+        # Rectangle edges are encoded as 10.2 fixed-point pixel coordinates.
+        rect_ulx = _bit_range(packet.w1, 12, 12) >> 2
+        rect_uly = _bit_range(packet.w1, 0, 12) >> 2
+        rect_lrx = _bit_range(packet.w0, 12, 12) >> 2
+        rect_lry = _bit_range(packet.w0, 0, 12) >> 2
 
     payload_count = _packet_payload_count(packet)
 
