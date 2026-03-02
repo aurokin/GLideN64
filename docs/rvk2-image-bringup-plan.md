@@ -177,6 +177,10 @@ Implication:
 - TMEM path is now handling a substantial share of active texel traffic without changing current parity metrics.
 - Next P3 closure item is 32b TMEM texel addressing semantics; all non-32b active texel formats are now covered by TMEM decode.
 - Experimental 32b TMEM decode path exists behind `REALITYVK_RVK2_EXPERIMENTAL_TMEM32=1` and is currently disabled by default due black-frame regression.
+- New compare instrumentation (`REALITYVK_RVK2_DEBUG_TMEM32_COMPARE=1`) shows 32b TMEM decode diverges almost everywhere in the current prototype:
+  - `tmem32_cmp=382934760`
+  - `tmem32_mismatch=379622596`
+  - mismatch rate `~0.991351`
 
 ## Update Log
 
@@ -194,3 +198,4 @@ Implication:
 | 2026-03-02 | Replaced synthetic LUT approximation with real TMEM TLUT palette decode (P3/P5 in progress). | CI/TLUT sampling now uses palette entries from TMEM for decode; forensics now reports `tx_lut` and keeps texel source usage split via `tx_tmem`/`tx_rdram` counters. |
 | 2026-03-02 | Expanded TMEM texel decode to CI + IA/I + RGBA16 (P3 in progress). | TMEM now services a large share of active texel reads while preserving current parity metrics; remaining TMEM misses are dominated by 32b-sized texels. |
 | 2026-03-02 | Added TMEM decision diagnostics and gated experimental 32b TMEM decode behind opt-in env flag. | Forensics now reports TMEM attempt/reject classes; `REALITYVK_RVK2_EXPERIMENTAL_TMEM32=1` can be used for targeted 32b debugging without destabilizing default runs. |
+| 2026-03-02 | Added opt-in 32b TMEM compare instrumentation against stable RDRAM path. | `REALITYVK_RVK2_DEBUG_TMEM32_COMPARE=1` now reports 32b compare volume and mismatch counts, providing direct data for 32b addressing correction work. |

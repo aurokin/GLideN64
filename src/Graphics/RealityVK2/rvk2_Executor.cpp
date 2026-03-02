@@ -94,6 +94,12 @@ bool experimentalTMEM32Enabled()
 	return enabled;
 }
 
+bool tmem32CompareEnabled()
+{
+	static const bool enabled = envStringIsTrue(std::getenv("REALITYVK_RVK2_DEBUG_TMEM32_COMPARE"));
+	return enabled;
+}
+
 inline bool parseUnsignedToken(const std::string & _token, u64 & _out)
 {
 	const std::string token = trimAsciiWhitespace(_token);
@@ -906,7 +912,8 @@ inline bool sampleCITextureFromTMEM(
 	s32 _t,
 	u32 & _outRgba,
 	bool & _outNeedsLUT,
-	u8 & _outRejectReason)
+	u8 & _outRejectReason,
+	bool _allow32b)
 {
 	_outRejectReason = 0U;
 	const u8 format = (_work.tileFormat & 0x7U) <= 4U
@@ -1020,7 +1027,7 @@ inline bool sampleCITextureFromTMEM(
 	}
 
 	case 3U: { // 32b
-		if (!experimentalTMEM32Enabled()) {
+		if (!_allow32b) {
 			_outRejectReason = 2U;
 			return false;
 		}
@@ -1130,9 +1137,58 @@ inline u32 samplePseudoTexelColor(
 	u32 sampledColor = 0U;
 	bool needsLUT = false;
 	u8 tmemReject = 0U;
+
+	if (tmem32CompareEnabled() && ((_work.tileSize & 0x3U) == 3U)) {
+		u32 tmemColor = 0U;
+		bool tmemNeedsLUT = false;
+		u8 tmemCompareReject = 0U;
+		u32 rdramColorForCompare = 0U;
+		bool rdramNeedsLUTForCompare = false;
+		const bool tmemOk = sampleCITextureFromTMEM(
+			_work,
+			_s,
+			_t,
+			tmemColor,
+			tmemNeedsLUT,
+			tmemCompareReject,
+			true);
+		const bool rdramOk =
+			sampleTextureFromRdram(
+				_work,
+				_s,
+				_t,
+				rdramColorForCompare,
+				rdramNeedsLUTForCompare);
+		if (gActiveExecutorSummary != nullptr) {
+			++gActiveExecutorSummary->textureTmem32CompareCount;
+			if (!tmemOk || !rdramOk) {
+				++gActiveExecutorSummary->textureTmem32CompareMismatchCount;
+			}
+			else {
+				u32 tmemResolved = tmemColor;
+				u32 rdramResolved = rdramColorForCompare;
+				if (tmemNeedsLUT)
+					tmemResolved = applyTextureLUTModeColor(_work, seed, tmemResolved);
+				if (rdramNeedsLUTForCompare)
+					rdramResolved = applyTextureLUTModeColor(_work, seed, rdramResolved);
+				tmemResolved = applyTextureDetailModeColor(_work, seed, tmemResolved);
+				rdramResolved = applyTextureDetailModeColor(_work, seed, rdramResolved);
+				if (tmemResolved != rdramResolved)
+					++gActiveExecutorSummary->textureTmem32CompareMismatchCount;
+			}
+		}
+	}
+
 	if (gActiveExecutorSummary != nullptr)
 		++gActiveExecutorSummary->textureTmemAttemptCount;
-	if (sampleCITextureFromTMEM(_work, _s, _t, sampledColor, needsLUT, tmemReject)) {
+	if (sampleCITextureFromTMEM(
+			_work,
+			_s,
+			_t,
+			sampledColor,
+			needsLUT,
+			tmemReject,
+			experimentalTMEM32Enabled())) {
 		if (gActiveExecutorSummary != nullptr) {
 			++gActiveExecutorSummary->textureTmemSampleCount;
 			if (needsLUT)

@@ -96,6 +96,8 @@ struct ExecutorSummary {
 	u64 textureTmemRejectFormatCount = 0ULL;
 	u64 textureTmemRejectSizeCount = 0ULL;
 	u64 textureTmemRejectCoordCount = 0ULL;
+	u64 textureTmem32CompareCount = 0ULL;
+	u64 textureTmem32CompareMismatchCount = 0ULL;
 	u64 textureRdramSampleCount = 0ULL;
 	u64 textureSyntheticSampleCount = 0ULL;
 	u64 textureLUTSampleCount = 0ULL;
