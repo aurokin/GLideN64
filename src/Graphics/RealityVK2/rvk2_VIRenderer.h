@@ -6,6 +6,15 @@
 
 namespace rvk2 {
 
+enum VIRejectReason : u8
+{
+	kVIRejectNone = 0U,
+	kVIRejectMissingSource = 1U,
+	kVIRejectSourcePixelCount = 2U,
+	kVIRejectInvalidRegisterState = 3U,
+	kVIRejectInvalidResolvedOutput = 4U,
+};
+
 struct VIRendererConfig {
 	u8 aspectX = 4U;
 	u8 aspectY = 3U;
@@ -43,6 +52,15 @@ struct VIFrameSummary {
 	u32 contentY = 0U;
 	u32 contentWidth = 0U;
 	u32 contentHeight = 0U;
+	u32 resolvedSourceWidth = 0U;
+	u32 resolvedSourceHeight = 0U;
+	u32 resolvedOutputWidth = 0U;
+	u32 resolvedOutputHeight = 0U;
+	u32 resolvedLineStride = 0U;
+	u8 resolvedType = 0U;
+	u8 rejectReason = kVIRejectNone;
+	u8 usesRegisters = 0U;
+	u8 reserved0 = 0U;
 	u8 aspectX = 4U;
 	u8 aspectY = 3U;
 };

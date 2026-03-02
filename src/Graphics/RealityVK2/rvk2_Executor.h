@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <string>
 #include <vector>
 
@@ -7,6 +8,18 @@
 #include "rvk2_TextureReplacement.h"
 
 namespace rvk2 {
+
+constexpr u32 kExecutorDebugSurfaceSlots = 4U;
+
+enum ExecutorPresentSelectionReason : u8
+{
+	kExecutorPresentSelectionNone = 0U,
+	kExecutorPresentSelectionLastSurface = 1U,
+	kExecutorPresentSelectionVIOriginExact = 2U,
+	kExecutorPresentSelectionVIOriginRange = 3U,
+	kExecutorPresentSelectionMostWrittenFallback = 4U,
+	kExecutorPresentSelectionNoSurface = 5U,
+};
 
 struct ExecutorConfig {
 	u16 maxSurfaceWidth = 2048U;
@@ -39,6 +52,26 @@ struct ExecutorSummary {
 	u64 executedBatchCount = 0ULL;
 	u64 colorWriteCount = 0ULL;
 	u64 surfaceCount = 0ULL;
+	u8 viRegistersValid = 0U;
+	u8 viOriginMatchedSurface = 0U;
+	u8 presentSelectionReason = kExecutorPresentSelectionNone;
+	u8 viRejectReason = 0U;
+	u32 viOriginAddress = 0U;
+	u32 selectedPresentSurfaceAddress = 0U;
+	u64 selectedPresentSurfaceWriteCount = 0ULL;
+	u64 selectedPresentSurfaceWorkCount = 0ULL;
+	u32 viResolvedSourceWidth = 0U;
+	u32 viResolvedSourceHeight = 0U;
+	u32 viResolvedOutputWidth = 0U;
+	u32 viResolvedOutputHeight = 0U;
+	u32 viResolvedLineStride = 0U;
+	u8 viResolvedType = 0U;
+	u8 viResolvedUsesRegisters = 0U;
+	u8 debugSurfaceSlotCount = 0U;
+	u8 reserved0 = 0U;
+	std::array<u32, kExecutorDebugSurfaceSlots> debugSurfaceAddress{};
+	std::array<u64, kExecutorDebugSurfaceSlots> debugSurfaceWriteCount{};
+	std::array<u64, kExecutorDebugSurfaceSlots> debugSurfaceWorkCount{};
 	bool textureReplacementEnabled = false;
 	u64 textureReplacementEntryCount = 0ULL;
 	u64 textureReplacementPixelCount = 0ULL;

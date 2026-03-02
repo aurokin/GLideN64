@@ -43,6 +43,7 @@ struct VIResolvedState
 	u32 xStep = 1024U;
 	u32 yStep = 1024U;
 	u32 pixelAdvance = 0U;
+	u8 rejectReason = rvk2::kVIRejectNone;
 };
 
 inline u32 clampU32(u32 _value, u32 _minimum, u32 _maximum)
@@ -337,6 +338,7 @@ VIResolvedState resolveVIState(
 	if ((_input.registers.status & kVIStatusTypeMask) == 0U) {
 		state.outputWidth = 0U;
 		state.outputHeight = 0U;
+		state.rejectReason = rvk2::kVIRejectInvalidRegisterState;
 		return state;
 	}
 
@@ -345,6 +347,7 @@ VIResolvedState resolveVIState(
 	if (state.viType != kVIType16Bpp && state.viType != kVIType32Bpp) {
 		state.outputWidth = 0U;
 		state.outputHeight = 0U;
+		state.rejectReason = rvk2::kVIRejectInvalidRegisterState;
 		return state;
 	}
 	state.deditherEnabled = (_input.registers.status & kVIStatusDeditherEnabled) != 0U;
@@ -359,11 +362,13 @@ VIResolvedState resolveVIState(
 	if (viWidth == 0U) {
 		state.outputWidth = 0U;
 		state.outputHeight = 0U;
+		state.rejectReason = rvk2::kVIRejectInvalidRegisterState;
 		return state;
 	}
 	if (!isValidLineStrideForType(state.viType, viWidth)) {
 		state.outputWidth = 0U;
 		state.outputHeight = 0U;
+		state.rejectReason = rvk2::kVIRejectInvalidRegisterState;
 		return state;
 	}
 	state.sourceLineStride = viWidth != 0U ? viWidth : static_cast<u32>(state.sourceWidth);
@@ -383,6 +388,7 @@ VIResolvedState resolveVIState(
 	if (derivedOutputWidth == 0U || derivedOutputHeight == 0U) {
 		state.outputWidth = 0U;
 		state.outputHeight = 0U;
+		state.rejectReason = rvk2::kVIRejectInvalidRegisterState;
 		return state;
 	}
 
@@ -442,17 +448,31 @@ VIFrameSummary VIRenderer::present(
 		|| _input.sourceHeight == 0U
 		|| _input.sourcePixels == nullptr
 		|| _input.sourcePixels->empty()) {
+		summary.rejectReason = kVIRejectMissingSource;
 		return summary;
 	}
 
 	const size_t requiredPixels =
 		static_cast<size_t>(_input.sourceWidth) * static_cast<size_t>(_input.sourceHeight);
-	if (_input.sourcePixels->size() < requiredPixels)
+	if (_input.sourcePixels->size() < requiredPixels) {
+		summary.rejectReason = kVIRejectSourcePixelCount;
 		return summary;
+	}
 
 	const VIResolvedState viState = resolveVIState(_input, m_config);
-	if (viState.outputWidth == 0U || viState.outputHeight == 0U)
+	summary.usesRegisters = viState.useRegisters ? 1U : 0U;
+	summary.resolvedType = viState.viType;
+	summary.resolvedSourceWidth = viState.sourceWidth;
+	summary.resolvedSourceHeight = viState.sourceHeight;
+	summary.resolvedOutputWidth = viState.outputWidth;
+	summary.resolvedOutputHeight = viState.outputHeight;
+	summary.resolvedLineStride = viState.sourceLineStride;
+	summary.rejectReason = viState.rejectReason;
+	if (viState.outputWidth == 0U || viState.outputHeight == 0U) {
+		if (summary.rejectReason == kVIRejectNone)
+			summary.rejectReason = kVIRejectInvalidResolvedOutput;
 		return summary;
+	}
 
 	u32 outputWidth = viState.outputWidth;
 	u32 outputHeight = viState.outputHeight;

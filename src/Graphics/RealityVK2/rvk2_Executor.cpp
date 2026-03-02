@@ -831,11 +831,14 @@ inline u32 bitsPerPixelFromSurfaceSize(u8 _size)
 bool chooseSurfaceForVIOrigin(
 	const std::unordered_map<u32, ColorSurface> & _surfaces,
 	u32 _viOriginAddress,
-	u32 & _outSurfaceAddress)
+	u32 & _outSurfaceAddress,
+	bool & _outExactMatch)
 {
+	_outExactMatch = false;
 	const auto exact = _surfaces.find(_viOriginAddress);
 	if (exact != _surfaces.end()) {
 		_outSurfaceAddress = _viOriginAddress;
+		_outExactMatch = true;
 		return true;
 	}
 
@@ -858,6 +861,43 @@ bool chooseSurfaceForVIOrigin(
 			found = true;
 			bestDelta = delta;
 			bestAddress = surfaceAddress;
+		}
+	}
+
+	if (!found)
+		return false;
+	_outSurfaceAddress = bestAddress;
+	return true;
+}
+
+bool chooseMostWrittenSurfaceAddress(
+	const std::unordered_map<u32, ColorSurface> & _surfaces,
+	const std::unordered_map<u32, u64> & _surfaceWrites,
+	const std::unordered_map<u32, u64> & _surfaceWorks,
+	u32 & _outSurfaceAddress)
+{
+	if (_surfaces.empty())
+		return false;
+
+	u32 bestAddress = 0U;
+	u64 bestWrites = 0ULL;
+	u64 bestWorks = 0ULL;
+	bool found = false;
+
+	for (const auto & entry : _surfaces) {
+		const u32 address = entry.first;
+		const auto writeIt = _surfaceWrites.find(address);
+		const auto workIt = _surfaceWorks.find(address);
+		const u64 writes = writeIt != _surfaceWrites.end() ? writeIt->second : 0ULL;
+		const u64 works = workIt != _surfaceWorks.end() ? workIt->second : 0ULL;
+		if (!found
+			|| writes > bestWrites
+			|| (writes == bestWrites && works > bestWorks)
+			|| (writes == bestWrites && works == bestWorks && address < bestAddress)) {
+			found = true;
+			bestAddress = address;
+			bestWrites = writes;
+			bestWorks = works;
 		}
 	}
 
@@ -2485,6 +2525,8 @@ ExecutorOutput Executor::executeWithOutput(
 	ExecutorSummary & summary = output.summary;
 	summary.presentAspectX = m_config.presentAspectX;
 	summary.presentAspectY = m_config.presentAspectY;
+	summary.viRegistersValid = m_config.viRegistersValid ? 1U : 0U;
+	summary.viOriginAddress = m_config.viOrigin & 0x00FFFFFFU;
 	summary.textureReplacementEnabled = m_config.textureReplacementEnable;
 	summary.textureReplacementEntryCount = static_cast<u64>(m_textureReplacementStore.entryCount());
 	summary.textureReplacementPixelCount = m_textureReplacementStore.totalPixels();
@@ -2500,6 +2542,8 @@ ExecutorOutput Executor::executeWithOutput(
 
 	std::unordered_map<u32, ColorSurface> surfaces;
 	std::unordered_map<u32, DepthSurface> depthSurfaces;
+	std::unordered_map<u32, u64> surfaceColorWrites;
+	std::unordered_map<u32, u64> surfaceWorkCounts;
 	u32 lastSurfaceAddress = 0U;
 
 	for (const SubmissionBatchPacket & batch : _batches) {
@@ -2517,6 +2561,7 @@ ExecutorOutput Executor::executeWithOutput(
 				&& work.opKind != static_cast<u8>(RasterOpKind::kTexRect)
 				&& work.opKind != static_cast<u8>(RasterOpKind::kTriangle))
 				continue;
+			++surfaceWorkCounts[work.colorImageAddress];
 
 			ColorSurface & surface = surfaces[work.colorImageAddress];
 			surface.format = work.colorImageFormat;
@@ -2528,6 +2573,7 @@ ExecutorOutput Executor::executeWithOutput(
 			if (surface.pixels.empty())
 				surface.pixels.resize(static_cast<size_t>(surface.width) * static_cast<size_t>(surface.height), 0U);
 
+			const u64 writesBefore = summary.colorWriteCount;
 			if (work.opKind == static_cast<u8>(RasterOpKind::kTriangle)) {
 				DepthSurface * depthSurface = nullptr;
 				if (phaseUsesDepth(work.phase) && work.depthTest && work.triangleZBufferEnable) {
@@ -2550,22 +2596,91 @@ ExecutorOutput Executor::executeWithOutput(
 			}
 			else
 				writeRect(surface, work, m_config, summary);
+			const u64 writesAfter = summary.colorWriteCount;
+			if (writesAfter > writesBefore)
+				surfaceColorWrites[work.colorImageAddress] += (writesAfter - writesBefore);
 			lastSurfaceAddress = work.colorImageAddress;
 		}
 	}
 
 	summary.surfaceCount = static_cast<u64>(surfaces.size());
+	struct SurfaceRank
+	{
+		u32 address = 0U;
+		u64 writes = 0ULL;
+		u64 works = 0ULL;
+	};
+	std::vector<SurfaceRank> rankedSurfaces;
+	rankedSurfaces.reserve(surfaces.size());
+	for (const auto & entry : surfaces) {
+		const u32 address = entry.first;
+		const auto writeIt = surfaceColorWrites.find(address);
+		const auto workIt = surfaceWorkCounts.find(address);
+		rankedSurfaces.push_back(SurfaceRank{
+			address,
+			writeIt != surfaceColorWrites.end() ? writeIt->second : 0ULL,
+			workIt != surfaceWorkCounts.end() ? workIt->second : 0ULL
+		});
+	}
+	std::sort(
+		rankedSurfaces.begin(),
+		rankedSurfaces.end(),
+		[](const SurfaceRank & _a, const SurfaceRank & _b) {
+			if (_a.writes != _b.writes)
+				return _a.writes > _b.writes;
+			if (_a.works != _b.works)
+				return _a.works > _b.works;
+			return _a.address < _b.address;
+		});
+	summary.debugSurfaceSlotCount = static_cast<u8>(
+		std::min<size_t>(rankedSurfaces.size(), static_cast<size_t>(kExecutorDebugSurfaceSlots)));
+	for (u32 i = 0U; i < summary.debugSurfaceSlotCount; ++i) {
+		summary.debugSurfaceAddress[i] = rankedSurfaces[i].address;
+		summary.debugSurfaceWriteCount[i] = rankedSurfaces[i].writes;
+		summary.debugSurfaceWorkCount[i] = rankedSurfaces[i].works;
+	}
+
 	u32 presentSurfaceAddress = lastSurfaceAddress;
+	if (presentSurfaceAddress != 0U && surfaces.find(presentSurfaceAddress) != surfaces.end())
+		summary.presentSelectionReason = kExecutorPresentSelectionLastSurface;
 	bool viOriginMatchedSurface = false;
 	if (m_config.viRegistersValid) {
 		const u32 viOriginAddress = m_config.viOrigin & 0x00FFFFFFU;
 		u32 matchedSurfaceAddress = presentSurfaceAddress;
-		if (chooseSurfaceForVIOrigin(surfaces, viOriginAddress, matchedSurfaceAddress)) {
+		bool exactMatch = false;
+		if (chooseSurfaceForVIOrigin(surfaces, viOriginAddress, matchedSurfaceAddress, exactMatch)) {
 			presentSurfaceAddress = matchedSurfaceAddress;
 			viOriginMatchedSurface = true;
+			summary.presentSelectionReason =
+				exactMatch
+					? kExecutorPresentSelectionVIOriginExact
+					: kExecutorPresentSelectionVIOriginRange;
 		}
 	}
-	const auto it = surfaces.find(presentSurfaceAddress);
+	summary.viOriginMatchedSurface = viOriginMatchedSurface ? 1U : 0U;
+	auto it = surfaces.find(presentSurfaceAddress);
+	if (it == surfaces.end()) {
+		u32 fallbackAddress = 0U;
+		if (chooseMostWrittenSurfaceAddress(
+				surfaces,
+				surfaceColorWrites,
+				surfaceWorkCounts,
+				fallbackAddress)) {
+			presentSurfaceAddress = fallbackAddress;
+			summary.presentSelectionReason = kExecutorPresentSelectionMostWrittenFallback;
+			it = surfaces.find(presentSurfaceAddress);
+		}
+	}
+	if (it == surfaces.end())
+		summary.presentSelectionReason = kExecutorPresentSelectionNoSurface;
+	summary.selectedPresentSurfaceAddress = presentSurfaceAddress;
+	const auto selectedWriteIt = surfaceColorWrites.find(presentSurfaceAddress);
+	if (selectedWriteIt != surfaceColorWrites.end())
+		summary.selectedPresentSurfaceWriteCount = selectedWriteIt->second;
+	const auto selectedWorkIt = surfaceWorkCounts.find(presentSurfaceAddress);
+	if (selectedWorkIt != surfaceWorkCounts.end())
+		summary.selectedPresentSurfaceWorkCount = selectedWorkIt->second;
+
 	if (it != surfaces.end()) {
 		VIFrameInput presentInput{};
 		presentInput.sourceAddressValid = viOriginMatchedSurface;
@@ -2587,9 +2702,19 @@ ExecutorOutput Executor::executeWithOutput(
 		summary.presentHash = viSummary.presentHash;
 		summary.presentWidth = viSummary.presentWidth;
 		summary.presentHeight = viSummary.presentHeight;
+		summary.viRejectReason = viSummary.rejectReason;
+		summary.viResolvedSourceWidth = viSummary.resolvedSourceWidth;
+		summary.viResolvedSourceHeight = viSummary.resolvedSourceHeight;
+		summary.viResolvedOutputWidth = viSummary.resolvedOutputWidth;
+		summary.viResolvedOutputHeight = viSummary.resolvedOutputHeight;
+		summary.viResolvedLineStride = viSummary.resolvedLineStride;
+		summary.viResolvedType = viSummary.resolvedType;
+		summary.viResolvedUsesRegisters = viSummary.usesRegisters;
 		output.presentFrame.width = viSummary.presentWidth;
 		output.presentFrame.height = viSummary.presentHeight;
 	}
+	else
+		summary.viRejectReason = kVIRejectMissingSource;
 	gActiveExecutorSummary = previousExecutorSummary;
 	gActiveTextureReplacementStore = previousReplacementStore;
 	return output;

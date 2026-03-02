@@ -75,6 +75,58 @@ void writeTextureReplacementSummaryFile(
 	std::fclose(file);
 }
 
+void appendFrameForensicsRecord(const rvk2::ExecutorOutput & _output)
+{
+	const char * path = std::getenv("REALITYVK2_FRAME_FORENSICS_FILE");
+	if (path == nullptr || path[0] == '\0')
+		return;
+
+	std::FILE * file = std::fopen(path, "a");
+	if (file == nullptr)
+		return;
+
+	const rvk2::ExecutorSummary & summary = _output.summary;
+	std::fprintf(
+		file,
+		"frame=%llu\twork=%llu\tbatches=%llu\twrites=%llu\tsurfaces=%llu\tpresent_surface=0x%08X\tpresent_select=%u\tpresent_hash=0x%016llX\tpresent_w=%u\tpresent_h=%u\tvi_valid=%u\tvi_origin=0x%08X\tvi_origin_match=%u\tvi_reject=%u\tvi_type=%u\tvi_use_regs=%u\tvi_src_w=%u\tvi_src_h=%u\tvi_out_w=%u\tvi_out_h=%u\tvi_stride=%u\tselected_surface_writes=%llu\tselected_surface_works=%llu",
+		static_cast<unsigned long long>(rvk2::runtime().commandStream().frameId()),
+		static_cast<unsigned long long>(summary.executedWorkCount),
+		static_cast<unsigned long long>(summary.executedBatchCount),
+		static_cast<unsigned long long>(summary.colorWriteCount),
+		static_cast<unsigned long long>(summary.surfaceCount),
+		summary.selectedPresentSurfaceAddress,
+		static_cast<u32>(summary.presentSelectionReason),
+		static_cast<unsigned long long>(summary.presentHash),
+		summary.presentWidth,
+		summary.presentHeight,
+		static_cast<u32>(summary.viRegistersValid),
+		summary.viOriginAddress,
+		static_cast<u32>(summary.viOriginMatchedSurface),
+		static_cast<u32>(summary.viRejectReason),
+		static_cast<u32>(summary.viResolvedType),
+		static_cast<u32>(summary.viResolvedUsesRegisters),
+		summary.viResolvedSourceWidth,
+		summary.viResolvedSourceHeight,
+		summary.viResolvedOutputWidth,
+		summary.viResolvedOutputHeight,
+		summary.viResolvedLineStride,
+		static_cast<unsigned long long>(summary.selectedPresentSurfaceWriteCount),
+		static_cast<unsigned long long>(summary.selectedPresentSurfaceWorkCount));
+	for (u32 i = 0U; i < summary.debugSurfaceSlotCount; ++i) {
+		std::fprintf(
+			file,
+			"\ts%u_addr=0x%08X\ts%u_writes=%llu\ts%u_works=%llu",
+			i,
+			summary.debugSurfaceAddress[i],
+			i,
+			static_cast<unsigned long long>(summary.debugSurfaceWriteCount[i]),
+			i,
+			static_cast<unsigned long long>(summary.debugSurfaceWorkCount[i]));
+	}
+	std::fprintf(file, "\n");
+	std::fclose(file);
+}
+
 } // namespace
 
 namespace rvk2 {
@@ -344,6 +396,7 @@ bool ContextImpl::present()
 			static_cast<unsigned long long>(output.summary.textureReplacementMissCount));
 	}
 	writeTextureReplacementSummaryFile(config, output.summary);
+	appendFrameForensicsRecord(output);
 	renderPresentedFrame(output);
 	return vulkan::ContextImpl::present();
 }
