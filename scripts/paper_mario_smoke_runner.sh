@@ -20,7 +20,7 @@ LAUNCH_SCRIPT="${RUNTIME_DIR}/launch.sh"
 PLUGIN_DIR="${RUNTIME_DIR}/plugins"
 DEFAULT_PLUGIN="${ROOT_DIR}/build/local-gate/linux-release-cli/plugin/Release/mupen64plus-video-RealityVK.so"
 AGENTCTL_TIMEOUT_SEC="${REALITYVK_SMOKE_AGENTCTL_TIMEOUT_SEC:-30}"
-STEP_CHUNK="${REALITYVK_SMOKE_STEP_CHUNK:-120}"
+STEP_CHUNK="${REALITYVK_SMOKE_STEP_CHUNK:-1}"
 SETTLE_FRAMES_AFTER_LOAD="${REALITYVK_SMOKE_SETTLE_FRAMES_AFTER_LOAD:-1}"
 LAUNCH_QUIET="${REALITYVK_SMOKE_LAUNCH_QUIET:-1}"
 LAUNCH_WITH_PTY="${REALITYVK_SMOKE_LAUNCH_WITH_PTY:-0}"
@@ -246,8 +246,23 @@ step_frames() {
     if (( remaining < step_now )); then
       step_now="${remaining}"
     fi
-    run_agentctl step "${step_now}" >/dev/null
-    remaining="$(( remaining - step_now ))"
+    if run_agentctl step "${step_now}" >/dev/null; then
+      remaining="$(( remaining - step_now ))"
+      continue
+    fi
+
+    if (( step_now > 1 )); then
+      echo "WARN: batched step ${step_now} timed out; switching to single-step recovery." >&2
+      local idx=0
+      while (( idx < step_now )); do
+        run_agentctl step 1 >/dev/null
+        idx="$(( idx + 1 ))"
+      done
+      remaining="$(( remaining - step_now ))"
+      continue
+    fi
+
+    return 1
   done
 }
 
