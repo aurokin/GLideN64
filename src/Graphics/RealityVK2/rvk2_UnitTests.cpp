@@ -2077,6 +2077,91 @@ void testExecutorPreviousSurfaceFallback()
 		"Executor no-work frame should preserve previous present hash");
 }
 
+void testExecutorVIOriginHistorySelectionPreservesReason()
+{
+	auto makeFillWork = [](
+		u64 _packetId,
+		u32 _colorAddress,
+		u32 _fillColor) -> rvk2::RenderWorkPacket {
+		rvk2::RenderWorkPacket work{};
+		work.sourcePacketId = _packetId;
+		work.sourceOpcode = 0x36U;
+		work.opKind = static_cast<u8>(rvk2::RasterOpKind::kFillRect);
+		work.phase = static_cast<u8>(rvk2::RenderPhase::kFill);
+		work.cycleType = 3U;
+		work.rectULX = 0U;
+		work.rectULY = 0U;
+		work.rectLRX = 1U;
+		work.rectLRY = 1U;
+		work.colorImageFormat = 0U;
+		work.colorImageSize = 3U;
+		work.colorImageWidth = 2U;
+		work.colorImageAddress = _colorAddress;
+		work.fillColor = _fillColor;
+		return work;
+	};
+
+	rvk2::SubmissionBatchPacket batch{};
+	batch.batchIndex = 0U;
+	batch.phase = static_cast<u8>(rvk2::RenderPhase::kFill);
+	batch.cycleType = 3U;
+	batch.firstWorkIndex = 0U;
+	batch.lastWorkIndex = 0U;
+	batch.workCount = 1U;
+	const std::vector<rvk2::SubmissionBatchPacket> batches{batch};
+
+	const rvk2::RenderWorkPacket fillA = makeFillWork(1ULL, 0x00100000U, 0xA01020FFU);
+	const rvk2::RenderWorkPacket fillB = makeFillWork(2ULL, 0x00200000U, 0x10A020FFU);
+	const std::vector<rvk2::RenderWorkPacket> firstWorkPackets{fillA};
+	const std::vector<rvk2::RenderWorkPacket> secondWorkPackets{fillB};
+
+	rvk2::ExecutorConfig config{};
+	config.presentAspectX = 1U;
+	config.presentAspectY = 1U;
+	config.viRegistersValid = true;
+	config.viStatus = 3U;
+	config.viOrigin = fillA.colorImageAddress + 4U;
+	config.viWidth = 2U;
+	config.viVSync = 525U;
+	config.viHStart = (0U << 16U) | 2U;
+	config.viVStart = (0U << 16U) | 4U;
+	config.viXScale = 1024U;
+	config.viYScale = 1024U;
+	rvk2::Executor executor(config);
+
+	const rvk2::ExecutorOutput firstOut =
+		executor.executeWithOutput(firstWorkPackets, batches);
+	expectTrue(
+		!firstOut.presentFrame.pixels.empty(),
+		"Executor history-selection setup frame should produce present pixels");
+	expectEq(
+		firstOut.summary.presentSelectionReason,
+		static_cast<u8>(rvk2::kExecutorPresentSelectionVIOriginRange),
+		"Executor setup frame should classify as VI-origin range");
+
+	const rvk2::ExecutorOutput secondOut =
+		executor.executeWithOutput(secondWorkPackets, batches);
+	expectTrue(
+		!secondOut.presentFrame.pixels.empty(),
+		"Executor history-selection frame should produce present pixels");
+	expectEq(
+		secondOut.presentFrame.pixels[0],
+		fillA.fillColor,
+		"Executor should present cached history surface when VI origin points to previous buffer");
+	expectEq(
+		secondOut.summary.selectedPresentSurfaceAddress,
+		fillA.colorImageAddress,
+		"Executor should keep selected address at history-matched surface");
+	expectEq(
+		secondOut.summary.presentSelectionReason,
+		static_cast<u8>(rvk2::kExecutorPresentSelectionVIOriginRange),
+		"Executor should preserve VI-origin range reason for history-selected surface");
+	expectEq(
+		secondOut.summary.viOriginMatchedSurface,
+		static_cast<u8>(1U),
+		"Executor should keep VI-origin match flag for history-selected surface");
+}
+
 void testExecutorTriangleCoefficientConsumption()
 {
 	auto makeCycle2CombinerMux = [](
@@ -3253,6 +3338,7 @@ int main()
 	testExecutorVIOriginPresentationSelection();
 	testExecutorVIOriginWidthPreference();
 	testExecutorPreviousSurfaceFallback();
+	testExecutorVIOriginHistorySelectionPreservesReason();
 	testExecutorTriangleCoefficientConsumption();
 	testSubmissionPlanSplitClassification();
 	testExecutorFrameOutput();

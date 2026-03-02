@@ -25,12 +25,12 @@ Accuracy-first. RVK2-only path. No legacy renderer fallback.
 10. Hidden coverage bit-plane is now persisted per surface and consumed by blender memory-coverage alpha paths.
 11. TEXEL1 now samples secondary tile descriptors (tile+1) for combiner inputs; cycle2 hazard override remains next-pixel TEX0.
 
-## Remaining Work Map (9%)
+## Remaining Work Map (8%)
 
 1. `P5` cycle semantics closure (combiner/blender/coverage/depth): **2%**
 2. `P3` authoritative TMEM path closure (especially 32b): **3%**
-3. `P4` raster/coefficient edge behavior: **2%**
-4. `P2` present-source determinism polish: **1.5%**
+3. `P4` raster/coefficient edge behavior: **1.5%**
+4. `P2` present-source determinism polish: **1%**
 5. `P6` VI finishing polish: **0.5%**
 
 ## Latest Batch (2026-03-02)
@@ -51,6 +51,13 @@ Accuracy-first. RVK2-only path. No legacy renderer fallback.
    - selected present surface width now near VI width (`321` vs prior `~1041`),
    - VI source/output luminance and non-black sample counts increased substantially.
 8. Local gate remains green (release+debug unit+conformance).
+9. Fixed present-selection history handoff consistency:
+   - history-picked VI-origin surfaces no longer get mislabeled as `NoSurface`,
+   - `present_select` distribution in fresh parity now reflects intent (`3=218`, `5=44`, `7=1`; removed prior `4` churn).
+10. Added regression unit test coverage for history-backed VI-origin selection reason preservation.
+11. Corrected tile axis clamp semantics:
+   - tile `ULS/ULT/LRS/LRT` bounds are now applied only when clamp mode is set.
+12. Fresh parity after clamp fix shows a stronger rendered signal jump (rmse `0.188514` vs prior `0.140786` against black reference).
 
 ## What Deep-Dive Changed In Our Plan
 

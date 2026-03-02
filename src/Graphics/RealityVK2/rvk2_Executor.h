@@ -22,6 +22,7 @@ enum ExecutorPresentSelectionReason : u8
 	kExecutorPresentSelectionMostWrittenFallback = 4U,
 	kExecutorPresentSelectionNoSurface = 5U,
 	kExecutorPresentSelectionPreviousSurface = 6U,
+	kExecutorPresentSelectionVIOriginNearest = 7U,
 };
 
 struct ExecutorConfig {

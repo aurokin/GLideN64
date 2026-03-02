@@ -456,9 +456,9 @@ inline s32 applyTileAxisTransform(
 			texel = wrapCoordPositive(texel, period);
 	}
 
-	const s32 loTexel = static_cast<s32>(_lo >> 2U);
-	const s32 hiTexel = static_cast<s32>(_hi >> 2U);
-	if (loTexel != 0 || hiTexel != 0 || clamp) {
+	if (clamp) {
+		const s32 loTexel = static_cast<s32>(_lo >> 2U);
+		const s32 hiTexel = static_cast<s32>(_hi >> 2U);
 		const s32 low = std::min(loTexel, hiTexel);
 		const s32 high = std::max(loTexel, hiTexel);
 		if (texel < low)
@@ -1568,6 +1568,56 @@ bool chooseSurfaceForVIOriginGeneric(
 	return true;
 }
 
+template <typename SurfaceMapT>
+bool chooseNearestSurfaceForVIOriginGeneric(
+	const SurfaceMapT & _surfaces,
+	u32 _viOriginAddress,
+	u32 & _outSurfaceAddress,
+	bool & _outExactMatch,
+	bool _preferSurfaceSize,
+	u8 _preferredSurfaceSize,
+	bool _preferSurfaceWidth,
+	u16 _preferredSurfaceWidth)
+{
+	_outExactMatch = false;
+	u32 bestAddress = 0U;
+	u64 bestDistance = std::numeric_limits<u64>::max();
+	bool bestSizeMatch = false;
+	bool bestWidthMatch = false;
+	bool bestAhead = true;
+	bool found = false;
+	for (const auto & entry : _surfaces) {
+		const u32 surfaceAddress = entry.first;
+		const auto & surface = entry.second;
+		const bool sizeMatch =
+			!_preferSurfaceSize || ((surface.size & 0x3U) == (_preferredSurfaceSize & 0x3U));
+		const bool widthMatch =
+			!_preferSurfaceWidth || surface.width == _preferredSurfaceWidth;
+		const bool exactMatch = surfaceAddress == _viOriginAddress;
+		const bool ahead = surfaceAddress > _viOriginAddress;
+		const u64 distance = ahead
+			? static_cast<u64>(surfaceAddress - _viOriginAddress)
+			: static_cast<u64>(_viOriginAddress - surfaceAddress);
+		if (!found
+			|| (sizeMatch && !bestSizeMatch)
+			|| (sizeMatch == bestSizeMatch && widthMatch && !bestWidthMatch)
+			|| (sizeMatch == bestSizeMatch && widthMatch == bestWidthMatch && !ahead && bestAhead)
+			|| (sizeMatch == bestSizeMatch && widthMatch == bestWidthMatch && ahead == bestAhead && distance < bestDistance)) {
+			found = true;
+			bestAddress = surfaceAddress;
+			bestDistance = distance;
+			bestSizeMatch = sizeMatch;
+			bestWidthMatch = widthMatch;
+			bestAhead = ahead;
+			_outExactMatch = exactMatch;
+		}
+	}
+	if (!found)
+		return false;
+	_outSurfaceAddress = bestAddress;
+	return true;
+}
+
 bool chooseSurfaceForVIOrigin(
 	const std::unordered_map<u32, ColorSurface> & _surfaces,
 	u32 _viOriginAddress,
@@ -1589,6 +1639,27 @@ bool chooseSurfaceForVIOrigin(
 		_preferredSurfaceWidth);
 }
 
+bool chooseNearestSurfaceForVIOrigin(
+	const std::unordered_map<u32, ColorSurface> & _surfaces,
+	u32 _viOriginAddress,
+	u32 & _outSurfaceAddress,
+	bool & _outExactMatch,
+	bool _preferSurfaceSize = false,
+	u8 _preferredSurfaceSize = 0U,
+	bool _preferSurfaceWidth = false,
+	u16 _preferredSurfaceWidth = 0U)
+{
+	return chooseNearestSurfaceForVIOriginGeneric(
+		_surfaces,
+		_viOriginAddress,
+		_outSurfaceAddress,
+		_outExactMatch,
+		_preferSurfaceSize,
+		_preferredSurfaceSize,
+		_preferSurfaceWidth,
+		_preferredSurfaceWidth);
+}
+
 bool chooseHistorySurfaceForVIOrigin(
 	const std::unordered_map<u32, rvk2::ExecutorCachedSurface> & _surfaces,
 	u32 _viOriginAddress,
@@ -1600,6 +1671,27 @@ bool chooseHistorySurfaceForVIOrigin(
 	u16 _preferredSurfaceWidth = 0U)
 {
 	return chooseSurfaceForVIOriginGeneric(
+		_surfaces,
+		_viOriginAddress,
+		_outSurfaceAddress,
+		_outExactMatch,
+		_preferSurfaceSize,
+		_preferredSurfaceSize,
+		_preferSurfaceWidth,
+		_preferredSurfaceWidth);
+}
+
+bool chooseNearestHistorySurfaceForVIOrigin(
+	const std::unordered_map<u32, rvk2::ExecutorCachedSurface> & _surfaces,
+	u32 _viOriginAddress,
+	u32 & _outSurfaceAddress,
+	bool & _outExactMatch,
+	bool _preferSurfaceSize = false,
+	u8 _preferredSurfaceSize = 0U,
+	bool _preferSurfaceWidth = false,
+	u16 _preferredSurfaceWidth = 0U)
+{
+	return chooseNearestSurfaceForVIOriginGeneric(
 		_surfaces,
 		_viOriginAddress,
 		_outSurfaceAddress,
@@ -1726,10 +1818,13 @@ void ensureDepthSurfaceSize(
 }
 
 bool computeWriteBounds(
-	const ColorSurface & _surface,
 	const rvk2::RenderWorkPacket & _work,
+	u16 _clipWidth,
+	u16 _clipHeight,
 	WriteBounds & _bounds)
 {
+	if (_clipWidth == 0U || _clipHeight == 0U)
+		return false;
 	const u32 ulx = std::min<u32>(_work.rectULX, _work.rectLRX);
 	const u32 uly = std::min<u32>(_work.rectULY, _work.rectLRY);
 	const u32 lrx = std::max<u32>(_work.rectULX, _work.rectLRX);
@@ -1762,11 +1857,13 @@ bool computeWriteBounds(
 	const u32 clipY0 = defaultScissor ? uly : scissorY0;
 	const u32 clipX1 = defaultScissor ? lrx : scissorX1;
 	const u32 clipY1 = defaultScissor ? lry : scissorY1;
+	const u32 maxX = static_cast<u32>(_clipWidth - 1U);
+	const u32 maxY = static_cast<u32>(_clipHeight - 1U);
 
 	const u32 writeX0 = std::max<u32>(ulx, clipX0);
 	const u32 writeY0 = std::max<u32>(uly, clipY0);
-	const u32 writeX1 = std::min<u32>(lrx, std::min<u32>(clipX1, _surface.width > 0U ? static_cast<u32>(_surface.width - 1U) : 0U));
-	const u32 writeY1 = std::min<u32>(lry, std::min<u32>(clipY1, _surface.height > 0U ? static_cast<u32>(_surface.height - 1U) : 0U));
+	const u32 writeX1 = std::min<u32>(lrx, std::min<u32>(clipX1, maxX));
+	const u32 writeY1 = std::min<u32>(lry, std::min<u32>(clipY1, maxY));
 	if (writeX1 < writeX0 || writeY1 < writeY0)
 		return false;
 
@@ -3104,19 +3201,12 @@ void writeRect(
 	const bool imageReadEnabledWork = isImageReadEnabled(_work);
 	const bool cycle2Work = _work.phase == static_cast<u8>(rvk2::RenderPhase::kCycle2);
 	const BlendMuxSelectors stageBlendSelectors = decodeBlendMuxSelectors(_work, cycle2Work);
-	const u32 ulx = std::min<u32>(_work.rectULX, _work.rectLRX);
-	const u32 uly = std::min<u32>(_work.rectULY, _work.rectLRY);
-	const u32 lrx = std::max<u32>(_work.rectULX, _work.rectLRX);
-	const u32 lry = std::max<u32>(_work.rectULY, _work.rectLRY);
-	if (lrx < ulx || lry < uly)
-		return;
-
-	const u16 requiredWidth = static_cast<u16>(std::min<u32>(lrx + 1U, _config.maxSurfaceWidth));
-	const u16 requiredHeight = static_cast<u16>(std::min<u32>(lry + 1U, _config.maxSurfaceHeight));
-	ensureSurfaceSize(_surface, requiredWidth, requiredHeight, _config.maxSurfaceWidth, _config.maxSurfaceHeight);
 	WriteBounds bounds{};
-	if (!computeWriteBounds(_surface, _work, bounds))
+	if (!computeWriteBounds(_work, _config.maxSurfaceWidth, _config.maxSurfaceHeight, bounds))
 		return;
+	const u16 requiredWidth = static_cast<u16>(std::min<u32>(bounds.x1 + 1U, _config.maxSurfaceWidth));
+	const u16 requiredHeight = static_cast<u16>(std::min<u32>(bounds.y1 + 1U, _config.maxSurfaceHeight));
+	ensureSurfaceSize(_surface, requiredWidth, requiredHeight, _config.maxSurfaceWidth, _config.maxSurfaceHeight);
 
 	for (u32 y = bounds.y0; y <= bounds.y1; ++y) {
 		if (!passesScissorFieldFilter(_work, y))
@@ -3327,22 +3417,14 @@ void writeTriangle(
 	const bool imageReadEnabledWork = isImageReadEnabled(_work);
 	const bool cycle2Work = _work.phase == static_cast<u8>(rvk2::RenderPhase::kCycle2);
 	const BlendMuxSelectors stageBlendSelectors = decodeBlendMuxSelectors(_work, cycle2Work);
-	const u32 ulx = std::min<u32>(_work.rectULX, _work.rectLRX);
-	const u32 uly = std::min<u32>(_work.rectULY, _work.rectLRY);
-	const u32 lrx = std::max<u32>(_work.rectULX, _work.rectLRX);
-	const u32 lry = std::max<u32>(_work.rectULY, _work.rectLRY);
-	if (lrx < ulx || lry < uly)
+	WriteBounds bounds{};
+	if (!computeWriteBounds(_work, _config.maxSurfaceWidth, _config.maxSurfaceHeight, bounds))
 		return;
-
-	const u16 requiredWidth = static_cast<u16>(std::min<u32>(lrx + 1U, _config.maxSurfaceWidth));
-	const u16 requiredHeight = static_cast<u16>(std::min<u32>(lry + 1U, _config.maxSurfaceHeight));
+	const u16 requiredWidth = static_cast<u16>(std::min<u32>(bounds.x1 + 1U, _config.maxSurfaceWidth));
+	const u16 requiredHeight = static_cast<u16>(std::min<u32>(bounds.y1 + 1U, _config.maxSurfaceHeight));
 	ensureSurfaceSize(_surface, requiredWidth, requiredHeight, _config.maxSurfaceWidth, _config.maxSurfaceHeight);
 	if (_depthSurface != nullptr)
 		ensureDepthSurfaceSize(*_depthSurface, requiredWidth, requiredHeight, _config.maxSurfaceWidth, _config.maxSurfaceHeight);
-
-	WriteBounds bounds{};
-	if (!computeWriteBounds(_surface, _work, bounds))
-		return;
 
 	const double yh = static_cast<double>(_work.triangleYH) * 0.25;
 	const double ym = static_cast<double>(_work.triangleYM) * 0.25;
@@ -3939,16 +4021,64 @@ ExecutorOutput Executor::executeWithOutput(
 					preferSurfaceWidth,
 					preferredSurfaceWidth)) {
 				presentSurfaceAddress = historyMatchedAddress;
+				viOriginMatchedSurface = true;
 				summary.presentSelectionReason =
 					historyExact
 						? kExecutorPresentSelectionVIOriginExact
 						: kExecutorPresentSelectionVIOriginRange;
 			}
+			else {
+				u32 nearestAddress = presentSurfaceAddress;
+				bool nearestExact = false;
+				if (chooseNearestSurfaceForVIOrigin(
+						surfaces,
+						viOriginAddress,
+						nearestAddress,
+						nearestExact,
+						preferSurfaceSize,
+						preferredSurfaceSize,
+						preferSurfaceWidth,
+						preferredSurfaceWidth)) {
+					presentSurfaceAddress = nearestAddress;
+					summary.presentSelectionReason = kExecutorPresentSelectionVIOriginNearest;
+				}
+				else {
+					u32 nearestHistoryAddress = presentSurfaceAddress;
+					if (chooseNearestHistorySurfaceForVIOrigin(
+							m_surfaceHistory,
+							viOriginAddress,
+							nearestHistoryAddress,
+							nearestExact,
+							preferSurfaceSize,
+							preferredSurfaceSize,
+							preferSurfaceWidth,
+							preferredSurfaceWidth)) {
+						presentSurfaceAddress = nearestHistoryAddress;
+						summary.presentSelectionReason = kExecutorPresentSelectionVIOriginNearest;
+					}
+				}
+			}
+		}
+		else {
+			u32 nearestAddress = presentSurfaceAddress;
+			bool nearestExact = false;
+			if (chooseNearestSurfaceForVIOrigin(
+					surfaces,
+					viOriginAddress,
+					nearestAddress,
+					nearestExact,
+					preferSurfaceSize,
+					preferredSurfaceSize,
+					preferSurfaceWidth,
+					preferredSurfaceWidth)) {
+				presentSurfaceAddress = nearestAddress;
+				summary.presentSelectionReason = kExecutorPresentSelectionVIOriginNearest;
+			}
 		}
 	}
 	summary.viOriginMatchedSurface = viOriginMatchedSurface ? 1U : 0U;
 	auto it = surfaces.find(presentSurfaceAddress);
-	if (it == surfaces.end()) {
+	if (it == surfaces.end() && m_surfaceHistory.find(presentSurfaceAddress) == m_surfaceHistory.end()) {
 		u32 fallbackAddress = 0U;
 		if (chooseMostWrittenSurfaceAddress(
 				surfaces,
@@ -3960,7 +4090,8 @@ ExecutorOutput Executor::executeWithOutput(
 			it = surfaces.find(presentSurfaceAddress);
 		}
 	}
-	if (it == surfaces.end())
+	const auto historyIt = m_surfaceHistory.find(presentSurfaceAddress);
+	if (it == surfaces.end() && historyIt == m_surfaceHistory.end())
 		summary.presentSelectionReason = kExecutorPresentSelectionNoSurface;
 	summary.selectedPresentSurfaceAddress = presentSurfaceAddress;
 	const auto selectedWriteIt = surfaceColorWrites.find(presentSurfaceAddress);
@@ -3969,7 +4100,6 @@ ExecutorOutput Executor::executeWithOutput(
 	const auto selectedWorkIt = surfaceWorkCounts.find(presentSurfaceAddress);
 	if (selectedWorkIt != surfaceWorkCounts.end())
 		summary.selectedPresentSurfaceWorkCount = selectedWorkIt->second;
-	const auto historyIt = m_surfaceHistory.find(presentSurfaceAddress);
 	if (summary.selectedPresentSurfaceWriteCount == 0ULL
 		&& historyIt != m_surfaceHistory.end())
 		summary.selectedPresentSurfaceWriteCount = historyIt->second.writeCount;
