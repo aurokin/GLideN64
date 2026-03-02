@@ -561,6 +561,7 @@ if(REALITYVK_BUILD_RVK2_TESTS)
 		Graphics/RealityVK2/rvk2_RasterPipeline.cpp
 		Graphics/RealityVK2/rvk2_RenderPlan.cpp
 		Graphics/RealityVK2/rvk2_SubmissionPlan.cpp
+		Graphics/RealityVK2/rvk2_TextureReplacement.cpp
 		Graphics/RealityVK2/rvk2_VIRenderer.cpp
 	)
 	set_target_properties(rvk2_conformance_tests PROPERTIES

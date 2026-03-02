@@ -1,8 +1,10 @@
 #pragma once
 
+#include <string>
 #include <vector>
 
 #include "rvk2_SubmissionPlan.h"
+#include "rvk2_TextureReplacement.h"
 
 namespace rvk2 {
 
@@ -11,6 +13,8 @@ struct ExecutorConfig {
 	u16 maxSurfaceHeight = 2048U;
 	u8 presentAspectX = 4U;
 	u8 presentAspectY = 3U;
+	bool textureReplacementEnable = false;
+	std::string textureReplacementCachePath{};
 	bool viRegistersValid = false;
 	u32 viStatus = 0U;
 	u32 viOrigin = 0U;
@@ -61,6 +65,10 @@ public:
 
 private:
 	ExecutorConfig m_config;
+	bool m_textureReplacementLoaded = false;
+	TextureReplacementStore m_textureReplacementStore{};
+
+	void ensureTextureReplacementLoaded();
 };
 
 ExecutorConfig loadExecutorConfigFromEnv();

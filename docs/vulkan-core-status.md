@@ -47,6 +47,9 @@ This is the single execution tracker for the rewrite.
 41. Executor/replay blender path now models cycle-specific blend mux selector fields (`c1/c2 m1/m2 a/b`) with deterministic `aaEnable` + `pipelineMode` behavior.
 42. Phase E contract work has started via new `rvk2_TextureReplacement` deterministic keying + `.htc` cache-key contract module with unit coverage.
 43. Conformance now includes blend mux selector transitions and AA/pipeline mode transitions.
+44. Phase E now includes deterministic texture-replacement store APIs (insert/lookup/ordered key iteration) and deterministic replacement sampling behavior.
+45. Phase E now includes deterministic `.htc` cache read/write APIs (`RKVHTC1`) with unit coverage.
+46. Executor texture path now supports optional replacement sampling via deterministic key/cache lookup (`REALITYVK_RVK2_TEX_REPLACEMENT`, `REALITYVK_RVK2_TX_HTC_PATH`).
 
 ## Phase Status
 
@@ -56,12 +59,12 @@ This is the single execution tracker for the rewrite.
 | B: Semantic Pipeline Backbone | In progress | Semantic/raster/render/submission/executor pipeline exists with expanded mode-bit behavior, but coverage is still incomplete. |
 | C: Core Rendering Correctness | In progress | Fill/texrect/triangle backbone exists with stronger blend/coverage semantics; full cycle-accurate closure is still open. |
 | D: VI and Presentation | Done | Register-driven source selection/scaling/filter/fail-safe behavior is implemented with unit + conformance + smoke coverage for current scoped contract. |
-| E: Texture Replacement | In progress | Deterministic key/cache contracts are landed; hi-res pack ingest and `.htc` IO integration are still open. |
+| E: Texture Replacement | In progress | Deterministic key/cache contracts, store APIs, `.htc` IO, and optional executor sampling are landed; hi-res pack ingest/management is still open. |
 | F: Cutover and Deletion | Not started | `rvk2` is not default and legacy-derived paths still exist. |
 
 ## Completion Estimate
 
-Estimated overall roadmap completion: **~81%**.
+Estimated overall roadmap completion: **~82%**.
 
 Heuristic phase weighting used for this estimate:
 - A: 20%
@@ -73,10 +76,10 @@ Heuristic phase weighting used for this estimate:
 
 Estimated phase progress used:
 - A: 100%
-- B: 86%
-- C: 79%
+- B: 92%
+- C: 84%
 - D: 100%
-- E: 14%
+- E: 30%
 - F: 0%
 
 ## Completed Recently
@@ -238,30 +241,35 @@ Estimated phase progress used:
    - executor/replay now consume `aaEnable` and `pipelineMode` in deterministic coverage/blend behavior
    - added conformance coverage for blend selector transitions and AA/pipeline transitions
    - landed `rvk2_TextureReplacement` deterministic key + `.htc` cache-key contract module with unit coverage
+38. Extended Phase E texture replacement implementation:
+   - added deterministic texture replacement store APIs (`insert`, `find`, ordered `keys`, and deterministic sampling helper)
+   - added deterministic `.htc` cache write/read APIs (`RKVHTC1` header, versioned entry serialization)
+   - integrated optional texture replacement sampling into executor texture path through deterministic key/cache lookup
+   - added unit coverage for cache IO roundtrip and executor replacement sampling behavior
 
 ## Current Bottlenecks
 
 1. Semantic completeness gap remains for cycle-accurate combiner/blender/depth/cvg behavior versus real RDP.
 2. Visual parity threshold still fails on maintained Paper Mario metric.
-3. Texture replacement stack ingest path (`hi-res` + `.htc`) is still open; only deterministic key/cache contracts are landed.
+3. Texture replacement stack ingest path (`hi-res` pack discovery/index/build) is still open; cache/store/executor hooks are now present.
 4. Conformance matrix is broad, but additional hazard corners remain as semantic coverage expands.
 5. VI is closed for current scoped contract, but hardware-specific corner behavior beyond this scope may still be revisited later if parity data demands it.
 
 ## Next Coding Priorities
 
-1. Implement Phase E pack ingest surface (hi-res pack lookup path over deterministic replacement keys).
-2. Implement Phase E `.htc` read/write adapter over the new cache-key contract.
+1. Implement Phase E hi-res pack ingest/index path over deterministic replacement keys.
+2. Add runtime replacement lifecycle controls (reload, invalidation, bounded memory strategy) on top of current store/executor hooks.
 3. Continue non-triangle semantic closure for remaining high-impact combiner/blender/depth/cvg interactions.
 4. Continue adding targeted hazard-corner conformance where semantic gaps are discovered.
 5. Keep reducing Paper Mario parity delta while preserving deterministic trace/replay contracts.
 
 ## Remaining Work Split (Approx)
 
-1. Core rendering correctness closure (cycle-accurate combiner/blender/depth/cvg): **31%** of remaining work.
-2. Semantic + non-triangle behavior coverage closure: **21%**.
-3. Texture replacement (`hi-res` + `.htc`) implementation and integration: **27%**.
+1. Core rendering correctness closure (cycle-accurate combiner/blender/depth/cvg): **29%** of remaining work.
+2. Semantic + non-triangle behavior coverage closure: **20%**.
+3. Texture replacement (`hi-res` + `.htc`) implementation and integration: **29%**.
 4. Trace/replay strictness + schema tightening + cutover cleanup: **12%**.
-5. Parity stabilization + validation hardening: **9%**.
+5. Parity stabilization + validation hardening: **10%**.
 
 ## Local Gate Contract
 

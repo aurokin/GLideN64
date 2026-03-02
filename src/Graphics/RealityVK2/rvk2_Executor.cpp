@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <limits>
 #include <unordered_map>
 #include <vector>
@@ -10,6 +11,20 @@
 #include "rvk2_VIRenderer.h"
 
 namespace {
+
+thread_local const rvk2::TextureReplacementStore * gActiveTextureReplacementStore = nullptr;
+
+inline bool envStringIsTrue(const char * _value)
+{
+	if (_value == nullptr || _value[0] == '\0')
+		return false;
+	const char c0 = static_cast<char>(_value[0] | 0x20);
+	if (c0 == '1' || c0 == 'y' || c0 == 't')
+		return true;
+	if ((c0 == 'o') && ((_value[1] | 0x20) == 'n'))
+		return true;
+	return false;
+}
 
 inline u32 clampU32(u32 _value, u32 _minimum, u32 _maximum)
 {
@@ -435,6 +450,26 @@ inline u32 applyTextureDetailModeColor(
 		| static_cast<u32>(a);
 }
 
+const rvk2::TextureReplacementImage * findTextureReplacementImage(
+	const rvk2::RenderWorkPacket & _work,
+	s32 _s,
+	s32 _t,
+	s32 _w,
+	bool _includeW)
+{
+	if (gActiveTextureReplacementStore == nullptr || gActiveTextureReplacementStore->empty())
+		return nullptr;
+	rvk2::TextureReplacementRequest request{};
+	request.work = &_work;
+	request.s = _s;
+	request.t = _t;
+	request.w = _w;
+	request.perspective = _includeW && isTexturePerspEnabled(_work);
+	const rvk2::TextureReplacementKey key = rvk2::buildTextureReplacementKey(request);
+	const rvk2::TextureReplacementCacheKey cacheKey = rvk2::buildTextureReplacementCacheKey(key);
+	return gActiveTextureReplacementStore->find(cacheKey);
+}
+
 inline u32 samplePseudoTexelColor(
 	const rvk2::RenderWorkPacket & _work,
 	s32 _s,
@@ -445,6 +480,10 @@ inline u32 samplePseudoTexelColor(
 	u32 _y)
 {
 	applyTextureCoordinateModes(_work, _s, _t, _w, _includeW);
+	if (const rvk2::TextureReplacementImage * replacement =
+			findTextureReplacementImage(_work, _s, _t, _w, _includeW)) {
+		return rvk2::sampleTextureReplacementImage(*replacement, _s, _t);
+	}
 	u64 seed = buildTextureSeedBase(_work);
 	mixTextureSeed(seed, static_cast<u64>(static_cast<u32>(_s)));
 	mixTextureSeed(seed, static_cast<u64>(static_cast<u32>(_t)));
@@ -1805,6 +1844,14 @@ ExecutorConfig loadExecutorConfigFromEnv()
 	const VIRendererConfig viConfig = loadVIRendererConfigFromEnv();
 	config.presentAspectX = viConfig.aspectX;
 	config.presentAspectY = viConfig.aspectY;
+	const char * txEnable = std::getenv("REALITYVK_RVK2_TEX_REPLACEMENT");
+	if (envStringIsTrue(txEnable))
+		config.textureReplacementEnable = true;
+	const char * txCachePath = std::getenv("REALITYVK_RVK2_TX_HTC_PATH");
+	if (txCachePath != nullptr && txCachePath[0] != '\0') {
+		config.textureReplacementCachePath = txCachePath;
+		config.textureReplacementEnable = true;
+	}
 	return config;
 }
 
@@ -1813,10 +1860,31 @@ Executor::Executor(const ExecutorConfig & _config)
 {
 }
 
+void Executor::ensureTextureReplacementLoaded()
+{
+	if (m_textureReplacementLoaded)
+		return;
+	m_textureReplacementLoaded = true;
+	if (!m_config.textureReplacementEnable)
+		return;
+	if (m_config.textureReplacementCachePath.empty())
+		return;
+	rvk2::loadTextureReplacementHTC(
+		m_config.textureReplacementCachePath.c_str(),
+		m_textureReplacementStore);
+}
+
 ExecutorOutput Executor::executeWithOutput(
 	const std::vector<RenderWorkPacket> & _workPackets,
 	const std::vector<SubmissionBatchPacket> & _batches)
 {
+	ensureTextureReplacementLoaded();
+	const TextureReplacementStore * previousReplacementStore = gActiveTextureReplacementStore;
+	gActiveTextureReplacementStore =
+		(!m_textureReplacementStore.empty() && m_config.textureReplacementEnable)
+		? &m_textureReplacementStore
+		: nullptr;
+
 	ExecutorOutput output{};
 	ExecutorSummary & summary = output.summary;
 	summary.presentAspectX = m_config.presentAspectX;
@@ -1921,6 +1989,7 @@ ExecutorOutput Executor::executeWithOutput(
 		output.presentFrame.width = viSummary.presentWidth;
 		output.presentFrame.height = viSummary.presentHeight;
 	}
+	gActiveTextureReplacementStore = previousReplacementStore;
 	return output;
 }
 

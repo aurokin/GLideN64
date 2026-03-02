@@ -2122,6 +2122,172 @@ void testTextureReplacementContract()
 		"texture replacement deterministic key must react to coordinate changes");
 }
 
+void testTextureReplacementCacheIO()
+{
+	rvk2::TextureReplacementStore store;
+	rvk2::TextureReplacementCacheKey keyA{0x1111222233334444ULL, 0xAAAABBBBCCCCDDDDULL};
+	rvk2::TextureReplacementImage imageA{};
+	imageA.width = 2U;
+	imageA.height = 2U;
+	imageA.pixels = {
+		0x11223344U,
+		0x55667788U,
+		0x99AABBCCU,
+		0xDDEEFF11U
+	};
+	expectTrue(
+		store.insert(keyA, imageA),
+		"texture replacement cache insert should accept valid image");
+
+	rvk2::TextureReplacementCacheKey keyB{0x00000000000000FFULL, 0x0000000000000001ULL};
+	rvk2::TextureReplacementImage imageB{};
+	imageB.width = 1U;
+	imageB.height = 1U;
+	imageB.pixels = {0xCAFEBABEU};
+	expectTrue(
+		store.insert(keyB, imageB),
+		"texture replacement cache insert should accept second valid image");
+	expectEq(
+		store.entryCount(),
+		static_cast<size_t>(2U),
+		"texture replacement cache should track entry count");
+
+	const char * cachePath = "/tmp/rvk2_texture_replacement_unit.htc";
+	std::remove(cachePath);
+	expectTrue(
+		rvk2::writeTextureReplacementHTC(cachePath, store),
+		"texture replacement cache should serialize to htc");
+
+	rvk2::TextureReplacementStore loaded;
+	expectTrue(
+		rvk2::loadTextureReplacementHTC(cachePath, loaded),
+		"texture replacement cache should deserialize from htc");
+	expectEq(
+		loaded.entryCount(),
+		store.entryCount(),
+		"loaded texture replacement cache should preserve entry count");
+
+	const rvk2::TextureReplacementImage * loadedA = loaded.find(keyA);
+	expectTrue(
+		loadedA != nullptr,
+		"loaded texture replacement cache should include first key");
+	if (loadedA != nullptr) {
+		expectEq(loadedA->width, imageA.width, "loaded replacement width mismatch");
+		expectEq(loadedA->height, imageA.height, "loaded replacement height mismatch");
+		expectEq(
+			loadedA->pixels[3],
+			imageA.pixels[3],
+			"loaded replacement pixel mismatch");
+		expectEq(
+			rvk2::sampleTextureReplacementImage(*loadedA, 0, 0),
+			imageA.pixels[0],
+			"replacement sampling at origin mismatch");
+		expectEq(
+			rvk2::sampleTextureReplacementImage(*loadedA, 64, 32),
+			rvk2::sampleTextureReplacementImage(*loadedA, 0, 32),
+			"replacement sampling wrap mismatch");
+	}
+
+	std::remove(cachePath);
+}
+
+void testExecutorTextureReplacementSampling()
+{
+	rvk2::RenderWorkPacket work{};
+	work.sourcePacketId = 1ULL;
+	work.sourceOpcode = 0x24U;
+	work.opKind = static_cast<u8>(rvk2::RasterOpKind::kTexRect);
+	work.phase = static_cast<u8>(rvk2::RenderPhase::kCycle1);
+	work.cycleType = 0U;
+	work.textured = true;
+	work.tile = 0U;
+	work.rectULX = 0U;
+	work.rectULY = 0U;
+	work.rectLRX = 1U;
+	work.rectLRY = 1U;
+	work.texS = 0;
+	work.texT = 0;
+	work.texDSDX = 0;
+	work.texDTDY = 0;
+	work.colorImageFormat = 0U;
+	work.colorImageSize = 3U;
+	work.colorImageWidth = 4U;
+	work.colorImageAddress = 0x00330000U;
+	work.textureImageFormat = 0U;
+	work.textureImageSize = 2U;
+	work.textureImageWidth = 4U;
+	work.textureImageAddress = 0x00120000U;
+	work.tileFormat = 0U;
+	work.tileSize = 2U;
+	work.tileLine = 1U;
+	work.tileTmem = 0U;
+	work.tilePalette = 0U;
+	work.tileULS = 0U;
+	work.tileULT = 0U;
+	work.tileLRS = 4U;
+	work.tileLRT = 4U;
+
+	rvk2::TextureReplacementRequest request{};
+	request.work = &work;
+	request.s = 0;
+	request.t = 0;
+	request.w = 0;
+	request.perspective = false;
+	const rvk2::TextureReplacementKey replacementKey =
+		rvk2::buildTextureReplacementKey(request);
+	const rvk2::TextureReplacementCacheKey cacheKey =
+		rvk2::buildTextureReplacementCacheKey(replacementKey);
+
+	rvk2::TextureReplacementStore store;
+	rvk2::TextureReplacementImage replacementImage{};
+	replacementImage.width = 1U;
+	replacementImage.height = 1U;
+	replacementImage.pixels = {0x1A2B3CFFU};
+	expectTrue(
+		store.insert(cacheKey, replacementImage),
+		"executor texture replacement setup insert should succeed");
+
+	const char * cachePath = "/tmp/rvk2_executor_texture_replacement_unit.htc";
+	std::remove(cachePath);
+	expectTrue(
+		rvk2::writeTextureReplacementHTC(cachePath, store),
+		"executor texture replacement setup write should succeed");
+
+	rvk2::SubmissionBatchPacket batch{};
+	batch.batchIndex = 0U;
+	batch.firstWorkIndex = 0U;
+	batch.lastWorkIndex = 0U;
+	batch.workCount = 1U;
+	batch.phase = static_cast<u8>(rvk2::RenderPhase::kCycle1);
+	batch.cycleType = 0U;
+	const std::vector<rvk2::RenderWorkPacket> workPackets{work};
+	const std::vector<rvk2::SubmissionBatchPacket> batches{batch};
+
+	rvk2::Executor baselineExecutor;
+	const rvk2::ExecutorOutput baselineOut =
+		baselineExecutor.executeWithOutput(workPackets, batches);
+
+	rvk2::ExecutorConfig replacementConfig{};
+	replacementConfig.textureReplacementEnable = true;
+	replacementConfig.textureReplacementCachePath = cachePath;
+	rvk2::Executor replacementExecutor(replacementConfig);
+	const rvk2::ExecutorOutput replacementOut =
+		replacementExecutor.executeWithOutput(workPackets, batches);
+
+	expectTrue(
+		replacementOut.summary.colorWriteCount > 0ULL,
+		"executor replacement scene should write pixels");
+	expectEq(
+		replacementOut.summary.colorWriteCount,
+		baselineOut.summary.colorWriteCount,
+		"executor replacement toggle should preserve write count");
+	expectTrue(
+		replacementOut.summary.presentHash != baselineOut.summary.presentHash,
+		"executor replacement toggle should alter present hash");
+
+	std::remove(cachePath);
+}
+
 } // namespace
 
 int main()
@@ -2142,6 +2308,8 @@ int main()
 	testExecutorTriangleCoefficientConsumption();
 	testExecutorFrameOutput();
 	testTextureReplacementContract();
+	testTextureReplacementCacheIO();
+	testExecutorTextureReplacementSampling();
 
 	if (g_failures == 0) {
 		std::printf("rvk2 unit tests: PASS\n");
