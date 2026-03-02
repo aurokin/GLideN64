@@ -78,7 +78,7 @@ This is the single execution tracker for the rewrite.
 
 ## Completion Estimate
 
-Estimated overall roadmap completion: **~94%**.
+Estimated overall roadmap completion: **~92%**.
 
 Heuristic phase weighting used for this estimate:
 - A: 20%
@@ -316,24 +316,37 @@ Estimated phase progress used:
 
 ## Current Bottlenecks
 
-1. Visual parity threshold still fails on maintained Paper Mario metric.
-2. Texture replacement runtime UX is still open (artist-facing reload flow and broader runtime visibility integration), though base replacement observability counters are now landed.
-3. `rvk2` is still not default; cutover and deletion work is pending.
-4. VI and synthetic rendering are closed for scoped contract, but hardware-specific corner behavior may still be revisited if parity data demands it.
+1. Visual parity threshold still fails on maintained Paper Mario metric (`rmse=0.259169` vs `0.25` gate target).
+2. Texture replacement runtime UX is still open (operator-facing reload flow and broader runtime visibility integration), though base replacement observability counters are landed.
+3. `rvk2` is still not default; cutover and legacy-path deletion work has not started.
+4. Trace/replay still carries transitional compatibility paths that should be removed once cutover fixtures are refreshed.
 
 ## Next Coding Priorities
 
-1. Finish texture replacement runtime UX polish (artist-facing reload flow + broader visibility surfacing).
-2. Keep reducing Paper Mario parity delta while preserving deterministic trace/replay contracts.
-3. Start cutover/deletion prep so `rvk2` can become default.
-4. Tighten trace/replay strictness as we remove transitional behavior.
+1. Close Phase E: finish texture replacement runtime UX + visibility surfacing + maintainer docs for day-to-day pack/cache operations.
+2. Start Phase F: make `rvk2` default-on, keep a short-lived escape hatch, and begin deleting legacy-derived render paths.
+3. Continue parity reduction on maintained Paper Mario comparison while preserving deterministic trace/replay contracts.
+4. Tighten trace/replay strictness by retiring legacy row compatibility once smoke/parity fixtures are regenerated.
 
 ## Remaining Work Split (Approx)
 
-1. Texture replacement (`hi-res` + `.htc`) implementation and integration: **50%** of remaining work.
-2. Cutover/deletion (`rvk2` default, legacy path removal): **24%**.
-3. Parity stabilization and metric closure: **16%**.
+1. Phase E closure (`hi-res` + `.htc` runtime UX, visibility, operator flow hardening): **45%** of remaining work.
+2. Phase F cutover/deletion (`rvk2` default, legacy path removal): **30%**.
+3. Parity stabilization and metric closure: **15%**.
 4. Trace/replay strictness + schema tightening: **10%**.
+
+## Remaining Work by Phase
+
+1. **Phase E (Texture Replacement, in progress)**
+   - Complete runtime operator flow for replacement reload/invalidation in normal emulator runs.
+   - Surface replacement state/hit-rate visibility in a stable maintainer-facing path (beyond env-only logging).
+   - Add smoke/parity-side validation workflow for pack/cache behavior changes.
+   - Finalize maintainer docs for pack index generation + validation + rollout.
+2. **Phase F (Cutover and Deletion, not started)**
+   - Flip default render path to `rvk2`.
+   - Add temporary fallback switch for controlled bring-up only.
+   - Remove legacy-derived Vulkan/GLideN64 render execution paths once gates are stable.
+   - Prune transitional test/docs paths that only exist for dual-runtime support.
 
 ## Local Gate Contract
 
