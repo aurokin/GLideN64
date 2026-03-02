@@ -1420,6 +1420,49 @@ void testVIRendererAspectScaling()
 	expectEq(interlacePhasePixels[0], 0x202020FFU, "VIRenderer interlace phase row0 mismatch");
 	expectEq(interlacePhasePixels[2], 0x606060FFU, "VIRenderer interlace phase row1 mismatch");
 
+	std::vector<u32> clipSource{
+		0x000000FFU, 0x111111FFU, 0x222222FFU, 0x333333FFU,
+		0x404040FFU, 0x515151FFU, 0x626262FFU, 0x737373FFU,
+		0x808080FFU, 0x919191FFU, 0xA2A2A2FFU, 0xB3B3B3FFU,
+		0xC0C0C0FFU, 0xD1D1D1FFU, 0xE2E2E2FFU, 0xF3F3F3FFU
+	};
+	rvk2::VIFrameInput clipInput{};
+	clipInput.sourceWidth = 4U;
+	clipInput.sourceHeight = 4U;
+	clipInput.sourcePixels = &clipSource;
+	clipInput.registers.valid = true;
+	clipInput.registers.status = 3U;
+	clipInput.registers.width = 4U;
+	clipInput.registers.vSync = 525U;
+	clipInput.registers.hStart = (0U << 16U) | 2U;
+	clipInput.registers.vStart = (0U << 16U) | 4U;
+	clipInput.registers.xScale = (4095U << 16U) | 1024U;
+	clipInput.registers.yScale = (3072U << 16U) | 2048U;
+	std::vector<u32> clipPixels;
+	const rvk2::VIFrameSummary clipSummary =
+		rendererSquare.present(clipInput, &clipPixels);
+	expectEq(clipSummary.presentWidth, 2U, "VIRenderer clip width mismatch");
+	expectEq(clipSummary.presentHeight, 2U, "VIRenderer clip height mismatch");
+	expectEq(clipPixels.size(), static_cast<size_t>(4U), "VIRenderer clip pixel count mismatch");
+	expectEq(clipPixels[0], 0xF3F3F3FFU, "VIRenderer clip in-range sample mismatch");
+	expectEq(clipPixels[1], 0x00000000U, "VIRenderer clip x-overflow sample mismatch");
+	expectEq(clipPixels[2], 0x00000000U, "VIRenderer clip y-overflow sample mismatch");
+	expectEq(clipPixels[3], 0x00000000U, "VIRenderer clip xy-overflow sample mismatch");
+
+	rvk2::VIFrameInput invalidWindowInput = clipInput;
+	invalidWindowInput.registers.xScale = 1024U;
+	invalidWindowInput.registers.yScale = 1024U;
+	invalidWindowInput.registers.hStart = (4U << 16U) | 4U;
+	const rvk2::VIFrameSummary invalidHWindowSummary = rendererSquare.present(invalidWindowInput);
+	expectEq(invalidHWindowSummary.presentWidth, 0U, "VIRenderer invalid H window width mismatch");
+	expectEq(invalidHWindowSummary.presentHeight, 0U, "VIRenderer invalid H window height mismatch");
+
+	invalidWindowInput.registers.hStart = (0U << 16U) | 2U;
+	invalidWindowInput.registers.vStart = (4U << 16U) | 4U;
+	const rvk2::VIFrameSummary invalidVWindowSummary = rendererSquare.present(invalidWindowInput);
+	expectEq(invalidVWindowSummary.presentWidth, 0U, "VIRenderer invalid V window width mismatch");
+	expectEq(invalidVWindowSummary.presentHeight, 0U, "VIRenderer invalid V window height mismatch");
+
 	registerInput.registers.status = 0U;
 	const rvk2::VIFrameSummary blankSummary = rendererSquare.present(registerInput);
 	expectEq(blankSummary.presentWidth, 0U, "VIRenderer blank width mismatch");

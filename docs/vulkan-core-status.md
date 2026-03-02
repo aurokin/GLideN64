@@ -28,6 +28,7 @@ This is the single execution tracker for the rewrite.
 22. VI presenter now models `VI_STATUS` gamma-dither and AA-mode filtering behavior with deterministic unit coverage.
 23. VI presenter now applies VI type-aware decode behavior for 16bpp mode (`status.type=2`) with deterministic quantization.
 24. VI presenter now applies interlace field selection in register-stepping space (field-aware Y stepping) for serrated mode.
+25. VI presenter now enforces register-window edge clipping (out-of-range samples resolve to black) and blank output on invalid H/V windows.
 
 ## Phase Status
 
@@ -42,7 +43,7 @@ This is the single execution tracker for the rewrite.
 
 ## Completion Estimate
 
-Estimated overall roadmap completion: **~65%**.
+Estimated overall roadmap completion: **~66%**.
 
 Heuristic phase weighting used for this estimate:
 - A: 20%
@@ -56,7 +57,7 @@ Estimated phase progress used:
 - A: 100%
 - B: 74%
 - C: 65%
-- D: 60%
+- D: 66%
 - E: 0%
 - F: 0%
 
@@ -165,6 +166,10 @@ Estimated phase progress used:
    - presenter now applies interlace field offset before fixed-point Y step conversion in register-driven mode
    - this aligns serrate sampling with register-space stepping instead of post-sample row doubling
    - unit coverage added for interlaced field phase behavior with non-zero `yStart` and non-1.0 `yStep`
+26. Added VI register-window edge semantics:
+   - register-driven sampling now treats out-of-range sample coordinates as clipped/black instead of edge-clamping
+   - invalid VI H/V windows (`hEnd<=hStart` or unresolved `vEnd<=vStart`) now produce blank output instead of fallback sizing
+   - unit coverage added for x/y sample overflow clipping and invalid window blank behavior
 
 ## Current Bottlenecks
 
