@@ -4046,6 +4046,42 @@ def _is_texture_filter_enabled(work: RenderWorkRecord) -> bool:
     return ((mode0 >> 12) & 0x3) != 0 or ((mode0 >> 10) & 0x3) != 0
 
 
+def _decode_texture_lut_mode(work: RenderWorkRecord) -> int:
+    return (_mode0_word(work) >> 14) & 0x3
+
+
+def _decode_texture_detail_mode(work: RenderWorkRecord) -> int:
+    return (_mode0_word(work) >> 17) & 0x3
+
+
+def _is_texture_lod_enabled(work: RenderWorkRecord) -> bool:
+    return (_mode0_word(work) & (1 << 16)) != 0
+
+
+def _is_texture_persp_enabled(work: RenderWorkRecord) -> bool:
+    return (_mode0_word(work) & (1 << 19)) != 0
+
+
+def _is_combine_key_enabled(work: RenderWorkRecord) -> bool:
+    return (_mode0_word(work) & (1 << 8)) != 0
+
+
+def _is_convert_one_enabled(work: RenderWorkRecord) -> bool:
+    return (_mode0_word(work) & (1 << 9)) != 0
+
+
+def _decode_alpha_dither_mode(work: RenderWorkRecord) -> int:
+    return (_mode0_word(work) >> 4) & 0x3
+
+
+def _decode_color_dither_mode(work: RenderWorkRecord) -> int:
+    return (_mode0_word(work) >> 6) & 0x3
+
+
+def _is_texture_edge_enabled(work: RenderWorkRecord) -> bool:
+    return (_mode1_word(work) & (1 << 15)) != 0
+
+
 def _wrap_coord_positive(value: int, period: int) -> int:
     if period <= 0:
         return 0
@@ -4153,14 +4189,132 @@ def _bilerp_color_rgba(c00: int, c10: int, c01: int, c11: int, frac_s: int, frac
     return ((r & 0xFF) << 24) | ((g & 0xFF) << 16) | ((b & 0xFF) << 8) | (a & 0xFF)
 
 
+def _clamp_s32_from_s64(value: int) -> int:
+    if value < -0x80000000:
+        return -0x80000000
+    if value > 0x7FFFFFFF:
+        return 0x7FFFFFFF
+    return value
+
+
+def _apply_texture_coordinate_modes(
+    work: RenderWorkRecord, s: int, t: int, w: int, include_w: bool
+) -> tuple[int, int, int]:
+    s_adj = int(s)
+    t_adj = int(t)
+    w_abs = abs(int(w))
+    if include_w and _is_texture_persp_enabled(work) and w_abs > 0:
+        denom = (w_abs >> 8) + 1
+        s_adj = (s_adj * 256 + (denom // 2)) // denom
+        t_adj = (t_adj * 256 + (denom // 2)) // denom
+
+    if _is_texture_lod_enabled(work):
+        lod = min(255, (w_abs >> 12) if include_w else ((abs(s_adj) + abs(t_adj)) >> 8))
+        detail_mode = _decode_texture_detail_mode(work)
+        signed_lod = -lod if detail_mode == 1 else lod
+        s_adj += signed_lod
+        t_adj += (signed_lod >> 1) if detail_mode == 2 else signed_lod
+
+    return (
+        _clamp_s32_from_s64(s_adj),
+        _clamp_s32_from_s64(t_adj),
+        _clamp_s32_from_s64(int(w)),
+    )
+
+
+def _apply_texture_lut_mode_color(work: RenderWorkRecord, seed: int, rgba: int) -> int:
+    lut_mode = _decode_texture_lut_mode(work)
+    if lut_mode == 0:
+        return rgba & 0xFFFFFFFF
+
+    r = (rgba >> 24) & 0xFF
+    g = (rgba >> 16) & 0xFF
+    b = (rgba >> 8) & 0xFF
+    a = rgba & 0xFF
+    index = (r ^ g ^ b ^ ((work.tile_palette << 4) & 0xFF)) & 0xFF
+    if lut_mode >= 2:
+        index = ((r + g + b) // 3) & 0xFF
+
+    palette_seed = seed & U64_MASK
+    palette_seed = _mix_texture_seed(palette_seed, index)
+    palette_seed = _mix_texture_seed(palette_seed, work.texture_image_address & 0xFFFFFFFF)
+    palette_seed = _mix_texture_seed(palette_seed, work.tile_palette & 0xFF)
+    palette_seed = (palette_seed * 0xD6E8FEB86659FD93) & U64_MASK
+
+    if lut_mode == 1:
+        r = (palette_seed >> 8) & 0xFF
+        g = (palette_seed >> 24) & 0xFF
+        b = (palette_seed >> 40) & 0xFF
+        a = 0xFF
+    elif lut_mode == 2:
+        intensity = (palette_seed >> 16) & 0xFF
+        alpha = (palette_seed >> 32) & 0xFF
+        r = intensity
+        g = intensity
+        b = intensity
+        a = alpha
+    else:
+        intensity = (palette_seed >> 16) & 0xFF
+        alpha4 = (palette_seed >> 28) & 0xF
+        r = intensity
+        g = intensity
+        b = intensity
+        a = alpha4 * 17
+
+    return ((r & 0xFF) << 24) | ((g & 0xFF) << 16) | ((b & 0xFF) << 8) | (a & 0xFF)
+
+
+def _clamp_channel_s32(value: int) -> int:
+    if value < 0:
+        return 0
+    if value > 255:
+        return 255
+    return value
+
+
+def _apply_texture_detail_mode_color(work: RenderWorkRecord, seed: int, rgba: int) -> int:
+    mode = _decode_texture_detail_mode(work)
+    if mode == 0:
+        return rgba & 0xFFFFFFFF
+
+    r = (rgba >> 24) & 0xFF
+    g = (rgba >> 16) & 0xFF
+    b = (rgba >> 8) & 0xFF
+    a = rgba & 0xFF
+    n0 = (seed >> 8) & 0xFF
+    n1 = (seed >> 24) & 0xFF
+    n2 = (seed >> 40) & 0xFF
+
+    if mode == 1:
+        r = 128 + ((r - 128) * 3) // 2
+        g = 128 + ((g - 128) * 3) // 2
+        b = 128 + ((b - 128) * 3) // 2
+    elif mode == 2:
+        r = (r * 3 + n0 + 2) // 4
+        g = (g * 3 + n1 + 2) // 4
+        b = (b * 3 + n2 + 2) // 4
+    else:
+        r = (r + n0 + 1) // 2
+        g = (g + n1 + 1) // 2
+        b = (b + n2 + 1) // 2
+
+    return (
+        ((_clamp_channel_s32(r) & 0xFF) << 24)
+        | ((_clamp_channel_s32(g) & 0xFF) << 16)
+        | ((_clamp_channel_s32(b) & 0xFF) << 8)
+        | (a & 0xFF)
+    )
+
+
 def _sample_pseudo_texel_color(
     work: RenderWorkRecord, s: int, t: int, w: int, include_w: bool, x: int, y: int
 ) -> int:
+    s_adj, t_adj, w_adj = _apply_texture_coordinate_modes(work, s, t, w, include_w)
     seed = _build_texture_seed_base(work)
-    seed = _mix_texture_seed(seed, s & 0xFFFFFFFF)
-    seed = _mix_texture_seed(seed, t & 0xFFFFFFFF)
+    seed = _mix_texture_seed(seed, s_adj & 0xFFFFFFFF)
+    seed = _mix_texture_seed(seed, t_adj & 0xFFFFFFFF)
     if include_w:
-        seed = _mix_texture_seed(seed, w & 0xFFFFFFFF)
+        seed = _mix_texture_seed(seed, w_adj & 0xFFFFFFFF)
     seed = _mix_texture_seed(seed, x & 0xFFFFFFFF)
     seed = _mix_texture_seed(seed, y & 0xFFFFFFFF)
     seed = _mix_texture_seed(seed, work.combine_mux & U64_MASK)
@@ -4169,7 +4323,10 @@ def _sample_pseudo_texel_color(
     r = (seed >> 8) & 0xFF
     g = (seed >> 24) & 0xFF
     b = (seed >> 40) & 0xFF
-    return ((r & 0xFF) << 24) | ((g & 0xFF) << 16) | ((b & 0xFF) << 8) | 0xFF
+    rgba = ((r & 0xFF) << 24) | ((g & 0xFF) << 16) | ((b & 0xFF) << 8) | 0xFF
+    rgba = _apply_texture_lut_mode_color(work, seed, rgba)
+    rgba = _apply_texture_detail_mode_color(work, seed, rgba)
+    return rgba
 
 
 def _pseudo_texel(work: RenderWorkRecord, x: int, y: int) -> int:
@@ -4578,6 +4735,16 @@ def _apply_synthetic_combiner(
     out_a = _eval_synthetic_combiner_channel(
         active_combine_mux, 36, tex_a, shade_a, base_a, const_a, noise_a, dst_a
     )
+    if _is_combine_key_enabled(work):
+        lane_shift = ((x + y) & 0x7) * 8
+        key_mix = (work.key_state >> lane_shift) & 0xFF
+        out_a = (out_a * key_mix + 127) // 255
+        inv_mix = 255 - key_mix
+        out_r = (out_r * inv_mix + key_mix * noise_r + 127) // 255
+        out_g = (out_g * inv_mix + key_mix * noise_g + 127) // 255
+        out_b = (out_b * inv_mix + key_mix * noise_b + 127) // 255
+    if _is_convert_one_enabled(work):
+        out_a = 0xFF
     return _pack_rgba(out_r, out_g, out_b, out_a)
 
 
@@ -4587,6 +4754,40 @@ def _blend_channel(src: int, dst: int, src_weight: int, dst_weight: int) -> int:
         return src
     blended = src * src_weight + dst * dst_weight
     return (blended + (total // 2)) // total
+
+
+def _bayer_dither_4x4(x: int, y: int) -> int:
+    table = (
+        -8, 0, -6, 2,
+        4, -4, 6, -2,
+        -5, 3, -7, 1,
+        7, -1, 5, -3,
+    )
+    return table[((y & 0x3) << 2) | (x & 0x3)]
+
+
+def _synthetic_noise_signed8(work: RenderWorkRecord, x: int, y: int, lane: int) -> int:
+    seed = FNV_OFFSET
+    seed = _mix_texture_seed(seed, x & 0xFFFFFFFF)
+    seed = _mix_texture_seed(seed, y & 0xFFFFFFFF)
+    seed = _mix_texture_seed(seed, lane & 0xFFFFFFFF)
+    seed = _mix_texture_seed(seed, work.source_packet_id & U64_MASK)
+    seed = _mix_texture_seed(seed, work.sync_epoch & 0xFFFFFFFF)
+    seed = _mix_texture_seed(seed, work.other_modes & U64_MASK)
+    raw = (seed >> 16) & 0xFF
+    return int(raw) - 128
+
+
+def _apply_synthetic_dither_mode(value: int, mode: int, bayer: int, noise: int) -> int:
+    adjusted = int(value)
+    m = mode & 0x3
+    if m == 1:
+        adjusted += bayer
+    elif m == 2:
+        adjusted += noise >> 4
+    elif m == 3:
+        adjusted += (bayer + (noise >> 4)) // 2
+    return _clamp_channel_s32(adjusted)
 
 
 def _alpha_to_coverage3(alpha: int) -> int:
@@ -4730,6 +4931,42 @@ def _apply_synthetic_blender(
     out_a = _blend_channel(src_a, dst_a, src_weight, dst_weight)
     if use_coverage_controls and work.alpha_cvg_sel:
         out_a = (resolved_coverage * 255 + 3) // 7
+
+    color_dither_mode = _decode_color_dither_mode(work)
+    alpha_dither_mode = _decode_alpha_dither_mode(work)
+    if color_dither_mode != 0 or alpha_dither_mode != 0:
+        bayer = _bayer_dither_4x4(x, y)
+        if color_dither_mode != 0:
+            out_r = _apply_synthetic_dither_mode(
+                out_r,
+                color_dither_mode,
+                bayer,
+                _synthetic_noise_signed8(work, x, y, 0),
+            )
+            out_g = _apply_synthetic_dither_mode(
+                out_g,
+                color_dither_mode,
+                bayer,
+                _synthetic_noise_signed8(work, x, y, 1),
+            )
+            out_b = _apply_synthetic_dither_mode(
+                out_b,
+                color_dither_mode,
+                bayer,
+                _synthetic_noise_signed8(work, x, y, 2),
+            )
+        if alpha_dither_mode != 0:
+            out_a = _apply_synthetic_dither_mode(
+                out_a,
+                alpha_dither_mode,
+                bayer,
+                _synthetic_noise_signed8(work, x, y, 3),
+            )
+
+    if _is_texture_edge_enabled(work) and out_a > 0 and out_a < 128:
+        out_a = 0xFF
+    if _is_convert_one_enabled(work):
+        out_a = 0xFF
     return _pack_rgba(out_r, out_g, out_b, out_a)
 
 

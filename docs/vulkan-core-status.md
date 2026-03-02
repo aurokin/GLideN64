@@ -40,6 +40,10 @@ This is the single execution tracker for the rewrite.
 34. Executor/replay synthetic paths now model destination read enable (`otherModes.imageRead`) so combiner/blender/coverage destination participation is explicitly gated.
 35. Executor/replay triangle depth compare/update now models `otherModes.depthMode` (`OPA`/`INTER`/`XLU`/`DEC`) with deterministic mode-specific behavior.
 36. Executor/replay synthetic texture sampling now models texture-filter/bilerp behavior via deterministic bilinear neighborhood sampling for texrect and textured triangles.
+37. Executor/replay combiner path now models `otherModes.combineKey` and `otherModes.convertOne` post-combine behavior.
+38. Executor/replay blender path now models `otherModes.colorDither`, `otherModes.alphaDither`, and `otherModes.textureEdge` output behavior.
+39. Executor/replay texture path now models `otherModes.texturePersp`, `otherModes.textureLOD`, `otherModes.textureDetail`, and `otherModes.textureLUT`.
+40. VI conformance now includes interlace field-phase behavior at executor level.
 
 ## Phase Status
 
@@ -54,7 +58,7 @@ This is the single execution tracker for the rewrite.
 
 ## Completion Estimate
 
-Estimated overall roadmap completion: **~76%**.
+Estimated overall roadmap completion: **~79%**.
 
 Heuristic phase weighting used for this estimate:
 - A: 20%
@@ -66,8 +70,8 @@ Heuristic phase weighting used for this estimate:
 
 Estimated phase progress used:
 - A: 100%
-- B: 79%
-- C: 70%
+- B: 83%
+- C: 75%
 - D: 100%
 - E: 0%
 - F: 0%
@@ -221,6 +225,11 @@ Estimated phase progress used:
    - executor/replay now apply mode-specific depth compare/update rules from `otherModes.depthMode`
    - executor/replay now apply deterministic texture-filter/bilerp sampling for texrect + textured triangle paths
    - added conformance coverage for `imageRead`, `depthMode`, and texture-filter transitions
+36. Added B/C mode-bit expansion pass:
+   - executor/replay now model combine-key + convert-one combiner behavior (`otherModes.combineKey`, `otherModes.convertOne`)
+   - executor/replay now model blender dither/edge behavior (`colorDither`, `alphaDither`, `textureEdge`)
+   - executor/replay now model texture perspective/LOD/detail/LUT behavior (`texturePersp`, `textureLOD`, `textureDetail`, `textureLUT`)
+   - added conformance coverage for combine-key/convert-one transitions, extended texture-mode transitions, and VI interlace field-phase behavior
 
 ## Current Bottlenecks
 

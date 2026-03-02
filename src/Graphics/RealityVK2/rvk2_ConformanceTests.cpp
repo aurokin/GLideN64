@@ -1597,6 +1597,195 @@ void testTextureFilterConformance()
 		"texture-filter transition should alter presented pixels");
 }
 
+void testCombinerKeyConvertConformance()
+{
+	rvk2::Executor executor;
+	rvk2::RenderWorkPacket base = makeTexRectWork(false);
+	base.sourcePacketId = 170ULL;
+	base.colorImageAddress = 0x00B30000U;
+	base.colorImageWidth = 8U;
+	base.rectULX = 0U;
+	base.rectULY = 0U;
+	base.rectLRX = 5U;
+	base.rectLRY = 3U;
+	base.keyState = 0xE1D2C3B4A5968778ULL;
+	base.convertState = 0x1020304050607080ULL;
+
+	rvk2::RenderWorkPacket keyVariant = base;
+	keyVariant.sourcePacketId = 171ULL;
+	keyVariant.otherModes = (1ULL << (32U + 8U));
+
+	rvk2::RenderWorkPacket convertVariant = keyVariant;
+	convertVariant.sourcePacketId = 172ULL;
+	convertVariant.otherModes |= (1ULL << (32U + 9U));
+
+	const std::vector<rvk2::SubmissionBatchPacket> batches{makeSingleBatch()};
+	const rvk2::ExecutorOutput baseOut =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{base}, batches);
+	const rvk2::ExecutorOutput keyOut =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{keyVariant}, batches);
+	const rvk2::ExecutorOutput convertOut =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{convertVariant}, batches);
+
+	expectTrue(
+		baseOut.summary.colorWriteCount > 0ULL,
+		"combine-key conformance baseline should write pixels");
+	expectEq(
+		keyOut.summary.colorWriteCount,
+		baseOut.summary.colorWriteCount,
+		"combine-key transition should preserve write coverage");
+	expectTrue(
+		keyOut.summary.presentHash != baseOut.summary.presentHash,
+		"combine-key transition should alter present hash");
+	expectTrue(
+		convertOut.summary.presentHash != keyOut.summary.presentHash,
+		"convert-one transition should alter present hash");
+}
+
+void testTextureExtendedModeConformance()
+{
+	rvk2::Executor executor;
+	rvk2::RenderWorkPacket base = makeTriangleWork();
+	base.sourcePacketId = 180ULL;
+	base.colorImageAddress = 0x00B40000U;
+	base.colorImageWidth = 8U;
+	base.rectULX = 0U;
+	base.rectULY = 0U;
+	base.rectLRX = 5U;
+	base.rectLRY = 5U;
+	base.textured = true;
+	base.triangleTextureEnable = true;
+	base.triangleShadeEnable = true;
+	base.triangleTexS = 0x00800000;
+	base.triangleTexT = 0x00400000;
+	base.triangleTexW = 0x01000000;
+	base.triangleTexDSDX = 0x00008000;
+	base.triangleTexDTDX = 0x00004000;
+	base.triangleTexDWDX = 0x00002000;
+	base.triangleTexDSDY = 0x00001000;
+	base.triangleTexDTDY = 0x00000800;
+	base.triangleTexDWDY = 0x00000400;
+	base.otherModes = 0ULL;
+
+	rvk2::RenderWorkPacket perspVariant = base;
+	perspVariant.sourcePacketId = 181ULL;
+	perspVariant.otherModes = (1ULL << (32U + 19U));
+
+	rvk2::RenderWorkPacket lodVariant = base;
+	lodVariant.sourcePacketId = 182ULL;
+	lodVariant.otherModes = (1ULL << (32U + 16U));
+
+	rvk2::RenderWorkPacket detailVariant = base;
+	detailVariant.sourcePacketId = 183ULL;
+	detailVariant.otherModes = (2ULL << (32U + 17U));
+
+	rvk2::RenderWorkPacket lutVariant = base;
+	lutVariant.sourcePacketId = 184ULL;
+	lutVariant.otherModes = (1ULL << (32U + 14U));
+
+	const std::vector<rvk2::SubmissionBatchPacket> batches{makeSingleBatch()};
+	const rvk2::ExecutorOutput baseOut =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{base}, batches);
+	const rvk2::ExecutorOutput perspOut =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{perspVariant}, batches);
+	const rvk2::ExecutorOutput lodOut =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{lodVariant}, batches);
+	const rvk2::ExecutorOutput detailOut =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{detailVariant}, batches);
+	const rvk2::ExecutorOutput lutOut =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{lutVariant}, batches);
+
+	expectTrue(
+		baseOut.summary.colorWriteCount > 0ULL,
+		"texture extended mode baseline should write pixels");
+	expectEq(
+		perspOut.summary.colorWriteCount,
+		baseOut.summary.colorWriteCount,
+		"texture persp transition should preserve write coverage");
+	expectEq(
+		lodOut.summary.colorWriteCount,
+		baseOut.summary.colorWriteCount,
+		"texture lod transition should preserve write coverage");
+	expectEq(
+		detailOut.summary.colorWriteCount,
+		baseOut.summary.colorWriteCount,
+		"texture detail transition should preserve write coverage");
+	expectEq(
+		lutOut.summary.colorWriteCount,
+		baseOut.summary.colorWriteCount,
+		"texture lut transition should preserve write coverage");
+	expectTrue(
+		perspOut.summary.presentHash != baseOut.summary.presentHash,
+		"texture persp transition should alter present hash");
+	expectTrue(
+		lodOut.summary.presentHash != baseOut.summary.presentHash,
+		"texture lod transition should alter present hash");
+	expectTrue(
+		detailOut.summary.presentHash != baseOut.summary.presentHash,
+		"texture detail transition should alter present hash");
+	expectTrue(
+		lutOut.summary.presentHash != baseOut.summary.presentHash,
+		"texture lut transition should alter present hash");
+}
+
+void testVIDFieldInterlaceConformance()
+{
+	const u32 colorAddress = 0x00B50000U;
+	constexpr u16 colorWidth = 2U;
+	std::vector<rvk2::RenderWorkPacket> workPackets;
+	workPackets.reserve(8U);
+	static constexpr u32 pattern[8] = {
+		0x101010FFU, 0x111111FFU,
+		0x202020FFU, 0x212121FFU,
+		0x303030FFU, 0x313131FFU,
+		0x404040FFU, 0x414141FFU
+	};
+	for (u32 y = 0U; y < 4U; ++y) {
+		for (u32 x = 0U; x < 2U; ++x) {
+			const u32 idx = y * 2U + x;
+			workPackets.push_back(
+				makePixelFillWork(
+					400ULL + static_cast<u64>(idx),
+					colorAddress,
+					colorWidth,
+					x,
+					y,
+					pattern[idx]));
+		}
+	}
+
+	const std::vector<rvk2::SubmissionBatchPacket> batches{
+		makeBatchForWorkCount(static_cast<u32>(workPackets.size()))
+	};
+
+	rvk2::ExecutorConfig field0Config =
+		makeVIExecutorConfig((3U | (3U << 8U)) | 0x000040U, colorAddress, 2U, 2U, 4U);
+	field0Config.viVCurrentLine = 0U;
+	rvk2::Executor field0Executor(field0Config);
+	const rvk2::ExecutorOutput field0Out =
+		field0Executor.executeWithOutput(workPackets, batches);
+
+	rvk2::ExecutorConfig field1Config = field0Config;
+	field1Config.viVCurrentLine = 1U;
+	rvk2::Executor field1Executor(field1Config);
+	const rvk2::ExecutorOutput field1Out =
+		field1Executor.executeWithOutput(workPackets, batches);
+
+	expectTrue(
+		!field0Out.presentFrame.pixels.empty(),
+		"VI interlace conformance baseline should produce present pixels");
+	expectEq(
+		field1Out.summary.colorWriteCount,
+		field0Out.summary.colorWriteCount,
+		"VI interlace field toggle should preserve write coverage");
+	expectTrue(
+		field1Out.summary.presentHash != field0Out.summary.presentHash,
+		"VI interlace field toggle should alter present hash");
+	expectTrue(
+		field1Out.presentFrame.pixels[0] != field0Out.presentFrame.pixels[0],
+		"VI interlace field toggle should alter first presented sample");
+}
+
 void testVIFilterModeConformance()
 {
 	const u32 colorAddress = 0x00AB0000U;
@@ -1845,6 +2034,9 @@ int main()
 	testImageReadConformance();
 	testDepthModeConformance();
 	testTextureFilterConformance();
+	testCombinerKeyConvertConformance();
+	testTextureExtendedModeConformance();
+	testVIDFieldInterlaceConformance();
 	testVIFilterModeConformance();
 	testVIFailSafeConformance();
 	testVIPixelAdvanceConformance();

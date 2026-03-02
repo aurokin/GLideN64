@@ -83,6 +83,65 @@ inline bool isTextureFilterEnabled(const rvk2::RenderWorkPacket & _work)
 	return ((mode0 >> 12U) & 0x3U) != 0U || ((mode0 >> 10U) & 0x3U) != 0U;
 }
 
+inline u8 decodeTextureLUTMode(const rvk2::RenderWorkPacket & _work)
+{
+	return static_cast<u8>((mode0Word(_work) >> 14U) & 0x3U);
+}
+
+inline u8 decodeTextureDetailMode(const rvk2::RenderWorkPacket & _work)
+{
+	return static_cast<u8>((mode0Word(_work) >> 17U) & 0x3U);
+}
+
+inline bool isTextureLodEnabled(const rvk2::RenderWorkPacket & _work)
+{
+	return (mode0Word(_work) & (1U << 16U)) != 0U;
+}
+
+inline bool isTexturePerspEnabled(const rvk2::RenderWorkPacket & _work)
+{
+	return (mode0Word(_work) & (1U << 19U)) != 0U;
+}
+
+inline bool isCombineKeyEnabled(const rvk2::RenderWorkPacket & _work)
+{
+	return (mode0Word(_work) & (1U << 8U)) != 0U;
+}
+
+inline bool isConvertOneEnabled(const rvk2::RenderWorkPacket & _work)
+{
+	return (mode0Word(_work) & (1U << 9U)) != 0U;
+}
+
+inline u8 decodeAlphaDitherMode(const rvk2::RenderWorkPacket & _work)
+{
+	return static_cast<u8>((mode0Word(_work) >> 4U) & 0x3U);
+}
+
+inline u8 decodeColorDitherMode(const rvk2::RenderWorkPacket & _work)
+{
+	return static_cast<u8>((mode0Word(_work) >> 6U) & 0x3U);
+}
+
+inline bool isTextureEdgeEnabled(const rvk2::RenderWorkPacket & _work)
+{
+	return (mode1Word(_work) & (1U << 15U)) != 0U;
+}
+
+inline s64 absS64(s64 _value)
+{
+	return _value < 0 ? -_value : _value;
+}
+
+inline s32 clampS32FromS64(s64 _value)
+{
+	if (_value < static_cast<s64>(std::numeric_limits<s32>::min()))
+		return std::numeric_limits<s32>::min();
+	if (_value > static_cast<s64>(std::numeric_limits<s32>::max()))
+		return std::numeric_limits<s32>::max();
+	return static_cast<s32>(_value);
+}
+
 inline s32 wrapCoordPositive(s32 _value, s32 _period)
 {
 	if (_period <= 0)
@@ -207,6 +266,136 @@ inline u32 bilerpColorRGBA(
 	return (r << 24U) | (g << 16U) | (b << 8U) | a;
 }
 
+inline void applyTextureCoordinateModes(
+	const rvk2::RenderWorkPacket & _work,
+	s32 & _s,
+	s32 & _t,
+	s32 & _w,
+	bool _includeW)
+{
+	s64 s = static_cast<s64>(_s);
+	s64 t = static_cast<s64>(_t);
+	const s64 wAbs = absS64(static_cast<s64>(_w));
+	if (_includeW && isTexturePerspEnabled(_work) && wAbs > 0) {
+		const s64 denom = (wAbs >> 8U) + 1;
+		s = (s * 256 + (denom / 2)) / denom;
+		t = (t * 256 + (denom / 2)) / denom;
+	}
+
+	if (isTextureLodEnabled(_work)) {
+		const s64 lod = _includeW
+			? std::min<s64>(255, wAbs >> 12U)
+			: std::min<s64>(255, (absS64(s) + absS64(t)) >> 8U);
+		const u8 detailMode = decodeTextureDetailMode(_work);
+		const s64 signedLod = detailMode == 1U ? -lod : lod;
+		s += signedLod;
+		t += detailMode == 2U ? (signedLod >> 1U) : signedLod;
+	}
+
+	_s = clampS32FromS64(s);
+	_t = clampS32FromS64(t);
+}
+
+inline u32 applyTextureLUTModeColor(
+	const rvk2::RenderWorkPacket & _work,
+	u64 _seed,
+	u32 _rgba)
+{
+	const u8 lutMode = decodeTextureLUTMode(_work);
+	if (lutMode == 0U)
+		return _rgba;
+
+	u8 r = static_cast<u8>((_rgba >> 24U) & 0xFFU);
+	u8 g = static_cast<u8>((_rgba >> 16U) & 0xFFU);
+	u8 b = static_cast<u8>((_rgba >> 8U) & 0xFFU);
+	u8 a = static_cast<u8>(_rgba & 0xFFU);
+	u8 index = static_cast<u8>(r ^ g ^ b ^ static_cast<u8>(_work.tilePalette << 4U));
+	if (lutMode >= 2U)
+		index = static_cast<u8>((static_cast<u32>(r) + static_cast<u32>(g) + static_cast<u32>(b)) / 3U);
+
+	u64 paletteSeed = _seed;
+	mixTextureSeed(paletteSeed, static_cast<u64>(index));
+	mixTextureSeed(paletteSeed, static_cast<u64>(_work.textureImageAddress));
+	mixTextureSeed(paletteSeed, static_cast<u64>(_work.tilePalette));
+	paletteSeed *= 0xD6E8FEB86659FD93ULL;
+
+	if (lutMode == 1U) {
+		r = static_cast<u8>((paletteSeed >> 8U) & 0xFFU);
+		g = static_cast<u8>((paletteSeed >> 24U) & 0xFFU);
+		b = static_cast<u8>((paletteSeed >> 40U) & 0xFFU);
+		a = 255U;
+	}
+	else if (lutMode == 2U) {
+		const u8 intensity = static_cast<u8>((paletteSeed >> 16U) & 0xFFU);
+		const u8 alpha = static_cast<u8>((paletteSeed >> 32U) & 0xFFU);
+		r = intensity;
+		g = intensity;
+		b = intensity;
+		a = alpha;
+	}
+	else {
+		const u8 intensity = static_cast<u8>((paletteSeed >> 16U) & 0xFFU);
+		const u8 alpha4 = static_cast<u8>((paletteSeed >> 28U) & 0xFU);
+		r = intensity;
+		g = intensity;
+		b = intensity;
+		a = static_cast<u8>(alpha4 * 17U);
+	}
+
+	return (static_cast<u32>(r) << 24U)
+		| (static_cast<u32>(g) << 16U)
+		| (static_cast<u32>(b) << 8U)
+		| static_cast<u32>(a);
+}
+
+inline u8 clampChannelS32(s32 _value)
+{
+	if (_value < 0)
+		return 0U;
+	if (_value > 255)
+		return 255U;
+	return static_cast<u8>(_value);
+}
+
+inline u32 applyTextureDetailModeColor(
+	const rvk2::RenderWorkPacket & _work,
+	u64 _seed,
+	u32 _rgba)
+{
+	const u8 mode = decodeTextureDetailMode(_work);
+	if (mode == 0U)
+		return _rgba;
+
+	s32 r = static_cast<s32>((_rgba >> 24U) & 0xFFU);
+	s32 g = static_cast<s32>((_rgba >> 16U) & 0xFFU);
+	s32 b = static_cast<s32>((_rgba >> 8U) & 0xFFU);
+	const u8 a = static_cast<u8>(_rgba & 0xFFU);
+	const s32 n0 = static_cast<s32>((_seed >> 8U) & 0xFFU);
+	const s32 n1 = static_cast<s32>((_seed >> 24U) & 0xFFU);
+	const s32 n2 = static_cast<s32>((_seed >> 40U) & 0xFFU);
+
+	if (mode == 1U) {
+		r = 128 + ((r - 128) * 3) / 2;
+		g = 128 + ((g - 128) * 3) / 2;
+		b = 128 + ((b - 128) * 3) / 2;
+	}
+	else if (mode == 2U) {
+		r = (r * 3 + n0 + 2) / 4;
+		g = (g * 3 + n1 + 2) / 4;
+		b = (b * 3 + n2 + 2) / 4;
+	}
+	else {
+		r = (r + n0 + 1) / 2;
+		g = (g + n1 + 1) / 2;
+		b = (b + n2 + 1) / 2;
+	}
+
+	return (static_cast<u32>(clampChannelS32(r)) << 24U)
+		| (static_cast<u32>(clampChannelS32(g)) << 16U)
+		| (static_cast<u32>(clampChannelS32(b)) << 8U)
+		| static_cast<u32>(a);
+}
+
 inline u32 samplePseudoTexelColor(
 	const rvk2::RenderWorkPacket & _work,
 	s32 _s,
@@ -216,6 +405,7 @@ inline u32 samplePseudoTexelColor(
 	u32 _x,
 	u32 _y)
 {
+	applyTextureCoordinateModes(_work, _s, _t, _w, _includeW);
 	u64 seed = buildTextureSeedBase(_work);
 	mixTextureSeed(seed, static_cast<u64>(static_cast<u32>(_s)));
 	mixTextureSeed(seed, static_cast<u64>(static_cast<u32>(_t)));
@@ -230,10 +420,13 @@ inline u32 samplePseudoTexelColor(
 	const u8 g = static_cast<u8>((seed >> 24) & 0xFFU);
 	const u8 b = static_cast<u8>((seed >> 40) & 0xFFU);
 	const u8 a = 255U;
-	return (static_cast<u32>(r) << 24)
+	u32 rgba = (static_cast<u32>(r) << 24)
 		| (static_cast<u32>(g) << 16)
 		| (static_cast<u32>(b) << 8)
 		| static_cast<u32>(a);
+	rgba = applyTextureLUTModeColor(_work, seed, rgba);
+	rgba = applyTextureDetailModeColor(_work, seed, rgba);
+	return rgba;
 }
 
 inline u32 pseudoTexel(
@@ -682,7 +875,29 @@ inline u32 applySyntheticCombiner(
 		evalSyntheticCombinerChannel(_combineMux, 24U, tex.b, shade.b, base.b, constant.b, noise.b, dst.b),
 		evalSyntheticCombinerChannel(_combineMux, 36U, tex.a, shade.a, base.a, constant.a, noise.a, dst.a)
 	};
-	return packRGBA(out);
+	ColorRGBA resolved = out;
+	if (isCombineKeyEnabled(_work)) {
+		const u32 laneShift = static_cast<u32>((_x + _y) & 0x7U) * 8U;
+		const u8 keyMix = static_cast<u8>((_work.keyState >> laneShift) & 0xFFULL);
+		resolved.a = static_cast<u8>(
+			(static_cast<u32>(resolved.a) * static_cast<u32>(keyMix) + 127U) / 255U);
+		const u8 invMix = static_cast<u8>(255U - keyMix);
+		resolved.r = static_cast<u8>(
+			(static_cast<u32>(resolved.r) * static_cast<u32>(invMix)
+				+ static_cast<u32>(keyMix) * static_cast<u32>(noise.r)
+				+ 127U) / 255U);
+		resolved.g = static_cast<u8>(
+			(static_cast<u32>(resolved.g) * static_cast<u32>(invMix)
+				+ static_cast<u32>(keyMix) * static_cast<u32>(noise.g)
+				+ 127U) / 255U);
+		resolved.b = static_cast<u8>(
+			(static_cast<u32>(resolved.b) * static_cast<u32>(invMix)
+				+ static_cast<u32>(keyMix) * static_cast<u32>(noise.b)
+				+ 127U) / 255U);
+	}
+	if (isConvertOneEnabled(_work))
+		resolved.a = 255U;
+	return packRGBA(resolved);
 }
 
 inline u32 applySyntheticCombiner(
@@ -716,6 +931,57 @@ inline u8 blendChannel(u8 _src, u8 _dst, u32 _srcWeight, u32 _dstWeight)
 		static_cast<u32>(_src) * _srcWeight
 		+ static_cast<u32>(_dst) * _dstWeight;
 	return static_cast<u8>((blended + (sum / 2U)) / sum);
+}
+
+inline s32 bayerDither4x4(u32 _x, u32 _y)
+{
+	static constexpr s32 kBayer4x4[16] = {
+		-8, 0, -6, 2,
+		4, -4, 6, -2,
+		-5, 3, -7, 1,
+		7, -1, 5, -3
+	};
+	return kBayer4x4[((_y & 0x3U) << 2U) | (_x & 0x3U)];
+}
+
+inline s32 syntheticNoiseSigned8(
+	const rvk2::RenderWorkPacket & _work,
+	u32 _x,
+	u32 _y,
+	u32 _lane)
+{
+	u64 seed = 1469598103934665603ULL;
+	mixTextureSeed(seed, static_cast<u64>(_x));
+	mixTextureSeed(seed, static_cast<u64>(_y));
+	mixTextureSeed(seed, static_cast<u64>(_lane));
+	mixTextureSeed(seed, static_cast<u64>(_work.sourcePacketId));
+	mixTextureSeed(seed, static_cast<u64>(_work.syncEpoch));
+	mixTextureSeed(seed, static_cast<u64>(_work.otherModes));
+	const s32 raw = static_cast<s32>((seed >> 16U) & 0xFFU);
+	return raw - 128;
+}
+
+inline u8 applySyntheticDitherMode(
+	u8 _value,
+	u8 _mode,
+	s32 _bayer,
+	s32 _noise)
+{
+	s32 adjusted = static_cast<s32>(_value);
+	switch (_mode & 0x3U) {
+	case 1U:
+		adjusted += _bayer;
+		break;
+	case 2U:
+		adjusted += _noise >> 4U;
+		break;
+	case 3U:
+		adjusted += (_bayer + (_noise >> 4U)) / 2;
+		break;
+	default:
+		break;
+	}
+	return clampChannelS32(adjusted);
 }
 
 struct SyntheticCoverageSample
@@ -866,6 +1132,41 @@ inline u32 applySyntheticBlender(
 	out.a = blendChannel(src.a, dst.a, srcWeight, dstWeight);
 	if (useCoverageControls && _work.alphaCvgSel)
 		out.a = static_cast<u8>((static_cast<u32>(coverage.resolved) * 255U + 3U) / 7U);
+
+	const u8 colorDitherMode = decodeColorDitherMode(_work);
+	const u8 alphaDitherMode = decodeAlphaDitherMode(_work);
+	if (colorDitherMode != 0U || alphaDitherMode != 0U) {
+		const s32 bayer = bayerDither4x4(_x, _y);
+		if (colorDitherMode != 0U) {
+			out.r = applySyntheticDitherMode(
+				out.r,
+				colorDitherMode,
+				bayer,
+				syntheticNoiseSigned8(_work, _x, _y, 0U));
+			out.g = applySyntheticDitherMode(
+				out.g,
+				colorDitherMode,
+				bayer,
+				syntheticNoiseSigned8(_work, _x, _y, 1U));
+			out.b = applySyntheticDitherMode(
+				out.b,
+				colorDitherMode,
+				bayer,
+				syntheticNoiseSigned8(_work, _x, _y, 2U));
+		}
+		if (alphaDitherMode != 0U) {
+			out.a = applySyntheticDitherMode(
+				out.a,
+				alphaDitherMode,
+				bayer,
+				syntheticNoiseSigned8(_work, _x, _y, 3U));
+		}
+	}
+
+	if (isTextureEdgeEnabled(_work) && out.a > 0U && out.a < 128U)
+		out.a = 255U;
+	if (isConvertOneEnabled(_work))
+		out.a = 255U;
 	return packRGBA(out);
 }
 
