@@ -31,6 +31,7 @@ This is the single execution tracker for the rewrite.
 25. VI presenter now enforces register-window edge clipping (out-of-range samples resolve to black) and blank output on invalid H/V windows.
 26. VI presentation now applies origin-relative base pixel offsets only when `VI_ORIGIN` maps to a selected surface.
 27. VI register-driven sampling now treats `VI_WIDTH` as source line stride for linear address generation.
+28. VI presenter now models `VI_CTRL.DEDITHER_ENABLE` (bit 16) for 16bpp in compatible AA modes and treats `AA_MODE=REPLICATE` as the only no-resample path.
 
 ## Phase Status
 
@@ -45,7 +46,7 @@ This is the single execution tracker for the rewrite.
 
 ## Completion Estimate
 
-Estimated overall roadmap completion: **~68%**.
+Estimated overall roadmap completion: **~69%**.
 
 Heuristic phase weighting used for this estimate:
 - A: 20%
@@ -59,7 +60,7 @@ Estimated phase progress used:
 - A: 100%
 - B: 74%
 - C: 65%
-- D: 74%
+- D: 79%
 - E: 0%
 - F: 0%
 
@@ -181,6 +182,11 @@ Estimated phase progress used:
    - source sampling validity now resolves through stride-aware linear bounds (including out-of-range row/offset clip-to-black behavior)
    - AA/divot neighborhood taps now operate on stride-aware linear neighbors for register-driven paths
    - unit coverage added for stride remapping (`VI_WIDTH < sourceWidth`) and stride overflow clipping (`VI_WIDTH > backing width`)
+29. Expanded VI filter-mode semantics:
+   - AA mode handling now follows VI mode intent (`REPLICATE` bypass only; other modes use deterministic resample kernels)
+   - `VI_CTRL.DEDITHER_ENABLE` now applies a deterministic 8-neighbor correction path for 16bpp when AA mode is `AA_ALWAYS` or `REPLICATE`
+   - dedither is intentionally inactive for incompatible modes (`AA_NEEDED`/`RESAMPLE`) to avoid unsupported behavior drift
+   - unit coverage added for dedither-on/off divergence and AA-mode-gated dedither behavior
 
 ## Current Bottlenecks
 

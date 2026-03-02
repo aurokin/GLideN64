@@ -1,6 +1,7 @@
 #include "rvk2_VIRenderer.h"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
@@ -15,10 +16,12 @@ constexpr u32 kVIStatusGammaEnabled = 0x000008U;
 constexpr u32 kVIStatusDivotEnabled = 0x000010U;
 constexpr u32 kVIStatusSerrateEnabled = 0x000040U;
 constexpr u32 kVIStatusAAModeMask = 0x000300U;
+constexpr u32 kVIStatusDeditherEnabled = 0x010000U;
 
 struct VIResolvedState
 {
 	bool useRegisters = false;
+	bool deditherEnabled = false;
 	bool gammaDitherEnabled = false;
 	bool gammaEnabled = false;
 	bool divotEnabled = false;
@@ -174,7 +177,7 @@ u32 filterAAPixel(
 	u32 _down,
 	u8 _aaMode)
 {
-	if (_aaMode == 0U || _aaMode == 3U)
+	if (_aaMode == 3U)
 		return _center;
 
 	const auto selectChannel = [](u32 _pixel, u32 _shift) -> u32 {
@@ -188,9 +191,11 @@ u32 filterAAPixel(
 		const u32 up = selectChannel(_up, _shift);
 		const u32 down = selectChannel(_down, _shift);
 		u32 value = center;
-		if (_aaMode == 1U)
+		if (_aaMode == 0U)
+			value = (center * 3U + left + right + up + down + 3U) / 7U;
+		else if (_aaMode == 1U)
 			value = (center * 2U + left + right + 2U) / 4U;
-		else if (_aaMode == 2U)
+		else
 			value = (center * 2U + left + right + up + down + 3U) / 6U;
 		return static_cast<u8>(value & 0xFFU);
 	};
@@ -198,6 +203,55 @@ u32 filterAAPixel(
 	const u8 r = filterChannel(24U);
 	const u8 g = filterChannel(16U);
 	const u8 b = filterChannel(8U);
+	const u8 a = static_cast<u8>(_center & 0xFFU);
+	return (static_cast<u32>(r) << 24U)
+		| (static_cast<u32>(g) << 16U)
+		| (static_cast<u32>(b) << 8U)
+		| static_cast<u32>(a);
+}
+
+u8 deditherChannel(u8 _center, const std::array<u8, 8> & _neighbors)
+{
+	u32 sum = 0U;
+	for (u8 value : _neighbors)
+		sum += static_cast<u32>(value);
+	const u8 mean = static_cast<u8>((sum + 4U) / 8U);
+	const s32 delta = static_cast<s32>(_center) - static_cast<s32>(mean);
+	if (delta > 48 || delta < -48)
+		return _center;
+	return static_cast<u8>(
+		(static_cast<u32>(_center) + static_cast<u32>(mean) * 3U + 2U) / 4U);
+}
+
+u32 applyDeditherToPixel(
+	u32 _center,
+	u32 _left,
+	u32 _right,
+	u32 _up,
+	u32 _down,
+	u32 _upLeft,
+	u32 _upRight,
+	u32 _downLeft,
+	u32 _downRight)
+{
+	const auto deditherComponent = [&](u32 _shift) -> u8 {
+		const u8 center = static_cast<u8>((_center >> _shift) & 0xFFU);
+		const std::array<u8, 8> neighbors{
+			static_cast<u8>((_left >> _shift) & 0xFFU),
+			static_cast<u8>((_right >> _shift) & 0xFFU),
+			static_cast<u8>((_up >> _shift) & 0xFFU),
+			static_cast<u8>((_down >> _shift) & 0xFFU),
+			static_cast<u8>((_upLeft >> _shift) & 0xFFU),
+			static_cast<u8>((_upRight >> _shift) & 0xFFU),
+			static_cast<u8>((_downLeft >> _shift) & 0xFFU),
+			static_cast<u8>((_downRight >> _shift) & 0xFFU)
+		};
+		return deditherChannel(center, neighbors);
+	};
+
+	const u8 r = deditherComponent(24U);
+	const u8 g = deditherComponent(16U);
+	const u8 b = deditherComponent(8U);
 	const u8 a = static_cast<u8>(_center & 0xFFU);
 	return (static_cast<u32>(r) << 24U)
 		| (static_cast<u32>(g) << 16U)
@@ -270,6 +324,7 @@ VIResolvedState resolveVIState(
 
 	state.useRegisters = true;
 	state.viType = static_cast<u8>(_input.registers.status & kVIStatusTypeMask);
+	state.deditherEnabled = (_input.registers.status & kVIStatusDeditherEnabled) != 0U;
 	state.gammaDitherEnabled = (_input.registers.status & kVIStatusGammaDitherEnabled) != 0U;
 	state.gammaEnabled = (_input.registers.status & kVIStatusGammaEnabled) != 0U;
 	state.divotEnabled = (_input.registers.status & kVIStatusDivotEnabled) != 0U;
@@ -486,31 +541,64 @@ VIFrameSummary VIRenderer::present(
 					pixel = applyVITypeDecode(
 						(*_input.sourcePixels)[static_cast<size_t>(sampleIndex)],
 						viState.viType);
-					if (viState.aaMode != 0U && viState.aaMode != 3U) {
+					const bool deditherActive =
+						viState.deditherEnabled
+						&& viState.viType == 2U
+						&& (viState.aaMode == 0U || viState.aaMode == 3U);
+					const bool needsNeighborhood =
+						deditherActive || viState.aaMode != 3U || viState.divotEnabled;
+					if (needsNeighborhood) {
 						u64 leftIndex = sampleIndex;
 						u64 rightIndex = sampleIndex;
 						u64 upIndex = sampleIndex;
 						u64 downIndex = sampleIndex;
+						u64 upLeftIndex = sampleIndex;
+						u64 upRightIndex = sampleIndex;
+						u64 downLeftIndex = sampleIndex;
+						u64 downRightIndex = sampleIndex;
+
 						if (viState.useRegisters) {
-							if (sourceX > 0U && sampleIndex > 0ULL)
+							const u64 stride64 = static_cast<u64>(sourceLineStride);
+							const bool hasLeft = sourceX > 0U && sampleIndex > 0ULL;
+							const bool hasRight =
+								sourceX + 1U < sourceLineStride
+								&& sampleIndex + 1ULL < sourcePixelCount;
+							const bool hasUp = sourceY > 0U && sampleIndex >= stride64;
+							const bool hasDown = sampleIndex + stride64 < sourcePixelCount;
+
+							if (hasLeft)
 								leftIndex = sampleIndex - 1ULL;
-							if (sourceX + 1U < sourceLineStride && sampleIndex + 1ULL < sourcePixelCount)
+							if (hasRight)
 								rightIndex = sampleIndex + 1ULL;
-							if (sourceY > 0U && sampleIndex >= static_cast<u64>(sourceLineStride))
-								upIndex = sampleIndex - static_cast<u64>(sourceLineStride);
-							if (sampleIndex + static_cast<u64>(sourceLineStride) < sourcePixelCount)
-								downIndex = sampleIndex + static_cast<u64>(sourceLineStride);
+							if (hasUp)
+								upIndex = sampleIndex - stride64;
+							if (hasDown)
+								downIndex = sampleIndex + stride64;
+							if (hasUp && hasLeft)
+								upLeftIndex = sampleIndex - stride64 - 1ULL;
+							if (hasUp && hasRight)
+								upRightIndex = sampleIndex - stride64 + 1ULL;
+							if (hasDown && hasLeft)
+								downLeftIndex = sampleIndex + stride64 - 1ULL;
+							if (hasDown && hasRight)
+								downRightIndex = sampleIndex + stride64 + 1ULL;
 						}
 						else {
 							const u32 sourceXLeft = sourceX > 0U ? sourceX - 1U : sourceX;
 							const u32 sourceXRight = std::min<u32>(viState.sourceWidth - 1U, sourceX + 1U);
 							const u32 sourceYUp = sourceY > 0U ? sourceY - 1U : sourceY;
 							const u32 sourceYDown = std::min<u32>(viState.sourceHeight - 1U, sourceY + 1U);
+
 							leftIndex = static_cast<u64>(pixelIndex(_input.sourceWidth, sourceXLeft, sourceY));
 							rightIndex = static_cast<u64>(pixelIndex(_input.sourceWidth, sourceXRight, sourceY));
 							upIndex = static_cast<u64>(pixelIndex(_input.sourceWidth, sourceX, sourceYUp));
 							downIndex = static_cast<u64>(pixelIndex(_input.sourceWidth, sourceX, sourceYDown));
+							upLeftIndex = static_cast<u64>(pixelIndex(_input.sourceWidth, sourceXLeft, sourceYUp));
+							upRightIndex = static_cast<u64>(pixelIndex(_input.sourceWidth, sourceXRight, sourceYUp));
+							downLeftIndex = static_cast<u64>(pixelIndex(_input.sourceWidth, sourceXLeft, sourceYDown));
+							downRightIndex = static_cast<u64>(pixelIndex(_input.sourceWidth, sourceXRight, sourceYDown));
 						}
+
 						const u32 leftPixel = applyVITypeDecode(
 							(*_input.sourcePixels)[static_cast<size_t>(leftIndex)],
 							viState.viType);
@@ -523,30 +611,43 @@ VIFrameSummary VIRenderer::present(
 						const u32 downPixel = applyVITypeDecode(
 							(*_input.sourcePixels)[static_cast<size_t>(downIndex)],
 							viState.viType);
-						pixel = filterAAPixel(pixel, leftPixel, rightPixel, upPixel, downPixel, viState.aaMode);
-					}
-					if (viState.divotEnabled && sourceLineStride > 1U) {
-						u64 leftIndex = sampleIndex;
-						u64 rightIndex = sampleIndex;
-						if (viState.useRegisters) {
-							if (sourceX > 0U && sampleIndex > 0ULL)
-								leftIndex = sampleIndex - 1ULL;
-							if (sourceX + 1U < sourceLineStride && sampleIndex + 1ULL < sourcePixelCount)
-								rightIndex = sampleIndex + 1ULL;
+
+						if (deditherActive) {
+							const u32 upLeftPixel = applyVITypeDecode(
+								(*_input.sourcePixels)[static_cast<size_t>(upLeftIndex)],
+								viState.viType);
+							const u32 upRightPixel = applyVITypeDecode(
+								(*_input.sourcePixels)[static_cast<size_t>(upRightIndex)],
+								viState.viType);
+							const u32 downLeftPixel = applyVITypeDecode(
+								(*_input.sourcePixels)[static_cast<size_t>(downLeftIndex)],
+								viState.viType);
+							const u32 downRightPixel = applyVITypeDecode(
+								(*_input.sourcePixels)[static_cast<size_t>(downRightIndex)],
+								viState.viType);
+							pixel = applyDeditherToPixel(
+								pixel,
+								leftPixel,
+								rightPixel,
+								upPixel,
+								downPixel,
+								upLeftPixel,
+								upRightPixel,
+								downLeftPixel,
+								downRightPixel);
 						}
-						else {
-							const u32 sourceXLeft = sourceX > 0U ? sourceX - 1U : sourceX;
-							const u32 sourceXRight = std::min<u32>(viState.sourceWidth - 1U, sourceX + 1U);
-							leftIndex = static_cast<u64>(pixelIndex(_input.sourceWidth, sourceXLeft, sourceY));
-							rightIndex = static_cast<u64>(pixelIndex(_input.sourceWidth, sourceXRight, sourceY));
+						else if (viState.aaMode != 3U) {
+							pixel = filterAAPixel(
+								pixel,
+								leftPixel,
+								rightPixel,
+								upPixel,
+								downPixel,
+								viState.aaMode);
 						}
-						const u32 leftPixel = applyVITypeDecode(
-							(*_input.sourcePixels)[static_cast<size_t>(leftIndex)],
-							viState.viType);
-						const u32 rightPixel = applyVITypeDecode(
-							(*_input.sourcePixels)[static_cast<size_t>(rightIndex)],
-							viState.viType);
-						pixel = applyDivotToPixel(leftPixel, pixel, rightPixel);
+
+						if (viState.divotEnabled && sourceLineStride > 1U)
+							pixel = applyDivotToPixel(leftPixel, pixel, rightPixel);
 					}
 				}
 			}
