@@ -1728,6 +1728,10 @@ inline bool passesSyntheticAlphaCompare(
 	u32 _x,
 	u32 _y)
 {
+	if (_work.phase == static_cast<u8>(rvk2::RenderPhase::kCopy)
+		|| _work.phase == static_cast<u8>(rvk2::RenderPhase::kFill))
+		return true;
+
 	if (_work.alphaCompare == 0U)
 		return true;
 
@@ -1755,6 +1759,10 @@ inline bool passesSyntheticCoverageWrite(
 	u32 _x,
 	u32 _y)
 {
+	if (_work.phase == static_cast<u8>(rvk2::RenderPhase::kCopy)
+		|| _work.phase == static_cast<u8>(rvk2::RenderPhase::kFill))
+		return true;
+
 	if (!_work.colorOnCvg)
 		return true;
 

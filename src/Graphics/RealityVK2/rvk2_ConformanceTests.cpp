@@ -1571,6 +1571,85 @@ void testFillPhaseIgnoresBlendCombinerConformance()
 		"fill phase should ignore blend/combiner state for fill rect");
 }
 
+void testCopyFillBypassAlphaCoverageConformance()
+{
+	rvk2::Executor executor;
+
+	rvk2::RenderWorkPacket copyBase = makeTexRectWork(false);
+	copyBase.sourcePacketId = 71ULL;
+	copyBase.phase = static_cast<u8>(rvk2::RenderPhase::kCopy);
+	copyBase.cycleType = 2U;
+	copyBase.colorImageAddress = 0x00A09000U;
+	copyBase.colorImageWidth = 8U;
+	copyBase.rectULX = 0U;
+	copyBase.rectULY = 0U;
+	copyBase.rectLRX = 5U;
+	copyBase.rectLRY = 3U;
+	copyBase.otherModes = 0ULL;
+
+	rvk2::RenderWorkPacket copyGated = copyBase;
+	copyGated.sourcePacketId = 72ULL;
+	copyGated.alphaCompare = 1U;
+	copyGated.blendColor = 0x000000FFU;
+	copyGated.colorOnCvg = true;
+	copyGated.cvgDest = 3U;
+	copyGated.cvgXAlpha = true;
+	copyGated.alphaCvgSel = true;
+	copyGated.forceBlender = true;
+	copyGated.blendMask = 0xFU;
+	copyGated.otherModes |= (1ULL << 6U); // imageRead
+
+	const std::vector<rvk2::SubmissionBatchPacket> oneBatch{makeSingleBatch()};
+	const rvk2::ExecutorOutput copyBaseOut =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{copyBase}, oneBatch);
+	const rvk2::ExecutorOutput copyGatedOut =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{copyGated}, oneBatch);
+	expectTrue(copyBaseOut.summary.colorWriteCount > 0ULL, "copy alpha/coverage bypass baseline should write");
+	expectEq(
+		copyGatedOut.summary.colorWriteCount,
+		copyBaseOut.summary.colorWriteCount,
+		"copy phase should bypass alpha compare and coverage-gated write suppression");
+	expectEq(
+		copyGatedOut.summary.presentHash,
+		copyBaseOut.summary.presentHash,
+		"copy phase alpha/coverage controls should not alter present hash");
+	expectTrue(
+		presentFramesEqual(copyGatedOut, copyBaseOut),
+		"copy phase alpha/coverage controls should not alter presented pixels");
+
+	rvk2::RenderWorkPacket fillBase = makeFillWork(73ULL, 0x00A0A000U, 0x30C06080U);
+	fillBase.rectLRX = 5U;
+	fillBase.rectLRY = 3U;
+	fillBase.phase = static_cast<u8>(rvk2::RenderPhase::kFill);
+	fillBase.cycleType = 3U;
+
+	rvk2::RenderWorkPacket fillGated = fillBase;
+	fillGated.sourcePacketId = 74ULL;
+	fillGated.alphaCompare = 2U;
+	fillGated.colorOnCvg = true;
+	fillGated.cvgDest = 3U;
+	fillGated.cvgXAlpha = true;
+	fillGated.alphaCvgSel = true;
+	fillGated.forceBlender = true;
+	fillGated.blendMask = 0xFU;
+	fillGated.blendColor = 0x000000FFU;
+	fillGated.otherModes = (1ULL << 6U); // imageRead
+
+	const rvk2::ExecutorOutput fillBaseOut =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{fillBase}, oneBatch);
+	const rvk2::ExecutorOutput fillGatedOut =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{fillGated}, oneBatch);
+	expectTrue(fillBaseOut.summary.colorWriteCount > 0ULL, "fill alpha/coverage bypass baseline should write");
+	expectEq(
+		fillGatedOut.summary.colorWriteCount,
+		fillBaseOut.summary.colorWriteCount,
+		"fill phase should bypass alpha compare and coverage-gated write suppression");
+	expectEq(
+		fillGatedOut.summary.presentHash,
+		fillBaseOut.summary.presentHash,
+		"fill phase alpha/coverage controls should not alter present hash");
+}
+
 void testTexRectFlipConformance()
 {
 	rvk2::Executor executor;
@@ -2610,6 +2689,7 @@ int main()
 	testCycle2PhaseDistinctConformance();
 	testCycle2CombinerSelectorIsolationConformance();
 	testFillPhaseIgnoresBlendCombinerConformance();
+	testCopyFillBypassAlphaCoverageConformance();
 	testTexRectFlipConformance();
 	testTexRectStateSensitivityConformance();
 	testRenderStateInputSensitivityConformance();

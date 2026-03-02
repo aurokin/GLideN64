@@ -63,6 +63,7 @@ This is the single execution tracker for the rewrite.
 57. Executor combiner path now models extended selector sources (`LOD_FRACTION`, `PRIM_LOD_FRAC`, `K5`, and alpha-selector lanes) and conformance now asserts these selector transitions alter output deterministically.
 58. Executor coverage-gated write semantics now use cycle-aware destination alpha in cycle2 (using cycle1 output as coverage destination), with dedicated conformance coverage.
 59. Submission-plan split classification coverage is now explicit in unit tests (`start`/`barrier`/`phase`/`cycle`/`render-target`/`scissor` + non-submittable unknown-phase path), closing Phase B semantic-batching test gaps.
+60. Copy/fill phase behavior now bypasses alpha-compare and coverage-gated write suppression semantics (cycle-pipeline-only), with dedicated conformance coverage.
 
 ## Phase Status
 
@@ -70,14 +71,14 @@ This is the single execution tracker for the rewrite.
 | --- | --- | --- |
 | A: Contracts and Determinism | Done | Schema, trace, replay, gate wiring, ADR baseline are in place. |
 | B: Semantic Pipeline Backbone | Done | Draw semantic -> raster -> render-work -> submission -> executor path is deterministic and now has explicit split-classification coverage. |
-| C: Core Rendering Correctness | In progress | Fill/texrect/triangle backbone exists with stronger blend/coverage semantics; full cycle-accurate closure is still open. |
+| C: Core Rendering Correctness | Done | Fill/copy/texrect/triangle/depth/coverage/blend hazard behavior is closed for the scoped synthetic contract and covered by conformance. |
 | D: VI and Presentation | Done | Register-driven source selection/scaling/filter/fail-safe behavior is implemented with unit + conformance + smoke coverage for current scoped contract. |
 | E: Texture Replacement | In progress | Deterministic key/cache contracts, store APIs, `.htc` IO, pack-index ingest, lifecycle controls, bounded load policy, optional executor sampling, pack-index tooling, and replacement observability counters are landed; runtime UX polish and cutover wiring are still open. |
 | F: Cutover and Deletion | Not started | `rvk2` is not default and legacy-derived paths still exist. |
 
 ## Completion Estimate
 
-Estimated overall roadmap completion: **~92%**.
+Estimated overall roadmap completion: **~94%**.
 
 Heuristic phase weighting used for this estimate:
 - A: 20%
@@ -90,7 +91,7 @@ Heuristic phase weighting used for this estimate:
 Estimated phase progress used:
 - A: 100%
 - B: 100%
-- C: 92%
+- C: 100%
 - D: 100%
 - E: 65%
 - F: 0%
@@ -308,30 +309,31 @@ Estimated phase progress used:
    - unit tests now directly cover submission split reasons for barrier/phase/cycle/render-target/scissor transitions
    - unit tests now cover same-state append aggregation counters and non-submittable unknown-phase filtering
    - deterministic batching-classification contract is now explicitly validated in local gate
+50. Added Phase C copy/fill alpha+coverage bypass closure:
+   - copy/fill phase write paths now bypass alpha-compare and coverage-gated write suppression behavior
+   - conformance now includes copy/fill bypass validation under aggressive alpha/coverage mode settings
+   - local gate remains clean across release/debug unit + conformance suites
 
 ## Current Bottlenecks
 
-1. Semantic completeness gap remains for cycle-accurate combiner/blender/depth/cvg behavior versus real RDP.
-2. Visual parity threshold still fails on maintained Paper Mario metric.
-3. Texture replacement runtime UX is still open (artist-facing reload flow and broader runtime visibility integration), though base replacement observability counters are now landed.
-4. Conformance matrix is broad, but additional hazard corners remain as semantic coverage expands.
-5. VI is closed for current scoped contract, but hardware-specific corner behavior beyond this scope may still be revisited later if parity data demands it.
+1. Visual parity threshold still fails on maintained Paper Mario metric.
+2. Texture replacement runtime UX is still open (artist-facing reload flow and broader runtime visibility integration), though base replacement observability counters are now landed.
+3. `rvk2` is still not default; cutover and deletion work is pending.
+4. VI and synthetic rendering are closed for scoped contract, but hardware-specific corner behavior may still be revisited if parity data demands it.
 
 ## Next Coding Priorities
 
-1. Continue core rendering correctness closure for remaining cycle-accurate combiner/blender/depth/coverage hazards.
-2. Keep expanding targeted hazard-corner conformance as correctness behaviors land.
-3. Keep reducing Paper Mario parity delta while preserving deterministic trace/replay contracts.
-4. Finish texture replacement runtime UX polish (artist-facing reload flow + broader visibility surfacing).
-5. Start early cutover/deletion prep for legacy-derived runtime branches that are no longer needed.
+1. Finish texture replacement runtime UX polish (artist-facing reload flow + broader visibility surfacing).
+2. Keep reducing Paper Mario parity delta while preserving deterministic trace/replay contracts.
+3. Start cutover/deletion prep so `rvk2` can become default.
+4. Tighten trace/replay strictness as we remove transitional behavior.
 
 ## Remaining Work Split (Approx)
 
-1. Core rendering correctness closure (cycle-accurate combiner/blender/depth/cvg): **35%** of remaining work.
-2. Hazard-corner conformance expansion and validation hardening: **15%**.
-3. Texture replacement (`hi-res` + `.htc`) implementation and integration: **34%**.
-4. Trace/replay strictness + schema tightening + cutover cleanup: **10%**.
-5. Parity stabilization and metric closure: **6%**.
+1. Texture replacement (`hi-res` + `.htc`) implementation and integration: **50%** of remaining work.
+2. Cutover/deletion (`rvk2` default, legacy path removal): **24%**.
+3. Parity stabilization and metric closure: **16%**.
+4. Trace/replay strictness + schema tightening: **10%**.
 
 ## Local Gate Contract
 
