@@ -187,6 +187,30 @@ bool debugDisableTexRectWrites()
 	return enabled;
 }
 
+bool debugSwapTmem4Nibbles()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_SWAP_TMEM4_NIBBLES");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugAltTmem8OddXor()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_ALT_TMEM8_XOR");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
 inline bool parseUnsignedToken(const std::string & _token, u64 & _out)
 {
 	const std::string token = trimAsciiWhitespace(_token);
@@ -798,7 +822,11 @@ inline u8 readTmem4BitPaletteColor(u16 _offset, u16 _x, u16 _i)
 inline u8 readTmem8BitColor(u16 _offset, u16 _x, u16 _i)
 {
 	const u8 * tmem8 = reinterpret_cast<const u8 *>(TMEM);
-	return tmem8[((static_cast<u32>(_offset) << 3U) + (static_cast<u32>(_x) ^ (static_cast<u32>(_i) << 1U))) & 0xFFFU];
+	const u32 oddRowXor =
+		debugAltTmem8OddXor()
+			? static_cast<u32>(_i)
+			: (static_cast<u32>(_i) << 1U);
+	return tmem8[((static_cast<u32>(_offset) << 3U) + (static_cast<u32>(_x) ^ oddRowXor)) & 0xFFFU];
 }
 
 inline u16 readTmem16BitColor(u16 _offset, u16 _x, u16 _i)
@@ -1189,10 +1217,16 @@ inline bool sampleCITextureFromTMEM(
 
 	_outNeedsLUT = false;
 	switch (size) {
-	case 0U: { // 4b
-		const u8 packed = readTmem4BitPaletteColor(tmemOffset, s, i);
-		const u8 value4 = (s & 1U) != 0U ? (packed & 0x0FU) : ((packed >> 4U) & 0x0FU);
-		switch (format) {
+		case 0U: { // 4b
+			const u8 packed = readTmem4BitPaletteColor(tmemOffset, s, i);
+			const bool lowNibble = (s & 1U) != 0U;
+			const bool selectLowNibble =
+				debugSwapTmem4Nibbles() ? !lowNibble : lowNibble;
+			const u8 value4 =
+				selectLowNibble
+					? static_cast<u8>(packed & 0x0FU)
+					: static_cast<u8>((packed >> 4U) & 0x0FU);
+			switch (format) {
 		case 2U: { // CI4
 			u8 index = value4;
 			if (lutMode != 0U) {
