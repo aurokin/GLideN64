@@ -19,10 +19,11 @@ Accuracy-first. RVK2-only path. No legacy renderer fallback.
 4. Deep-dive corpus is integrated under `docs/references/n64/deep-dive-pack/`.
 5. Cycle2 hazard approximations now include TEX1 next-pixel combiner sourcing and cycle2 alpha-compare next-pixel combiner lookahead.
 6. TMEM32 sampling now uses a single authoritative split-word decode path (no experimental mode matrix).
+7. Blender selector `A=shade alpha` now consumes interpolated shade alpha instead of combiner-alpha approximation.
 
-## Remaining Work Map (25%)
+## Remaining Work Map (24%)
 
-1. `P5` cycle semantics closure (combiner/blender/coverage/depth): **9%**
+1. `P5` cycle semantics closure (combiner/blender/coverage/depth): **8%**
 2. `P3` authoritative TMEM path closure (especially 32b): **6%**
 3. `P4` raster/coefficient edge behavior: **5%**
 4. `P2` present-source determinism polish: **3%**
@@ -30,13 +31,11 @@ Accuracy-first. RVK2-only path. No legacy renderer fallback.
 
 ## Latest Batch (2026-03-02)
 
-1. Closed TMEM32 experimental branch in executor:
-   - removed env-gated experimental mode selection and compare matrix paths.
-   - removed env-gated 32b TMEM disable path.
-2. Implemented a single authoritative 32b TMEM decode path:
-   - split-word (GR/AB), odd/even row XOR addressing, legacy line32 stride derivation.
-3. Added conformance coverage for TMEM32 authority:
-   - 32b texrect writes now assert TMEM source usage and no RDRAM/synthetic fallback.
+1. Closed blender alpha selector gap:
+   - selector `A=shade` now reads triangle shade alpha rather than approximating with combiner alpha.
+2. Added conformance coverage for shade-alpha selector behavior:
+   - shade-alpha transition now asserts present-frame changes under destination-sensitive blending.
+3. Kept TMEM32 authoritative-path conformance coverage active from the previous batch.
 4. Kept local gate green after this batch.
 
 ## What Deep-Dive Changed In Our Plan

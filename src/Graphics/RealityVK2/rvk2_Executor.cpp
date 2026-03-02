@@ -2203,6 +2203,7 @@ inline u32 applySyntheticBlender(
 	u32 _x,
 	u32 _y,
 	bool _cycle2Selectors = false,
+	u8 _shadeAlpha = 0xFFU,
 	rvk2::ExecutorSummary * _summary = nullptr)
 {
 	ColorRGBA src = unpackRGBA(_srcColor);
@@ -2246,11 +2247,12 @@ inline u32 applySyntheticBlender(
 	const auto selectAlphaA = [](
 		u8 _selector,
 		u8 _srcA,
-		u8 _fogA) -> u8 {
+		u8 _fogA,
+		u8 _shadeA) -> u8 {
 		switch (_selector & 0x3U) {
 		case 0U: return _srcA; // combiner alpha
 		case 1U: return _fogA; // fog alpha
-		case 2U: return _srcA; // shade alpha input is approximated by combiner alpha
+		case 2U: return _shadeA; // shade alpha
 		default: return 0U;
 		}
 	};
@@ -2303,7 +2305,8 @@ inline u32 applySyntheticBlender(
 	u8 alphaA = selectAlphaA(
 		selectors.m1b,
 		src.a,
-		fogState.a);
+		fogState.a,
+		_shadeAlpha);
 	if (_work.alphaCvgSel && (selectors.m1b & 0x3U) == 0U)
 		alphaA = inputCoverageAlpha;
 	const u8 memoryCoverageAlpha = static_cast<u8>(
@@ -2426,6 +2429,7 @@ inline u32 applySyntheticBlender(
 		_x,
 		_y,
 		false,
+		static_cast<u8>(_srcColor & 0xFFU),
 		_summary);
 }
 
@@ -2738,6 +2742,7 @@ inline u32 runSyntheticPhasePipeline(
 	u32 finalColor = _baseColor;
 	u32 combinerColor = _baseColor;
 	u32 blenderColor = _baseColor;
+	const u8 shadeAlpha = static_cast<u8>(_shadeColor & 0xFFU);
 	u8 coverageDestination = static_cast<u8>(std::min<u32>(7U, static_cast<u32>(_dstCoverage & 0x7U)));
 	const u8 phase = _work.phase;
 	if (phase == static_cast<u8>(rvk2::RenderPhase::kCopy)) {
@@ -2770,6 +2775,8 @@ inline u32 runSyntheticPhasePipeline(
 			coverageDestination,
 			_x,
 			_y,
+			false,
+			shadeAlpha,
 			_summary);
 		finalColor = blenderColor;
 	}
@@ -2794,6 +2801,7 @@ inline u32 runSyntheticPhasePipeline(
 			_x,
 			_y,
 			false,
+			shadeAlpha,
 			_summary);
 		combinerColor = applySyntheticCombiner(
 			_work,
@@ -2815,6 +2823,7 @@ inline u32 runSyntheticPhasePipeline(
 			_x,
 			_y,
 			true,
+			shadeAlpha,
 			_summary);
 		finalColor = blenderColor;
 	}

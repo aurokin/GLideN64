@@ -2480,6 +2480,91 @@ void testBlendMuxSelectorConformance()
 		"cycle2 blend mux transition should alter present hash");
 }
 
+void testBlendShadeAlphaSelectorConformance()
+{
+	rvk2::Executor executor;
+	rvk2::RenderWorkPacket background = makeFillWork(195ULL, 0x00B42000U, 0x204060FFU);
+	background.rectLRX = 7U;
+	background.rectLRY = 7U;
+
+	rvk2::RenderWorkPacket base = makeTriangleWork();
+	base.sourcePacketId = 196ULL;
+	base.colorImageAddress = background.colorImageAddress;
+	base.colorImageWidth = 8U;
+	base.rectULX = 0U;
+	base.rectULY = 0U;
+	base.rectLRX = 7U;
+	base.rectLRY = 7U;
+	base.textured = false;
+	base.triangleTextureEnable = false;
+	base.triangleShadeEnable = true;
+	base.otherModes = 0ULL;
+	base.otherModes |= (1ULL << 6U);  // image_read_en
+	base.otherModes |= (1ULL << 14U); // force_blend
+	base.otherModes &= ~(
+		(0x3ULL << 30U)
+		| (0x3ULL << 26U)
+		| (0x3ULL << 22U)
+		| (0x3ULL << 18U));
+	base.otherModes |= (1ULL << 30U); // P = memory color
+	base.otherModes |= (2ULL << 26U); // A = shade alpha
+	base.otherModes |= (2ULL << 22U); // M = blend color
+	base.blendColor = 0xD02090FFU;
+	base.primColor = 0x60A04080U;
+
+	constexpr u64 kCycle1ColorAMask = 0xFULL << (32U + 20U);
+	constexpr u64 kCycle1ColorBMask = 0xFULL << 28U;
+	constexpr u64 kCycle1ColorCMask = 0x1FULL << (32U + 15U);
+	constexpr u64 kCycle1ColorDMask = 0x7ULL << 15U;
+	constexpr u64 kCycle1AlphaAMask = 0x7ULL << (32U + 12U);
+	constexpr u64 kCycle1AlphaBMask = 0x7ULL << 12U;
+	constexpr u64 kCycle1AlphaCMask = 0x7ULL << (32U + 9U);
+	constexpr u64 kCycle1AlphaDMask = 0x7ULL << 9U;
+	constexpr u64 kCycle1SelectorMask =
+		kCycle1ColorAMask
+		| kCycle1ColorBMask
+		| kCycle1ColorCMask
+		| kCycle1ColorDMask
+		| kCycle1AlphaAMask
+		| kCycle1AlphaBMask
+		| kCycle1AlphaCMask
+		| kCycle1AlphaDMask;
+	base.combineMux &= ~kCycle1SelectorMask;
+	base.combineMux |=
+		(3ULL << 15U) // color D = PRIMITIVE
+		| (3ULL << 9U); // alpha D = PRIMITIVE
+
+	rvk2::RenderWorkPacket lowShadeAlpha = base;
+	lowShadeAlpha.sourcePacketId = 197ULL;
+	lowShadeAlpha.triangleShadeA = 0x1000;
+
+	rvk2::RenderWorkPacket highShadeAlpha = base;
+	highShadeAlpha.sourcePacketId = 198ULL;
+	highShadeAlpha.triangleShadeA = 0xF000;
+
+	const std::vector<rvk2::SubmissionBatchPacket> twoWorkBatches{makeBatchForWorkCount(2U)};
+	const rvk2::ExecutorOutput lowOut = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, lowShadeAlpha},
+		twoWorkBatches);
+	const rvk2::ExecutorOutput highOut = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, highShadeAlpha},
+		twoWorkBatches);
+
+	expectTrue(
+		lowOut.summary.colorWriteCount > 0ULL,
+		"blend shade-alpha selector baseline should write pixels");
+	expectEq(
+		lowOut.summary.colorWriteCount,
+		highOut.summary.colorWriteCount,
+		"blend shade-alpha selector transition should preserve write coverage");
+	expectTrue(
+		lowOut.summary.presentHash != highOut.summary.presentHash,
+		"blend shade-alpha selector transition should alter present hash");
+	expectTrue(
+		!presentFramesEqual(lowOut, highOut),
+		"blend shade-alpha selector transition should alter presented pixels");
+}
+
 void testCycle2BlenderMemorySelectorConformance()
 {
 	rvk2::Executor executor;
@@ -2939,6 +3024,7 @@ int main()
 	testCombinerKeyConvertConformance();
 	testTextureExtendedModeConformance();
 	testBlendMuxSelectorConformance();
+	testBlendShadeAlphaSelectorConformance();
 	testCycle2BlenderMemorySelectorConformance();
 	testAAPipelineModeConformance();
 	testVIDFieldInterlaceConformance();
