@@ -129,6 +129,28 @@ rvk2::RenderWorkPacket makePixelFillWork(
 	return work;
 }
 
+rvk2::ExecutorConfig makeVIExecutorConfig(
+	u32 _status,
+	u32 _origin,
+	u32 _width,
+	u32 _hEnd,
+	u32 _vEnd)
+{
+	rvk2::ExecutorConfig config{};
+	config.presentAspectX = 1U;
+	config.presentAspectY = 1U;
+	config.viRegistersValid = true;
+	config.viStatus = _status;
+	config.viOrigin = _origin;
+	config.viWidth = _width;
+	config.viVSync = 525U;
+	config.viHStart = (0U << 16U) | (_hEnd & 0x3FFU);
+	config.viVStart = (0U << 16U) | (_vEnd & 0x3FFU);
+	config.viXScale = 1024U;
+	config.viYScale = 1024U;
+	return config;
+}
+
 rvk2::RenderWorkPacket makeTexRectWork(bool _flip)
 {
 	rvk2::RenderWorkPacket work{};
@@ -1416,18 +1438,8 @@ void testVIFilterModeConformance()
 		makeBatchForWorkCount(static_cast<u32>(workPackets.size()))
 	};
 
-	rvk2::ExecutorConfig viConfig{};
-	viConfig.presentAspectX = 1U;
-	viConfig.presentAspectY = 1U;
-	viConfig.viRegistersValid = true;
-	viConfig.viStatus = 2U | (3U << 8U);
-	viConfig.viOrigin = colorAddress;
-	viConfig.viWidth = 4U;
-	viConfig.viVSync = 525U;
-	viConfig.viHStart = (0U << 16U) | 4U;
-	viConfig.viVStart = (0U << 16U) | 8U;
-	viConfig.viXScale = 1024U;
-	viConfig.viYScale = 1024U;
+	rvk2::ExecutorConfig viConfig =
+		makeVIExecutorConfig(2U | (3U << 8U), colorAddress, 4U, 4U, 8U);
 
 	rvk2::Executor replicateExecutor(viConfig);
 	const rvk2::ExecutorOutput replicateOut =
@@ -1476,18 +1488,8 @@ void testVIFailSafeConformance()
 	const std::vector<rvk2::RenderWorkPacket> workPackets{fillWork};
 	const std::vector<rvk2::SubmissionBatchPacket> batches{makeSingleBatch()};
 
-	rvk2::ExecutorConfig validConfig{};
-	validConfig.presentAspectX = 1U;
-	validConfig.presentAspectY = 1U;
-	validConfig.viRegistersValid = true;
-	validConfig.viStatus = 3U | (3U << 8U);
-	validConfig.viOrigin = fillWork.colorImageAddress;
-	validConfig.viWidth = 2U;
-	validConfig.viVSync = 525U;
-	validConfig.viHStart = (0U << 16U) | 2U;
-	validConfig.viVStart = (0U << 16U) | 4U;
-	validConfig.viXScale = 1024U;
-	validConfig.viYScale = 1024U;
+	rvk2::ExecutorConfig validConfig =
+		makeVIExecutorConfig(3U | (3U << 8U), fillWork.colorImageAddress, 2U, 2U, 4U);
 	rvk2::Executor validExecutor(validConfig);
 	const rvk2::ExecutorOutput validOut =
 		validExecutor.executeWithOutput(workPackets, batches);
