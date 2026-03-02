@@ -50,7 +50,6 @@ void _loadSettings(GlSettings & settings)
 	config.generalEmulation.enableHWLighting = settings.value("enableHWLighting", config.generalEmulation.enableHWLighting).toInt();
 	config.generalEmulation.enableCoverage = settings.value("enableCoverage", config.generalEmulation.enableCoverage).toInt();
 	config.generalEmulation.enableShadersStorage = settings.value("enableShadersStorage", config.generalEmulation.enableShadersStorage).toInt();
-	config.generalEmulation.enableLegacyBlending = settings.value("enableLegacyBlending", config.generalEmulation.enableLegacyBlending).toInt();			 //ini only
 	config.generalEmulation.enableHybridFilter = settings.value("enableHybridFilter", config.generalEmulation.enableHybridFilter).toInt();					 //ini only
 	config.generalEmulation.enableFragmentDepthWrite = settings.value("enableFragmentDepthWrite", config.generalEmulation.enableFragmentDepthWrite).toInt(); //ini only
 	config.generalEmulation.hacks |= settings.value("hacks", config.generalEmulation.hacks).toInt();														 //ini only
@@ -236,7 +235,6 @@ void writeSettings(const char * _strIniFolder)
 		settings.setValue("enableHWLighting", config.generalEmulation.enableHWLighting);
 		settings.setValue("enableCoverage", config.generalEmulation.enableCoverage);
 		settings.setValue("enableShadersStorage", config.generalEmulation.enableShadersStorage);
-		settings.setValue("enableLegacyBlending", config.generalEmulation.enableLegacyBlending);		 //ini only
 		settings.setValue("enableHybridFilter", config.generalEmulation.enableHybridFilter);			 //ini only
 		settings.setValue("enableFragmentDepthWrite", config.generalEmulation.enableFragmentDepthWrite); //ini only
 		settings.setValue("enableCustomSettings", config.generalEmulation.enableCustomSettings);

@@ -68,8 +68,6 @@ TextureReplacementCacheKey buildTextureReplacementCacheKey(const TextureReplacem
 u32 sampleTextureReplacementImage(const TextureReplacementImage & _image, s32 _s, s32 _t);
 bool writeTextureReplacementHTS(const char * _path, const TextureReplacementStore & _store);
 bool loadTextureReplacementHTS(const char * _path, TextureReplacementStore & _store);
-bool writeTextureReplacementHTC(const char * _path, const TextureReplacementStore & _store);
-bool loadTextureReplacementHTC(const char * _path, TextureReplacementStore & _store);
 bool loadTextureReplacementPack(const char * _packPath, TextureReplacementStore & _store);
 
 } // namespace rvk2

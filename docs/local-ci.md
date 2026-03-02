@@ -57,7 +57,7 @@ By default, the gate runs:
 - `REALITYVK_GATE_SMOKE_REQUIRE_DEPTH_BLIT_STATS=0` disables required depth stats marker check.
 - `REALITYVK_GATE_SMOKE_CAPTURE_DEPTH_SUMMARY=0` disables depth summary artifact generation.
 - `REALITYVK_GATE_RVK2_TRACE_REPLAY=0` disables rvk2 packet replay validation (debug-only escape hatch).
-- `REALITYVK_GATE_RVK2_TRACE_REPLAY_STRICT=1` treats replay warnings as gate failures.
+- `REALITYVK_GATE_RVK2_TRACE_REPLAY_STRICT=0` relaxes strict replay mode (strict is default).
 - `REALITYVK_GATE_RVK2_TRACE_REPLAY_JOBS=<n>` sets replay worker process count (`0` = auto/all cores).
 - `REALITYVK_GATE_RVK2_TRACE_FILE=<path>` overrides packet trace output file for replay checks.
 - `REALITYVK_GATE_RVK2_TRACE_REPORT_FILE=<path>` overrides replay JSON report path.

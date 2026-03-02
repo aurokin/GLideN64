@@ -1069,18 +1069,14 @@ void F5INDI_DrawParticle()
 		gSP.geometryMode |= G_ZBUFFER;
 		gSP.geometryMode &= ~G_FOG;
 		CombinerInfo::get().setCombine(gDP.combine.mux);
-		const u32 enableLegacyBlending = config.generalEmulation.enableLegacyBlending;
-		config.generalEmulation.enableLegacyBlending = 1;
 		gDP.changed |= CHANGED_COMBINE | CHANGED_RENDERMODE;
 		GraphicsDrawer & drawer = dwnd().getDrawer();
 		drawer.drawScreenSpaceTriangle(drawer.getDMAVerticesCount(), graphics::drawmode::TRIANGLES);
 		gDP.combine = curCombine;
 		gDP.otherMode.l = othermodeL;
 		gSP.geometryMode = geometryMode;
-		config.generalEmulation.enableLegacyBlending = enableLegacyBlending;
 		gDP.changed |= CHANGED_COMBINE | CHANGED_RENDERMODE;
 	}
-}
 #endif //F5INDI_PARTICLE_OPT
 
 static

@@ -65,7 +65,6 @@ struct Config
 		u32 enableClipping;
 		u32 enableCustomSettings;
 		u32 enableShadersStorage;
-		u32 enableLegacyBlending;
 		u32 enableHybridFilter;
 		u32 enableInaccurateTextureCoordinates;
 		u32 enableFragmentDepthWrite;
