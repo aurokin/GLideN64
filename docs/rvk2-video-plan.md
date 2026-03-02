@@ -21,23 +21,24 @@ Accuracy-first. RVK2-only path. No legacy renderer fallback.
 6. TMEM32 sampling now uses a single authoritative split-word decode path (no experimental mode matrix).
 7. Blender selector `A=shade alpha` now consumes interpolated shade alpha instead of combiner-alpha approximation.
 8. Synthetic texel fallback now renders a stable coordinate/state pattern instead of random noise.
+9. VI origin selection now prefers in-range surfaces matching VI width when multiple candidates overlap.
 
-## Remaining Work Map (24%)
+## Remaining Work Map (23%)
 
 1. `P5` cycle semantics closure (combiner/blender/coverage/depth): **8%**
 2. `P3` authoritative TMEM path closure (especially 32b): **6%**
 3. `P4` raster/coefficient edge behavior: **5%**
-4. `P2` present-source determinism polish: **3%**
+4. `P2` present-source determinism polish: **2%**
 5. `P6` VI finishing polish: **2%**
 
 ## Latest Batch (2026-03-02)
 
-1. Closed blender alpha selector gap:
-   - selector `A=shade` now reads triangle shade alpha rather than approximating with combiner alpha.
-2. Added conformance coverage for shade-alpha selector behavior:
-   - shade-alpha transition now asserts present-frame changes under destination-sensitive blending.
-3. Replaced random synthetic texel fallback with a stable coordinate/state pattern to improve visual signal while preserving state sensitivity checks.
-   - texture seed mix now includes texrect/triangle texture coefficient fields to keep fallback responses coupled to texture-coordinate state.
+1. Tightened VI-origin presentation selection:
+   - when multiple in-range surfaces overlap a VI origin, selection now prefers surfaces matching VI width.
+2. Added unit coverage for width-driven VI origin preference:
+   - overlapping-range surfaces now assert deterministic selection based on VI width.
+3. Kept synthetic texel fallback coherent and state-sensitive:
+   - texture seed includes texrect/triangle texture coefficient fields.
 4. Kept local gate green after this batch.
 
 ## What Deep-Dive Changed In Our Plan

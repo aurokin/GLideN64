@@ -1904,6 +1904,113 @@ void testExecutorVIOriginPresentationSelection()
 		"Executor VI no-match hash should match default presentation");
 }
 
+void testExecutorVIOriginWidthPreference()
+{
+	auto makeFillWork = [](
+		u64 _packetId,
+		u32 _colorAddress,
+		u32 _fillColor,
+		u16 _colorWidth,
+		u32 _lrx,
+		u32 _lry) -> rvk2::RenderWorkPacket {
+		rvk2::RenderWorkPacket work{};
+		work.sourcePacketId = _packetId;
+		work.sourceOpcode = 0x36U;
+		work.opKind = static_cast<u8>(rvk2::RasterOpKind::kFillRect);
+		work.phase = static_cast<u8>(rvk2::RenderPhase::kFill);
+		work.cycleType = 3U;
+		work.rectULX = 0U;
+		work.rectULY = 0U;
+		work.rectLRX = _lrx;
+		work.rectLRY = _lry;
+		work.colorImageFormat = 0U;
+		work.colorImageSize = 3U;
+		work.colorImageWidth = _colorWidth;
+		work.colorImageAddress = _colorAddress;
+		work.fillColor = _fillColor;
+		return work;
+	};
+
+	// Narrow surface starts far earlier but still contains VI origin in-range.
+	// Wide surface starts close to VI origin. Width preference should decide.
+	const rvk2::RenderWorkPacket fillNarrow = makeFillWork(
+		10ULL,
+		0x00100000U,
+		0xC02020FFU,
+		2U,
+		1U,
+		80U);
+	const rvk2::RenderWorkPacket fillWide = makeFillWork(
+		11ULL,
+		0x00100100U,
+		0x20C020FFU,
+		8U,
+		7U,
+		3U);
+
+	const std::vector<rvk2::RenderWorkPacket> workPackets{fillNarrow, fillWide};
+	rvk2::SubmissionBatchPacket batch{};
+	batch.batchIndex = 0U;
+	batch.phase = static_cast<u8>(rvk2::RenderPhase::kFill);
+	batch.cycleType = 3U;
+	batch.firstWorkIndex = 0U;
+	batch.lastWorkIndex = 1U;
+	batch.workCount = 2U;
+	const std::vector<rvk2::SubmissionBatchPacket> batches{batch};
+
+	rvk2::ExecutorConfig baseConfig{};
+	baseConfig.presentAspectX = 1U;
+	baseConfig.presentAspectY = 1U;
+	rvk2::Executor baseExecutor(baseConfig);
+	const rvk2::ExecutorOutput baseOut =
+		baseExecutor.executeWithOutput(workPackets, batches);
+	expectTrue(
+		!baseOut.presentFrame.pixels.empty(),
+		"Executor width preference baseline should produce present pixels");
+
+	rvk2::ExecutorConfig viNarrowConfig = baseConfig;
+	viNarrowConfig.viRegistersValid = true;
+	viNarrowConfig.viStatus = 3U;
+	viNarrowConfig.viOrigin = 0x00100108U;
+	viNarrowConfig.viWidth = 2U;
+	viNarrowConfig.viVSync = 525U;
+	viNarrowConfig.viHStart = (0U << 16U) | 2U;
+	viNarrowConfig.viVStart = (0U << 16U) | 4U;
+	viNarrowConfig.viXScale = 1024U;
+	viNarrowConfig.viYScale = 1024U;
+	rvk2::Executor viNarrowExecutor(viNarrowConfig);
+	const rvk2::ExecutorOutput viNarrowOut =
+		viNarrowExecutor.executeWithOutput(workPackets, batches);
+	expectTrue(
+		!viNarrowOut.presentFrame.pixels.empty(),
+		"Executor width preference (narrow) should produce present pixels");
+	expectEq(
+		viNarrowOut.presentFrame.pixels[0],
+		fillNarrow.fillColor,
+		"Executor VI width preference should choose in-range surface matching VI width");
+	expectEq(
+		viNarrowOut.summary.selectedPresentSurfaceAddress,
+		fillNarrow.colorImageAddress,
+		"Executor VI width preference should select narrow surface address");
+
+	rvk2::ExecutorConfig viWideConfig = viNarrowConfig;
+	viWideConfig.viWidth = 8U;
+	rvk2::Executor viWideExecutor(viWideConfig);
+	const rvk2::ExecutorOutput viWideOut =
+		viWideExecutor.executeWithOutput(workPackets, batches);
+	expectTrue(
+		!viWideOut.presentFrame.pixels.empty(),
+		"Executor width preference (wide) should produce present pixels");
+	expectEq(
+		viWideOut.presentFrame.pixels[0],
+		fillWide.fillColor,
+		"Executor VI width preference should pick wide surface when width matches");
+	expectEq(
+		viWideOut.summary.selectedPresentSurfaceAddress,
+		fillWide.colorImageAddress,
+		"Executor VI width preference should select wide surface address");
+}
+
 void testExecutorPreviousSurfaceFallback()
 {
 	auto makeFillWork = [](
@@ -3144,6 +3251,7 @@ int main()
 	testTexRectSemanticExtraction();
 	testVIRendererAspectScaling();
 	testExecutorVIOriginPresentationSelection();
+	testExecutorVIOriginWidthPreference();
 	testExecutorPreviousSurfaceFallback();
 	testExecutorTriangleCoefficientConsumption();
 	testSubmissionPlanSplitClassification();

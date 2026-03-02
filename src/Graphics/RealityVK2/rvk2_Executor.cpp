@@ -1442,12 +1442,15 @@ bool chooseSurfaceForVIOriginGeneric(
 	u32 & _outSurfaceAddress,
 	bool & _outExactMatch,
 	bool _preferSurfaceSize,
-	u8 _preferredSurfaceSize)
+	u8 _preferredSurfaceSize,
+	bool _preferSurfaceWidth,
+	u16 _preferredSurfaceWidth)
 {
 	_outExactMatch = false;
 	u32 bestAddress = 0U;
 	u32 bestDelta = std::numeric_limits<u32>::max();
 	bool bestSizeMatch = false;
+	bool bestWidthMatch = false;
 	bool found = false;
 	for (const auto & entry : _surfaces) {
 		const u32 surfaceAddress = entry.first;
@@ -1457,14 +1460,18 @@ bool chooseSurfaceForVIOriginGeneric(
 			continue;
 		const bool sizeMatch =
 			!_preferSurfaceSize || ((surface.size & 0x3U) == (_preferredSurfaceSize & 0x3U));
+		const bool widthMatch =
+			!_preferSurfaceWidth || surface.width == _preferredSurfaceWidth;
 		const u32 delta = _viOriginAddress - surfaceAddress;
 		if (!found
 			|| (sizeMatch && !bestSizeMatch)
-			|| (sizeMatch == bestSizeMatch && delta < bestDelta)) {
+			|| (sizeMatch == bestSizeMatch && widthMatch && !bestWidthMatch)
+			|| (sizeMatch == bestSizeMatch && widthMatch == bestWidthMatch && delta < bestDelta)) {
 			found = true;
 			bestDelta = delta;
 			bestAddress = surfaceAddress;
 			bestSizeMatch = sizeMatch;
+			bestWidthMatch = widthMatch;
 			_outExactMatch = exactMatch;
 		}
 	}
@@ -1480,7 +1487,9 @@ bool chooseSurfaceForVIOrigin(
 	u32 & _outSurfaceAddress,
 	bool & _outExactMatch,
 	bool _preferSurfaceSize = false,
-	u8 _preferredSurfaceSize = 0U)
+	u8 _preferredSurfaceSize = 0U,
+	bool _preferSurfaceWidth = false,
+	u16 _preferredSurfaceWidth = 0U)
 {
 	return chooseSurfaceForVIOriginGeneric(
 		_surfaces,
@@ -1488,7 +1497,9 @@ bool chooseSurfaceForVIOrigin(
 		_outSurfaceAddress,
 		_outExactMatch,
 		_preferSurfaceSize,
-		_preferredSurfaceSize);
+		_preferredSurfaceSize,
+		_preferSurfaceWidth,
+		_preferredSurfaceWidth);
 }
 
 bool chooseHistorySurfaceForVIOrigin(
@@ -1497,7 +1508,9 @@ bool chooseHistorySurfaceForVIOrigin(
 	u32 & _outSurfaceAddress,
 	bool & _outExactMatch,
 	bool _preferSurfaceSize = false,
-	u8 _preferredSurfaceSize = 0U)
+	u8 _preferredSurfaceSize = 0U,
+	bool _preferSurfaceWidth = false,
+	u16 _preferredSurfaceWidth = 0U)
 {
 	return chooseSurfaceForVIOriginGeneric(
 		_surfaces,
@@ -1505,7 +1518,9 @@ bool chooseHistorySurfaceForVIOrigin(
 		_outSurfaceAddress,
 		_outExactMatch,
 		_preferSurfaceSize,
-		_preferredSurfaceSize);
+		_preferredSurfaceSize,
+		_preferSurfaceWidth,
+		_preferredSurfaceWidth);
 }
 
 bool chooseMostWrittenSurfaceAddress(
@@ -3657,6 +3672,10 @@ ExecutorOutput Executor::executeWithOutput(
 		u8 preferredSurfaceSize = 0U;
 		const bool preferSurfaceSize =
 			expectedSurfaceSizeFromVIStatus(m_config, preferredSurfaceSize);
+		const bool preferSurfaceWidth = m_config.viWidth != 0U;
+		const u16 preferredSurfaceWidth = static_cast<u16>(std::min<u32>(
+			std::max<u32>(1U, m_config.viWidth),
+			static_cast<u32>(m_config.maxSurfaceWidth)));
 		u32 matchedSurfaceAddress = presentSurfaceAddress;
 		bool exactMatch = false;
 		if (chooseSurfaceForVIOrigin(
@@ -3665,7 +3684,9 @@ ExecutorOutput Executor::executeWithOutput(
 				matchedSurfaceAddress,
 				exactMatch,
 				preferSurfaceSize,
-				preferredSurfaceSize)) {
+				preferredSurfaceSize,
+				preferSurfaceWidth,
+				preferredSurfaceWidth)) {
 			presentSurfaceAddress = matchedSurfaceAddress;
 			viOriginMatchedSurface = true;
 			summary.presentSelectionReason =
@@ -3682,7 +3703,9 @@ ExecutorOutput Executor::executeWithOutput(
 					historyMatchedAddress,
 					historyExact,
 					preferSurfaceSize,
-					preferredSurfaceSize)) {
+					preferredSurfaceSize,
+					preferSurfaceWidth,
+					preferredSurfaceWidth)) {
 				presentSurfaceAddress = historyMatchedAddress;
 				summary.presentSelectionReason =
 					historyExact
