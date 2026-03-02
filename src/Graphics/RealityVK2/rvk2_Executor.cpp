@@ -2003,15 +2003,25 @@ inline u32 runSyntheticPhasePipeline(
 	u32 _baseColor,
 	u32 _dstColor,
 	u32 _x,
-	u32 _y)
+	u32 _y,
+	u32 * _coverageDestinationColor = nullptr)
 {
 	const u8 phase = _work.phase;
-	if (phase == static_cast<u8>(rvk2::RenderPhase::kCopy))
+	if (phase == static_cast<u8>(rvk2::RenderPhase::kCopy)) {
+		if (_coverageDestinationColor != nullptr)
+			*_coverageDestinationColor = _dstColor;
 		return _work.textured ? _textureColor : _baseColor;
-	if (phase == static_cast<u8>(rvk2::RenderPhase::kFill))
+	}
+	if (phase == static_cast<u8>(rvk2::RenderPhase::kFill)) {
+		if (_coverageDestinationColor != nullptr)
+			*_coverageDestinationColor = _dstColor;
 		return _baseColor;
-	if (phase != static_cast<u8>(rvk2::RenderPhase::kCycle2))
+	}
+	if (phase != static_cast<u8>(rvk2::RenderPhase::kCycle2)) {
+		if (_coverageDestinationColor != nullptr)
+			*_coverageDestinationColor = _dstColor;
 		return runSyntheticCycle1Pipeline(_work, _textureColor, _shadeColor, _baseColor, _dstColor, _x, _y);
+	}
 
 	const u32 cycle1CombinedColor = applySyntheticCombiner(
 		_work,
@@ -2035,9 +2045,11 @@ inline u32 runSyntheticPhasePipeline(
 		_shadeColor,
 		cycle1CombinedColor,
 		cycle1Color,
-		_x,
-		_y,
-		true);
+			_x,
+			_y,
+			true);
+	if (_coverageDestinationColor != nullptr)
+		*_coverageDestinationColor = cycle1Color;
 	return applySyntheticBlender(
 		_work,
 		_work.blendParams,
@@ -2077,27 +2089,29 @@ void writeRect(
 	for (u32 y = bounds.y0; y <= bounds.y1; ++y) {
 		if (!passesScissorFieldFilter(_work, y))
 			continue;
-		for (u32 x = bounds.x0; x <= bounds.x1; ++x) {
-			const size_t colorIdx = pixelIndex(_surface.width, static_cast<u16>(x), static_cast<u16>(y));
-			const u32 dstColor = _surface.pixels[colorIdx];
-			const u32 pipelineDstColor = isImageReadEnabled(_work) ? dstColor : 0x00000000U;
-			const u32 rgba =
-				_work.opKind == static_cast<u8>(rvk2::RasterOpKind::kFillRect)
-				? decodeFillColor(_work.fillColor, _work.colorImageSize)
-				: runSyntheticPhasePipeline(
-					_work,
+			for (u32 x = bounds.x0; x <= bounds.x1; ++x) {
+				const size_t colorIdx = pixelIndex(_surface.width, static_cast<u16>(x), static_cast<u16>(y));
+				const u32 dstColor = _surface.pixels[colorIdx];
+				const u32 pipelineDstColor = isImageReadEnabled(_work) ? dstColor : 0x00000000U;
+				u32 coverageDestinationColor = pipelineDstColor;
+				const u32 rgba =
+					_work.opKind == static_cast<u8>(rvk2::RasterOpKind::kFillRect)
+					? decodeFillColor(_work.fillColor, _work.colorImageSize)
+					: runSyntheticPhasePipeline(
+						_work,
 					pseudoTexel(_work, x, y),
-					0xFFFFFFFFU,
-					pseudoTexel(_work, x, y),
-					pipelineDstColor,
-					x,
-					y);
-			if (!passesSyntheticAlphaCompare(_work, rgba, x, y))
-				continue;
-			if (!passesSyntheticCoverageWrite(_work, rgba, pipelineDstColor, x, y))
-				continue;
-			_surface.pixels[colorIdx] = encodeSurfaceColor(rgba, _work.colorImageSize);
-			++_summary.colorWriteCount;
+						0xFFFFFFFFU,
+						pseudoTexel(_work, x, y),
+						pipelineDstColor,
+						x,
+						y,
+						&coverageDestinationColor);
+				if (!passesSyntheticAlphaCompare(_work, rgba, x, y))
+					continue;
+				if (!passesSyntheticCoverageWrite(_work, rgba, coverageDestinationColor, x, y))
+					continue;
+				_surface.pixels[colorIdx] = encodeSurfaceColor(rgba, _work.colorImageSize);
+				++_summary.colorWriteCount;
 		}
 	}
 }
@@ -2161,24 +2175,26 @@ void writeTriangle(
 			if (!inside)
 				continue;
 
-			const size_t colorIdx = pixelIndex(_surface.width, static_cast<u16>(x), static_cast<u16>(y));
-			const u32 dstColor = _surface.pixels[colorIdx];
-			const u32 pipelineDstColor = isImageReadEnabled(_work) ? dstColor : 0x00000000U;
-			const u32 textureColor = chooseTriangleTextureSourceColor(_work, x, y);
-			const u32 shadeColor = chooseTriangleShadeSourceColor(_work, x, y);
-			const u32 baseColor = chooseTriangleBaseColor(_work, x, y);
+				const size_t colorIdx = pixelIndex(_surface.width, static_cast<u16>(x), static_cast<u16>(y));
+				const u32 dstColor = _surface.pixels[colorIdx];
+				const u32 pipelineDstColor = isImageReadEnabled(_work) ? dstColor : 0x00000000U;
+				u32 coverageDestinationColor = pipelineDstColor;
+				const u32 textureColor = chooseTriangleTextureSourceColor(_work, x, y);
+				const u32 shadeColor = chooseTriangleShadeSourceColor(_work, x, y);
+				const u32 baseColor = chooseTriangleBaseColor(_work, x, y);
 			const u32 rgba = runSyntheticPhasePipeline(
 				_work,
 				textureColor,
-				shadeColor,
-				baseColor,
-				pipelineDstColor,
-				x,
-				y);
-			if (!passesSyntheticAlphaCompare(_work, rgba, x, y))
-				continue;
-			if (!passesSyntheticCoverageWrite(_work, rgba, pipelineDstColor, x, y))
-				continue;
+					shadeColor,
+					baseColor,
+					pipelineDstColor,
+					x,
+					y,
+					&coverageDestinationColor);
+				if (!passesSyntheticAlphaCompare(_work, rgba, x, y))
+					continue;
+				if (!passesSyntheticCoverageWrite(_work, rgba, coverageDestinationColor, x, y))
+					continue;
 
 			if (_depthSurface != nullptr
 				&& phaseUsesDepth(_work.phase)

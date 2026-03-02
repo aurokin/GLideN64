@@ -61,6 +61,7 @@ This is the single execution tracker for the rewrite.
 55. Local gate remains clean across Release/Debug unit + conformance suites after the recent scissor/dither/filter semantic closure passes.
 56. Executor combiner path now decodes and applies cycle-specific (`cycle1`/`cycle2`) selector fields from `SetCombine`, and conformance now asserts cycle2-selector isolation from cycle1 output.
 57. Executor combiner path now models extended selector sources (`LOD_FRACTION`, `PRIM_LOD_FRAC`, `K5`, and alpha-selector lanes) and conformance now asserts these selector transitions alter output deterministically.
+58. Executor coverage-gated write semantics now use cycle-aware destination alpha in cycle2 (using cycle1 output as coverage destination), with dedicated conformance coverage.
 
 ## Phase Status
 
@@ -75,7 +76,7 @@ This is the single execution tracker for the rewrite.
 
 ## Completion Estimate
 
-Estimated overall roadmap completion: **~90%**.
+Estimated overall roadmap completion: **~91%**.
 
 Heuristic phase weighting used for this estimate:
 - A: 20%
@@ -87,8 +88,8 @@ Heuristic phase weighting used for this estimate:
 
 Estimated phase progress used:
 - A: 100%
-- B: 97%
-- C: 91%
+- B: 98%
+- C: 92%
 - D: 100%
 - E: 65%
 - F: 0%
@@ -298,6 +299,10 @@ Estimated phase progress used:
    - executor combiner now preserves high-value selector behavior instead of truncating selectors to low 3 bits
    - combiner source modeling now includes extended color/alpha selector lanes (`LOD_FRACTION`, `PRIM_LOD_FRAC`, `K5`, and deterministic digest-backed lanes)
    - conformance now includes explicit extended-selector transitions and local gate remains clean
+48. Added B/C cycle2 coverage destination closure:
+   - cycle2 coverage-gated write checks now evaluate coverage destination against cycle1 output rather than pre-cycle destination state
+   - rect/triangle write paths now thread phase-aware coverage destination color through synthetic phase evaluation
+   - conformance now includes cycle1 vs cycle2 coverage-save behavior checks (`colorOnCvg + cvgDest=save`) and local gate remains clean
 
 ## Current Bottlenecks
 

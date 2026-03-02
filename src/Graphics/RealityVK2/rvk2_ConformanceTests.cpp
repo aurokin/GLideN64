@@ -966,6 +966,60 @@ void testCoverageModeFlagConformance()
 		"coverage mode flags should alter blended output hash");
 }
 
+void testCycle2CoverageDestinationConformance()
+{
+	rvk2::Executor executor;
+	rvk2::RenderWorkPacket background = makeFillWork(112ULL, 0x00B31000U, 0x20202000U);
+	background.rectLRX = 5U;
+	background.rectLRY = 3U;
+
+	rvk2::RenderWorkPacket cycle1Rect = makeTexRectWork(false);
+	cycle1Rect.sourcePacketId = 113ULL;
+	cycle1Rect.colorImageAddress = background.colorImageAddress;
+	cycle1Rect.colorImageWidth = 8U;
+	cycle1Rect.rectULX = 0U;
+	cycle1Rect.rectULY = 0U;
+	cycle1Rect.rectLRX = 5U;
+	cycle1Rect.rectLRY = 3U;
+	cycle1Rect.phase = static_cast<u8>(rvk2::RenderPhase::kCycle1);
+	cycle1Rect.cycleType = 0U;
+	cycle1Rect.colorOnCvg = true;
+	cycle1Rect.cvgDest = 3U; // Save destination coverage.
+	cycle1Rect.otherModes = (1ULL << (32U + 9U)); // convertOne: force cycle color alpha to 1.0.
+	cycle1Rect.blendParams = 0x00004080U;
+
+	rvk2::RenderWorkPacket cycle2Rect = cycle1Rect;
+	cycle2Rect.sourcePacketId = 114ULL;
+	cycle2Rect.phase = static_cast<u8>(rvk2::RenderPhase::kCycle2);
+	cycle2Rect.cycleType = 1U;
+
+	const std::vector<rvk2::SubmissionBatchPacket> oneWorkBatch{makeBatchForWorkCount(1U)};
+	const std::vector<rvk2::SubmissionBatchPacket> twoWorkBatch{makeBatchForWorkCount(2U)};
+	const rvk2::ExecutorOutput backgroundOut =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{background}, oneWorkBatch);
+	const rvk2::ExecutorOutput cycle1Out = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, cycle1Rect},
+		twoWorkBatch);
+	const rvk2::ExecutorOutput cycle2Out = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, cycle2Rect},
+		twoWorkBatch);
+
+	expectEq(
+		cycle1Out.summary.presentHash,
+		backgroundOut.summary.presentHash,
+		"cycle1 coverage-save gating should suppress writes against zero destination coverage");
+	expectEq(
+		cycle1Out.summary.colorWriteCount,
+		backgroundOut.summary.colorWriteCount,
+		"cycle1 coverage-save gating should preserve background-only write count");
+	expectTrue(
+		cycle2Out.summary.colorWriteCount > cycle1Out.summary.colorWriteCount,
+		"cycle2 coverage gating should use cycle1 destination alpha and admit writes");
+	expectTrue(
+		cycle2Out.summary.presentHash != cycle1Out.summary.presentHash,
+		"cycle2 coverage destination behavior should alter present hash");
+}
+
 void testAlphaCompareConformance()
 {
 	rvk2::Executor executor;
@@ -2545,6 +2599,7 @@ int main()
 	testDepthSurfaceAliasIsolationConformance();
 	testCoverageBlendFlagConformance();
 	testCoverageModeFlagConformance();
+	testCycle2CoverageDestinationConformance();
 	testAlphaCompareConformance();
 	testMixedStateBatchSegmentationConformance();
 	testMixedStateRapidTransitionMatrixConformance();
