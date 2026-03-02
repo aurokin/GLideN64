@@ -1591,6 +1591,90 @@ void testCycle2CombinerSelectorIsolationConformance()
 		"cycle2-only selector transition should not alter cycle1 presented pixels");
 }
 
+void testCycle2TexelNextPixelHazardConformance()
+{
+	rvk2::Executor executor;
+	rvk2::RenderWorkPacket background = makeFillWork(204ULL, 0x00B44000U, 0x305080FFU);
+	background.rectLRX = 7U;
+	background.rectLRY = 3U;
+
+	rvk2::RenderWorkPacket base = makeTexRectWork(false);
+	base.sourcePacketId = 205ULL;
+	base.colorImageAddress = background.colorImageAddress;
+	base.colorImageWidth = 8U;
+	base.rectULX = 0U;
+	base.rectULY = 0U;
+	base.rectLRX = 7U;
+	base.rectLRY = 3U;
+	base.phase = static_cast<u8>(rvk2::RenderPhase::kCycle2);
+	base.cycleType = 1U;
+	base.otherModes = 0ULL;
+	base.otherModes |= (1ULL << 6U);  // image_read_en
+	base.otherModes |= (1ULL << 14U); // force_blend
+	// Cycle-1 blender pass-through.
+	base.otherModes &= ~(
+		(0x3ULL << 30U)
+		| (0x3ULL << 26U)
+		| (0x3ULL << 22U)
+		| (0x3ULL << 18U));
+	base.otherModes |= (2ULL << 26U); // A = 1.0
+	base.otherModes |= (3ULL << 18U); // B = 0.0
+	// Cycle-2 blender uses combiner alpha to mix memory and blend colors.
+	base.otherModes &= ~(
+		(0x3ULL << 28U)
+		| (0x3ULL << 24U)
+		| (0x3ULL << 20U)
+		| (0x3ULL << 16U));
+	base.otherModes |= (1ULL << 28U); // P = memory color
+	base.otherModes |= (2ULL << 20U); // M = blend color
+	base.blendColor = 0xD02060FFU;
+
+	// Keep cycle2 alpha output bound to TEX input so TEX0/TEX1 hazard is observable.
+	constexpr u64 kCycle2AlphaMask =
+		(0x7ULL << 21U)
+		| (0x7ULL << 3U)
+		| (0x7ULL << 18U)
+		| 0x7ULL;
+	constexpr u64 kCycle2AlphaTex1 =
+		(0ULL << 21U)
+		| (0ULL << 3U)
+		| (0ULL << 18U)
+		| 2ULL; // alphaD = TEX1
+	constexpr u64 kCycle2AlphaTex0 =
+		(0ULL << 21U)
+		| (0ULL << 3U)
+		| (0ULL << 18U)
+		| 1ULL; // alphaD = TEX0
+
+	rvk2::RenderWorkPacket tex1Variant = base;
+	tex1Variant.combineMux = (tex1Variant.combineMux & ~kCycle2AlphaMask) | kCycle2AlphaTex1;
+	rvk2::RenderWorkPacket tex0Variant = base;
+	tex0Variant.sourcePacketId = 206ULL;
+	tex0Variant.combineMux = (tex0Variant.combineMux & ~kCycle2AlphaMask) | kCycle2AlphaTex0;
+
+	const std::vector<rvk2::SubmissionBatchPacket> twoWorkBatches{makeBatchForWorkCount(2U)};
+	const rvk2::ExecutorOutput tex1Out = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, tex1Variant},
+		twoWorkBatches);
+	const rvk2::ExecutorOutput tex0Out = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, tex0Variant},
+		twoWorkBatches);
+
+	expectTrue(
+		tex1Out.summary.colorWriteCount > 0ULL,
+		"cycle2 texel hazard baseline should write pixels");
+	expectEq(
+		tex1Out.summary.colorWriteCount,
+		tex0Out.summary.colorWriteCount,
+		"cycle2 TEX selector transition should preserve write coverage");
+	expectTrue(
+		tex1Out.summary.presentHash != tex0Out.summary.presentHash,
+		"cycle2 TEX1/TEX0 transition should alter present hash under next-pixel hazard semantics");
+	expectTrue(
+		!presentFramesEqual(tex1Out, tex0Out),
+		"cycle2 TEX1/TEX0 transition should alter presented pixels under next-pixel hazard semantics");
+}
+
 void testFillPhaseIgnoresBlendCombinerConformance()
 {
 	rvk2::Executor executor;
@@ -2796,6 +2880,7 @@ int main()
 	testCopyPhaseDestinationBypassConformance();
 	testCycle2PhaseDistinctConformance();
 	testCycle2CombinerSelectorIsolationConformance();
+	testCycle2TexelNextPixelHazardConformance();
 	testFillPhaseIgnoresBlendCombinerConformance();
 	testCopyFillBypassAlphaCoverageConformance();
 	testTexRectFlipConformance();

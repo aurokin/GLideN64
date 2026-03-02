@@ -2218,6 +2218,7 @@ inline u8 evalCombinerEquation(s32 _a, s32 _b, s32 _c, s32 _d)
 inline u32 applySyntheticCombiner(
 	const rvk2::RenderWorkPacket & _work,
 	u32 _textureColor,
+	u32 _textureColorNext,
 	u32 _shadeColor,
 	u32 _baseColor,
 	u32 _dstColor,
@@ -2237,6 +2238,7 @@ inline u32 applySyntheticCombiner(
 		_work.combineMux,
 		useCycle2Selectors);
 	const ColorRGBA tex = unpackRGBA(_textureColor);
+	const ColorRGBA texNext = unpackRGBA(_textureColorNext);
 	const ColorRGBA shade = unpackRGBA(_shadeColor);
 	const ColorRGBA combined = unpackRGBA(_baseColor);
 	const ColorRGBA prim = unpackRGBA(_work.primColor);
@@ -2269,12 +2271,13 @@ inline u32 applySyntheticCombiner(
 	const u8 primLodFrac = _work.primColorLodFrac;
 	const u8 k4 = clampU8FromS32(static_cast<s32>(_work.convertK4));
 	const u8 k5 = clampU8FromS32(static_cast<s32>(_work.convertK5));
-	const ColorRGBA texel1{
-		tex.r,
-		tex.g,
-		tex.b,
-		tex.a
-	};
+	ColorRGBA texel0 = tex;
+	ColorRGBA texel1 = tex;
+	if (useCycle2Selectors && _work.phase == static_cast<u8>(rvk2::RenderPhase::kCycle2)) {
+		// 2-cycle combiner hazard approximation:
+		// in cycle2, TEX1 may source the next pixel's TEX0.
+		texel1 = texNext;
+	}
 
 	const auto makeColorInputs = [&](
 		u8 _combined,
@@ -2326,11 +2329,11 @@ inline u32 applySyntheticCombiner(
 		return in;
 	};
 	const CombinerColorInputs colorInputsR =
-		makeColorInputs(combined.r, tex.r, texel1.r, prim.r, shade.r, env.r, _work.keyCenterR, _work.keyScaleR, noise.r);
+		makeColorInputs(combined.r, texel0.r, texel1.r, prim.r, shade.r, env.r, _work.keyCenterR, _work.keyScaleR, noise.r);
 	const CombinerColorInputs colorInputsG =
-		makeColorInputs(combined.g, tex.g, texel1.g, prim.g, shade.g, env.g, _work.keyCenterG, _work.keyScaleG, noise.g);
+		makeColorInputs(combined.g, texel0.g, texel1.g, prim.g, shade.g, env.g, _work.keyCenterG, _work.keyScaleG, noise.g);
 	const CombinerColorInputs colorInputsB =
-		makeColorInputs(combined.b, tex.b, texel1.b, prim.b, shade.b, env.b, _work.keyCenterB, _work.keyScaleB, noise.b);
+		makeColorInputs(combined.b, texel0.b, texel1.b, prim.b, shade.b, env.b, _work.keyCenterB, _work.keyScaleB, noise.b);
 	const CombinerAlphaInputs alphaInputs = makeAlphaInputs();
 
 	const ColorRGBA out{
@@ -3011,6 +3014,7 @@ inline u32 chooseTriangleBaseColor(
 inline u32 runSyntheticPhasePipeline(
 	const rvk2::RenderWorkPacket & _work,
 	u32 _textureColor,
+	u32 _textureColorNext,
 	u32 _shadeColor,
 	u32 _baseColor,
 	u32 _dstColor,
@@ -3043,27 +3047,6 @@ inline u32 runSyntheticPhasePipeline(
 		combinerColor = applySyntheticCombiner(
 			_work,
 			_textureColor,
-			_shadeColor,
-			_baseColor,
-			_dstColor,
-			_x,
-			_y,
-			false,
-			_summary);
-			blenderColor = applySyntheticBlender(
-				_work,
-				combinerColor,
-				combinerColor,
-				_dstColor,
-				coverageDestination,
-				_x,
-				_y,
-			_summary);
-		finalColor = blenderColor;
-	}
-	else {
-		const u32 cycle1CombinedColor = applySyntheticCombiner(
-			_work,
 			_textureColor,
 			_shadeColor,
 			_baseColor,
@@ -3072,35 +3055,59 @@ inline u32 runSyntheticPhasePipeline(
 			_y,
 			false,
 			_summary);
-			const u32 cycle1Color = applySyntheticBlender(
-				_work,
-				cycle1CombinedColor,
-				cycle1CombinedColor,
-				_cycle2Cycle1DstColor,
-				_cycle2Cycle1DstCoverage,
-				_x,
-				_y,
-				false,
-				_summary);
-			combinerColor = applySyntheticCombiner(
-				_work,
-				_textureColor,
-				_shadeColor,
+		blenderColor = applySyntheticBlender(
+			_work,
+			combinerColor,
+			combinerColor,
+			_dstColor,
+			coverageDestination,
+			_x,
+			_y,
+			_summary);
+		finalColor = blenderColor;
+	}
+	else {
+		const u32 cycle1CombinedColor = applySyntheticCombiner(
+			_work,
+			_textureColor,
+			_textureColor,
+			_shadeColor,
+			_baseColor,
+			_dstColor,
+			_x,
+			_y,
+			false,
+			_summary);
+		const u32 cycle1Color = applySyntheticBlender(
+			_work,
+			cycle1CombinedColor,
+			cycle1CombinedColor,
+			_cycle2Cycle1DstColor,
+			_cycle2Cycle1DstCoverage,
+			_x,
+			_y,
+			false,
+			_summary);
+		combinerColor = applySyntheticCombiner(
+			_work,
+			_textureColor,
+			_textureColorNext,
+			_shadeColor,
 			cycle1CombinedColor,
 			cycle1Color,
 			_x,
 			_y,
 			true,
 			_summary);
-			blenderColor = applySyntheticBlender(
-				_work,
-				combinerColor,
-				cycle1Color,
-				_dstColor,
-				_dstCoverage,
-				_x,
-				_y,
-				true,
+		blenderColor = applySyntheticBlender(
+			_work,
+			combinerColor,
+			cycle1Color,
+			_dstColor,
+			_dstCoverage,
+			_x,
+			_y,
+			true,
 			_summary);
 		finalColor = blenderColor;
 	}
@@ -3219,35 +3226,65 @@ void writeRect(
 				cycle2Cycle1DstColor = prevMemoryColorForCycle2;
 				cycle2Cycle1DstCoverage = prevMemoryCoverageForCycle2;
 			}
-			if (_work.opKind == static_cast<u8>(rvk2::RasterOpKind::kFillRect)) {
-				finalColor = decodeFillColor(_work.fillColor, _work.colorImageSize);
-				textureColor = finalColor;
-				combinerColor = finalColor;
-				blenderColor = finalColor;
-			}
-			else {
-				textureColor = pseudoTexel(_work, x, y, &textureSourceBits);
-				finalColor = runSyntheticPhasePipeline(
-					_work,
-					textureColor,
-					0xFFFFFFFFU,
-					textureColor,
-					pipelineDstColor,
-					pipelineDstCoverage,
-					cycle2Cycle1DstColor,
-					cycle2Cycle1DstCoverage,
-					x,
-					y,
-					&coverageDestination,
-					&combinerColor,
-					&blenderColor,
-					&_summary);
-			}
-			prevMemoryColorForCycle2 = pipelineDstColor;
-			prevMemoryCoverageForCycle2 = pipelineDstCoverage;
-			hasPrevPixelForCycle2 = true;
-			if (!passesSyntheticAlphaCompare(_work, finalColor, x, y, &_summary))
-				continue;
+				if (_work.opKind == static_cast<u8>(rvk2::RasterOpKind::kFillRect)) {
+					finalColor = decodeFillColor(_work.fillColor, _work.colorImageSize);
+					textureColor = finalColor;
+					combinerColor = finalColor;
+					blenderColor = finalColor;
+				}
+				else {
+					textureColor = pseudoTexel(_work, x, y, &textureSourceBits);
+					const u32 textureColorNext = pseudoTexel(
+						_work,
+						std::min<u32>(x + 1U, bounds.x1),
+						y);
+					finalColor = runSyntheticPhasePipeline(
+						_work,
+						textureColor,
+						textureColorNext,
+						0xFFFFFFFFU,
+						textureColor,
+						pipelineDstColor,
+						pipelineDstCoverage,
+						cycle2Cycle1DstColor,
+						cycle2Cycle1DstCoverage,
+						x,
+						y,
+						&coverageDestination,
+						&combinerColor,
+						&blenderColor,
+						&_summary);
+				}
+				prevMemoryColorForCycle2 = pipelineDstColor;
+				prevMemoryCoverageForCycle2 = pipelineDstCoverage;
+				hasPrevPixelForCycle2 = true;
+				u32 alphaCompareColor = finalColor;
+				if (cycle2Work
+					&& (_work.alphaCompare & 0x1U) != 0U
+					&& _work.opKind != static_cast<u8>(rvk2::RasterOpKind::kFillRect)
+					&& x < bounds.x1) {
+					const u32 nextX = x + 1U;
+					const size_t nextColorIdx = pixelIndex(
+						_surface.width,
+						static_cast<u16>(nextX),
+						static_cast<u16>(y));
+					const u32 nextDstColor = _surface.pixels[nextColorIdx];
+					const u32 nextPipelineDstColor = imageReadEnabledWork ? nextDstColor : 0x00000000U;
+					const u32 nextTextureColor = pseudoTexel(_work, nextX, y);
+					alphaCompareColor = applySyntheticCombiner(
+						_work,
+						nextTextureColor,
+						nextTextureColor,
+						0xFFFFFFFFU,
+						nextTextureColor,
+						nextPipelineDstColor,
+						nextX,
+						y,
+						false,
+						nullptr);
+				}
+				if (!passesSyntheticAlphaCompare(_work, alphaCompareColor, x, y, &_summary))
+					continue;
 			u8 resolvedCoverage = coverageDestination;
 			if (!passesSyntheticCoverageWrite(
 					_work,
@@ -3385,46 +3422,77 @@ void writeTriangle(
 			if (!inside)
 				continue;
 
-			const size_t colorIdx = pixelIndex(_surface.width, static_cast<u16>(x), static_cast<u16>(y));
-			const u32 dstColor = _surface.pixels[colorIdx];
-			const u8 dstCoverage = !_surface.coverage.empty()
-				? static_cast<u8>(_surface.coverage[colorIdx] & 0x7U)
-				: 0U;
-			const u32 pipelineDstColor = imageReadEnabledWork ? dstColor : 0x00000000U;
-			const u8 pipelineDstCoverage = imageReadEnabledWork ? dstCoverage : 7U;
-			u8 coverageDestination = pipelineDstCoverage;
-			u32 textureSourceBits = 0U;
-			const u32 textureColor = chooseTriangleTextureSourceColor(_work, x, y, &textureSourceBits);
-			const u32 shadeColor = chooseTriangleShadeSourceColor(_work, x, y);
-			const u32 baseColor = chooseTriangleBaseColor(_work, textureColor, shadeColor);
-			u32 combinerColor = 0U;
-			u32 blenderColor = 0U;
-			u32 cycle2Cycle1DstColor = pipelineDstColor;
-			u8 cycle2Cycle1DstCoverage = pipelineDstCoverage;
-			if (cycle2Work && hasPrevPixelForCycle2) {
-				cycle2Cycle1DstColor = prevMemoryColorForCycle2;
-				cycle2Cycle1DstCoverage = prevMemoryCoverageForCycle2;
-			}
-			const u32 finalColor = runSyntheticPhasePipeline(
-				_work,
-				textureColor,
-				shadeColor,
-				baseColor,
-				pipelineDstColor,
-				pipelineDstCoverage,
-				cycle2Cycle1DstColor,
-				cycle2Cycle1DstCoverage,
-				x,
-				y,
-				&coverageDestination,
-				&combinerColor,
-				&blenderColor,
-				&_summary);
-			prevMemoryColorForCycle2 = pipelineDstColor;
-			prevMemoryCoverageForCycle2 = pipelineDstCoverage;
-			hasPrevPixelForCycle2 = true;
-			if (!passesSyntheticAlphaCompare(_work, finalColor, x, y, &_summary))
-				continue;
+				const size_t colorIdx = pixelIndex(_surface.width, static_cast<u16>(x), static_cast<u16>(y));
+				const u32 dstColor = _surface.pixels[colorIdx];
+				const u8 dstCoverage = !_surface.coverage.empty()
+					? static_cast<u8>(_surface.coverage[colorIdx] & 0x7U)
+					: 0U;
+				const u32 pipelineDstColor = imageReadEnabledWork ? dstColor : 0x00000000U;
+				const u8 pipelineDstCoverage = imageReadEnabledWork ? dstCoverage : 7U;
+				u8 coverageDestination = pipelineDstCoverage;
+				u32 textureSourceBits = 0U;
+				const u32 textureColor = chooseTriangleTextureSourceColor(_work, x, y, &textureSourceBits);
+				const u32 textureColorNext = chooseTriangleTextureSourceColor(
+					_work,
+					std::min<u32>(x + 1U, bounds.x1),
+					y);
+				const u32 shadeColor = chooseTriangleShadeSourceColor(_work, x, y);
+				const u32 baseColor = chooseTriangleBaseColor(_work, textureColor, shadeColor);
+				u32 combinerColor = 0U;
+				u32 blenderColor = 0U;
+				u32 cycle2Cycle1DstColor = pipelineDstColor;
+				u8 cycle2Cycle1DstCoverage = pipelineDstCoverage;
+				if (cycle2Work && hasPrevPixelForCycle2) {
+					cycle2Cycle1DstColor = prevMemoryColorForCycle2;
+					cycle2Cycle1DstCoverage = prevMemoryCoverageForCycle2;
+				}
+				const u32 finalColor = runSyntheticPhasePipeline(
+					_work,
+					textureColor,
+					textureColorNext,
+					shadeColor,
+					baseColor,
+					pipelineDstColor,
+					pipelineDstCoverage,
+					cycle2Cycle1DstColor,
+					cycle2Cycle1DstCoverage,
+					x,
+					y,
+					&coverageDestination,
+					&combinerColor,
+					&blenderColor,
+					&_summary);
+				prevMemoryColorForCycle2 = pipelineDstColor;
+				prevMemoryCoverageForCycle2 = pipelineDstCoverage;
+				hasPrevPixelForCycle2 = true;
+				u32 alphaCompareColor = finalColor;
+				if (cycle2Work
+					&& (_work.alphaCompare & 0x1U) != 0U
+					&& x < bounds.x1) {
+					const u32 nextX = x + 1U;
+					const size_t nextColorIdx = pixelIndex(
+						_surface.width,
+						static_cast<u16>(nextX),
+						static_cast<u16>(y));
+					const u32 nextDstColor = _surface.pixels[nextColorIdx];
+					const u32 nextPipelineDstColor = imageReadEnabledWork ? nextDstColor : 0x00000000U;
+					const u32 nextTextureColor = chooseTriangleTextureSourceColor(_work, nextX, y);
+					const u32 nextShadeColor = chooseTriangleShadeSourceColor(_work, nextX, y);
+					const u32 nextBaseColor = chooseTriangleBaseColor(_work, nextTextureColor, nextShadeColor);
+					alphaCompareColor = applySyntheticCombiner(
+						_work,
+						nextTextureColor,
+						nextTextureColor,
+						nextShadeColor,
+						nextBaseColor,
+						nextPipelineDstColor,
+						nextX,
+						y,
+						false,
+						nullptr);
+				}
+				if (!passesSyntheticAlphaCompare(_work, alphaCompareColor, x, y, &_summary))
+					continue;
 			u8 resolvedCoverage = coverageDestination;
 			if (!passesSyntheticCoverageWrite(
 					_work,

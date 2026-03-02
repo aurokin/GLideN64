@@ -17,14 +17,24 @@ Accuracy-first. RVK2-only path. No legacy renderer fallback.
 2. Stage/forensics instrumentation is active and useful.
 3. Paper Mario parity metric is stable but still visually incorrect.
 4. Deep-dive corpus is integrated under `docs/references/n64/deep-dive-pack/`.
+5. Cycle2 hazard approximations now include TEX1 next-pixel combiner sourcing and cycle2 alpha-compare next-pixel combiner lookahead.
 
-## Remaining Work Map (31%)
+## Remaining Work Map (28%)
 
-1. `P5` cycle semantics closure (combiner/blender/coverage/depth): **12%**
+1. `P5` cycle semantics closure (combiner/blender/coverage/depth): **9%**
 2. `P3` authoritative TMEM path closure (especially 32b): **9%**
 3. `P4` raster/coefficient edge behavior: **5%**
 4. `P2` present-source determinism polish: **3%**
 5. `P6` VI finishing polish: **2%**
+
+## Latest Batch (2026-03-02)
+
+1. Added cycle2 combiner TEX hazard approximation in executor:
+   - cycle2 `TEX1` now uses next-pixel TEX0 approximation.
+2. Added cycle2 alpha-compare hazard approximation:
+   - cycle2 alpha compare now uses next-pixel first-cycle combiner output approximation.
+3. Added conformance coverage for cycle2 TEX selector hazard behavior.
+4. Kept local gate green after this batch.
 
 ## What Deep-Dive Changed In Our Plan
 
