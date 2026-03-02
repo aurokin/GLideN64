@@ -454,6 +454,7 @@ endif(USE_IPO AND REALITYVK_BUILD_TYPE STREQUAL "Release")
 if(REALITYVK_BUILD_RVK2_TESTS)
 	add_executable(rvk2_unit_tests
 		Graphics/RealityVK2/rvk2_UnitTests.cpp
+		N64.cpp
 		Graphics/RealityVK2/rvk2_CommandStream.cpp
 		Graphics/RealityVK2/rvk2_DrawSemantic.cpp
 		Graphics/RealityVK2/rvk2_Executor.cpp
@@ -473,6 +474,7 @@ if(REALITYVK_BUILD_RVK2_TESTS)
 
 	add_executable(rvk2_conformance_tests
 		Graphics/RealityVK2/rvk2_ConformanceTests.cpp
+		N64.cpp
 		Graphics/RealityVK2/rvk2_Executor.cpp
 		Graphics/RealityVK2/rvk2_RasterPipeline.cpp
 		Graphics/RealityVK2/rvk2_RenderPlan.cpp

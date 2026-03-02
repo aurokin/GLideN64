@@ -32,7 +32,7 @@ Total remaining work represented here: 100%.
 | --- | --- | --- | --- | --- |
 | P1 | Highest | In progress | 10% | Add frame-forensics layer so each bad frame is diagnosable. |
 | P2 | Highest | In progress | 15% | Make present target selection deterministic and VI-origin authoritative. |
-| P3 | Highest | Planned | 25% | Replace pseudo texture sampling with real TMEM-backed sampling. |
+| P3 | Highest | In progress | 25% | Replace pseudo texture sampling with real TMEM-backed sampling. |
 | P4 | High | Planned | 20% | Replace pseudo triangle color path with coefficient-driven raster evaluation. |
 | P5 | High | Planned | 25% | Implement real combiner/blender/depth/coverage semantics for cycle 1/2. |
 | P6 | Medium | Planned | 5% | Final VI framing and output conformance polish after core content path is real. |
@@ -47,8 +47,8 @@ Total remaining work represented here: 100%.
 
 ## Live Progress
 
-- Overall completion of this bring-up plan: **~12%**
-- Active phase: **P2**
+- Overall completion of this bring-up plan: **~18%**
+- Active phase: **P3**
 - Blockers: none (technical debt only)
 
 ## Latest Findings (Forensics Run)
@@ -86,6 +86,24 @@ Implication:
 - Runtime now makes less arbitrary present-target choices once surfaces exist.
 - Remaining visual corruption is increasingly likely inside content generation (TMEM/pixel path), not target selection.
 
+## Latest Findings (P3 RDRAM Sampling Pass)
+
+After wiring executor texture fetch through RDRAM decode (RGBA/CI/IA/I families) with pseudo fallback only when decode is unavailable:
+
+- Local gate status: pass (`./scripts/local_gate.sh`).
+- Paper Mario parity still fails non-black gate, but for low-luma output (not missing surfaces):
+  - candidate frame `720x540`, non-black ratio `~0.053`, mean luma `~0.00131`.
+  - capture rejected after retry budget because brightness remained below threshold.
+- Frame forensics from the same run (`299` records):
+  - present selection: `{5:44, 1:1, 3:169, 4:85}`
+  - VI reject: `{1:44, 0:255}`
+  - zero-present frames: `44` (bootstrap only)
+  - late frames remain surface-backed with valid VI resolve and full present dimensions.
+
+Implication:
+- P2 target selection is no longer the dominant failure mode.
+- P3/P4/P5 remain the critical path: texel decode is now sourcing real bytes, but combiner/blender/coverage/depth behavior still underpowers final image energy.
+
 ## Update Log
 
 | Date | Change | Notes |
@@ -93,3 +111,4 @@ Implication:
 | 2026-03-02 | Initial plan created. | Derived from current RVK2 smoke/parity behavior and trace analysis. |
 | 2026-03-02 | Added frame forensics instrumentation (P1, in progress). | Executor summary now records present-surface selection, per-surface write/work rankings, and VI rejection/resolved-state metadata; context can emit per-frame forensic records via `REALITYVK2_FRAME_FORENSICS_FILE`. |
 | 2026-03-02 | Added deterministic present fallback improvements (P2, in progress). | Executor now supports no-work previous-surface fallback, bounded surface-history cache, and VI-origin selection against history before non-authoritative fallback. |
+| 2026-03-02 | Added executor RDRAM-backed texture sampling path (P3, in progress). | Texture sampling now attempts direct RDRAM decode for RGBA/CI/IA/I formats before synthetic fallback; local gate remains green, and parity still shows low-luma output with valid surface/VI selection in late frames. |

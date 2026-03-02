@@ -11,6 +11,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "N64.h"
 #include "rvk2_VIRenderer.h"
 
 namespace {
@@ -676,6 +677,246 @@ inline u32 applyTextureDetailModeColor(
 		| static_cast<u32>(a);
 }
 
+inline u8 expand5To8(u8 _value)
+{
+	return static_cast<u8>((static_cast<u32>(_value) * 255U + 15U) / 31U);
+}
+
+inline u8 expand4To8(u8 _value)
+{
+	return static_cast<u8>((_value << 4U) | _value);
+}
+
+inline u8 expand3To8(u8 _value)
+{
+	return static_cast<u8>((static_cast<u32>(_value) * 255U + 3U) / 7U);
+}
+
+inline u32 packRgba8(u8 _r, u8 _g, u8 _b, u8 _a)
+{
+	return (static_cast<u32>(_r) << 24U)
+		| (static_cast<u32>(_g) << 16U)
+		| (static_cast<u32>(_b) << 8U)
+		| static_cast<u32>(_a);
+}
+
+inline bool rdramReadable()
+{
+	return RDRAM != nullptr && RDRAMSize != 0U;
+}
+
+inline u8 readRdramByteWrapped(u32 _address)
+{
+	return RDRAM[(_address & RDRAMSize) ^ 3U];
+}
+
+inline u16 readRdramU16Wrapped(u32 _address)
+{
+	const u8 hi = readRdramByteWrapped(_address);
+	const u8 lo = readRdramByteWrapped(_address + 1U);
+	return static_cast<u16>((static_cast<u16>(hi) << 8U) | static_cast<u16>(lo));
+}
+
+inline u32 bitsPerTexelFromSize(u8 _size)
+{
+	switch (_size & 0x3U) {
+	case 0U:
+		return 4U;
+	case 1U:
+		return 8U;
+	case 2U:
+		return 16U;
+	default:
+		return 32U;
+	}
+}
+
+inline bool computeTextureSourceCoord(
+	const rvk2::RenderWorkPacket & _work,
+	s32 _s,
+	s32 _t,
+	s32 & _outSourceS,
+	s32 & _outSourceT)
+{
+	s32 sourceS = _s - static_cast<s32>(_work.tileULS >> 2U);
+	s32 sourceT = _t - static_cast<s32>(_work.tileULT >> 2U);
+	if ((_work.tmemLoadKind == static_cast<u8>(rvk2::TmemLoadKind::kTile)
+			|| _work.tmemLoadKind == static_cast<u8>(rvk2::TmemLoadKind::kBlock))
+		&& _work.tmemLoadTile == (_work.tile & 0x7U)) {
+		sourceS += static_cast<s32>(_work.tmemLoadULS >> 2U);
+		sourceT += static_cast<s32>(_work.tmemLoadULT >> 2U);
+	}
+
+	if (sourceS < 0 || sourceT < 0)
+		return false;
+
+	_outSourceS = sourceS;
+	_outSourceT = sourceT;
+	return true;
+}
+
+inline bool readTextureBitsAt(
+	const rvk2::RenderWorkPacket & _work,
+	s32 _s,
+	s32 _t,
+	u8 _size,
+	u32 & _outBits,
+	u32 & _outBitWidth)
+{
+	if (!rdramReadable())
+		return false;
+
+	const u32 texelBits = bitsPerTexelFromSize(_size);
+	const u32 rowBitsFromWidth = _work.textureImageWidth != 0U
+		? static_cast<u32>(_work.textureImageWidth) * texelBits
+		: 0U;
+	const u32 rowBitsFromTileLine = _work.tileLine != 0U
+		? static_cast<u32>(_work.tileLine) * 64U
+		: 0U;
+	const u32 rowBits = rowBitsFromWidth != 0U ? rowBitsFromWidth : rowBitsFromTileLine;
+	if (rowBits == 0U)
+		return false;
+
+	s32 sourceS = 0;
+	s32 sourceT = 0;
+	if (!computeTextureSourceCoord(_work, _s, _t, sourceS, sourceT))
+		return false;
+
+	const u64 bitAddress =
+		static_cast<u64>(_work.textureImageAddress & 0x00FFFFFFU)
+		+ static_cast<u64>(sourceT) * static_cast<u64>(rowBits)
+		+ static_cast<u64>(sourceS) * static_cast<u64>(texelBits);
+
+	const u32 byteAddress = static_cast<u32>(bitAddress >> 3U);
+	const u32 bitShift = static_cast<u32>(bitAddress & 0x7U);
+
+	switch (texelBits) {
+	case 4U: {
+		const u8 packed = readRdramByteWrapped(byteAddress);
+		const bool lowNibble = bitShift >= 4U;
+		_outBits = static_cast<u32>(lowNibble ? (packed & 0x0FU) : ((packed >> 4U) & 0x0FU));
+		_outBitWidth = 4U;
+		return true;
+	}
+	case 8U:
+		_outBits = static_cast<u32>(readRdramByteWrapped(byteAddress));
+		_outBitWidth = 8U;
+		return true;
+	case 16U:
+		_outBits = static_cast<u32>(readRdramU16Wrapped(byteAddress));
+		_outBitWidth = 16U;
+		return true;
+	case 32U: {
+		const u8 r = readRdramByteWrapped(byteAddress + 0U);
+		const u8 g = readRdramByteWrapped(byteAddress + 1U);
+		const u8 b = readRdramByteWrapped(byteAddress + 2U);
+		const u8 a = readRdramByteWrapped(byteAddress + 3U);
+		_outBits = packRgba8(r, g, b, a);
+		_outBitWidth = 32U;
+		return true;
+	}
+	default:
+		return false;
+	}
+}
+
+inline bool sampleTextureFromRdram(
+	const rvk2::RenderWorkPacket & _work,
+	s32 _s,
+	s32 _t,
+	u32 & _outRgba,
+	bool & _outNeedsLUT)
+{
+	const u8 format = (_work.tileFormat & 0x7U) <= 4U
+		? (_work.tileFormat & 0x7U)
+		: (_work.textureImageFormat & 0x7U);
+	const u8 size = _work.tileSize & 0x3U;
+
+	u32 bits = 0U;
+	u32 bitWidth = 0U;
+	if (!readTextureBitsAt(_work, _s, _t, size, bits, bitWidth))
+		return false;
+
+	_outNeedsLUT = false;
+	switch (format) {
+	case 0U: // RGBA
+		if (bitWidth == 32U) {
+			_outRgba = bits;
+			return true;
+		}
+		if (bitWidth == 16U) {
+			const u16 rgba16 = static_cast<u16>(bits & 0xFFFFU);
+			const u8 r5 = static_cast<u8>((rgba16 >> 11U) & 0x1FU);
+			const u8 g5 = static_cast<u8>((rgba16 >> 6U) & 0x1FU);
+			const u8 b5 = static_cast<u8>((rgba16 >> 1U) & 0x1FU);
+			const u8 a = (rgba16 & 0x1U) != 0U ? 255U : 0U;
+			_outRgba = packRgba8(expand5To8(r5), expand5To8(g5), expand5To8(b5), a);
+			return true;
+		}
+		if (bitWidth == 8U) {
+			const u8 value = static_cast<u8>(bits & 0xFFU);
+			_outRgba = packRgba8(value, value, value, 255U);
+			return true;
+		}
+		return false;
+
+	case 1U: // YUV (not modeled yet)
+		return false;
+
+	case 2U: { // CI
+		u8 index = static_cast<u8>(bits & 0xFFU);
+		if (bitWidth == 4U)
+			index &= 0x0FU;
+		if (decodeTextureLUTMode(_work) != 0U) {
+			_outNeedsLUT = true;
+			if (bitWidth == 4U)
+				index = static_cast<u8>((_work.tilePalette << 4U) | index);
+		}
+		_outRgba = packRgba8(index, index, index, 255U);
+		return true;
+	}
+
+	case 3U: // IA
+		if (bitWidth == 16U) {
+			const u8 i = static_cast<u8>((bits >> 8U) & 0xFFU);
+			const u8 a = static_cast<u8>(bits & 0xFFU);
+			_outRgba = packRgba8(i, i, i, a);
+			return true;
+		}
+		if (bitWidth == 8U) {
+			const u8 ia = static_cast<u8>(bits & 0xFFU);
+			const u8 i = expand4To8(static_cast<u8>((ia >> 4U) & 0x0FU));
+			const u8 a = expand4To8(static_cast<u8>(ia & 0x0FU));
+			_outRgba = packRgba8(i, i, i, a);
+			return true;
+		}
+		if (bitWidth == 4U) {
+			const u8 ia = static_cast<u8>(bits & 0x0FU);
+			const u8 i = expand3To8(static_cast<u8>((ia >> 1U) & 0x07U));
+			const u8 a = (ia & 0x1U) != 0U ? 255U : 0U;
+			_outRgba = packRgba8(i, i, i, a);
+			return true;
+		}
+		return false;
+
+	case 4U: // I
+		if (bitWidth == 8U) {
+			const u8 i = static_cast<u8>(bits & 0xFFU);
+			_outRgba = packRgba8(i, i, i, 255U);
+			return true;
+		}
+		if (bitWidth == 4U) {
+			const u8 i = expand4To8(static_cast<u8>(bits & 0x0FU));
+			_outRgba = packRgba8(i, i, i, 255U);
+			return true;
+		}
+		return false;
+
+	default:
+		return false;
+	}
+}
+
 const rvk2::TextureReplacementImage * findTextureReplacementImage(
 	const rvk2::RenderWorkPacket & _work,
 	s32 _s,
@@ -724,6 +965,7 @@ inline u32 samplePseudoTexelColor(
 			findTextureReplacementImage(_work, _s, _t, _w, _includeW)) {
 		return rvk2::sampleTextureReplacementImage(*replacement, _s, _t);
 	}
+
 	u64 seed = buildTextureSeedBase(_work);
 	mixTextureSeed(seed, static_cast<u64>(static_cast<u32>(_s)));
 	mixTextureSeed(seed, static_cast<u64>(static_cast<u32>(_t)));
@@ -732,6 +974,15 @@ inline u32 samplePseudoTexelColor(
 	mixTextureSeed(seed, static_cast<u64>(_x));
 	mixTextureSeed(seed, static_cast<u64>(_y));
 	mixTextureSeed(seed, static_cast<u64>(_work.syncEpoch));
+
+	u32 rdramColor = 0U;
+	bool needsLUT = false;
+	if (sampleTextureFromRdram(_work, _s, _t, rdramColor, needsLUT)) {
+		if (needsLUT)
+			rdramColor = applyTextureLUTModeColor(_work, seed, rdramColor);
+		return applyTextureDetailModeColor(_work, seed, rdramColor);
+	}
+
 	seed *= 0x9E3779B97F4A7C15ULL;
 	const u8 r = static_cast<u8>((seed >> 8) & 0xFFU);
 	const u8 g = static_cast<u8>((seed >> 24) & 0xFFU);
