@@ -122,13 +122,16 @@ Implication:
 1. Add explicit class-targeted conformance probes for `b10/b11` alpha-fixup and coverage-write semantics (`alpha_cvg_sel`, `cvg_x_alpha`, `cvg_dest` combinations).
 2. Validate cycle2 class `b11` second-cycle selector behavior under mixed TMEM/RDRAM source conditions with focused micro-scenes.
 3. Implement/document remaining cycle2 hazards still missing in executor policy (notably TEX0/TEX1 second-cycle hazard handling).
-4. Keep TMEM32 experimental modes opt-in until class `b11` parity improves.
-5. Re-run full stage sweep (`final/texel_raw/combiner_out/blender_out/vi_source`) after each major policy change.
+4. Add hidden-bit/coverage-plane parity checks to diagnostics and bring-up validation.
+5. Add VI mid-frame register update micro-tests (pre-line shift/scale style behavior).
+6. Keep TMEM32 experimental modes opt-in until class `b11` parity improves.
+7. Re-run full stage sweep (`final/texel_raw/combiner_out/blender_out/vi_source`) after each major policy change.
 
 ## Update Log
 
 | Date | Change | Notes |
 | --- | --- | --- |
+| 2026-03-02 | Integrated `n64_video_core_deep_dive_pack` into references and extracted RVK2 deltas. | Added offline pack corpus under `docs/references/n64/deep-dive-pack/` and captured actionable deltas (`rvk2_delta_notes.md`): hidden-bit parity emphasis, VI mid-frame behavior priority, and stress-ROM-driven validation leads. |
 | 2026-03-02 | Fixed cycle2 blender input routing and added memory-selector conformance coverage. | Second-cycle blender now distinguishes selector0 (cycle1 blender output) from selector1 (framebuffer memory color/coverage); local gate stays green and destination-sensitive memory path is explicitly tested. |
 | 2026-03-02 | Corrected coverage rejection domain to input coverage (post alpha-fixup). | Coverage rejection now follows AA/non-AA rules on input coverage while resolved coverage is retained for writeback semantics; parity capture no longer hits mostly-black retry path after this correction. |
 | 2026-03-02 | Added class-bucket pipeline diagnostics and texel-source attribution for active writes. | New forensics fields now report stage deltas by packet class, textured work/write shares, texel source split (`TMEM` vs `RDRAM`) by class, and op-kind work/write distributions. |
