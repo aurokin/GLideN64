@@ -107,7 +107,7 @@ bool normalizeRectWithColorImageSpace(const vulkan::DrawVertex & _src, vulkan::D
 
 } // namespace
 
-vulkan::DrawVertex normalizeFallbackVertex(const vulkan::DrawPacket & _packet, const vulkan::DrawVertex & _src)
+vulkan::DrawVertex normalizePacketVertex(const vulkan::DrawPacket & _packet, const vulkan::DrawVertex & _src)
 {
 	static const bool disablePositionNormalize = std::getenv("REALITYVK_VK_DISABLE_POSITION_NORMALIZE") != nullptr;
 	static const bool disableForceRasterRectTransform = std::getenv("REALITYVK_VK_DISABLE_FORCE_RASTER_RECT_TRANSFORM") != nullptr;
@@ -301,7 +301,7 @@ void normalizePacketPositions(vulkan::DrawPacket & _packet)
 	}
 
 	for (vulkan::DrawVertex & vertex : _packet.vertices)
-		vertex = normalizeFallbackVertex(_packet, vertex);
+		vertex = normalizePacketVertex(_packet, vertex);
 	_packet.positionsNormalized = true;
 
 	if (debugPositions && !_packet.vertices.empty()) {

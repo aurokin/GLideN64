@@ -21,7 +21,7 @@ Estimated total completion: **~99%**.
 | C: Core Rendering Correctness | Done | Deterministic synthetic correctness closure landed for scoped contract. |
 | D: VI and Presentation | Done | Register-driven VI model is implemented and covered by tests. |
 | E: Texture Replacement | Done | Deterministic replacement store, `.hts` IO, control tooling, and bounds policy are landed. |
-| F: Cutover and Deletion | In progress | Runtime/config/script/doc legacy cleanup is nearly complete; active work is debugging RVK2 present behavior. |
+| F: Cutover and Deletion | In progress | Runtime/config/script/doc path cleanup is nearly complete; active work is debugging RVK2 present behavior. |
 
 ## Remaining Work
 
@@ -33,7 +33,7 @@ Estimated total completion: **~99%**.
 
 1. Removed non-Mupen plugin API branches and dead framebuffer list export plumbing.
 2. Removed remaining compile-time references to deleted Windows/UI compatibility surfaces.
-3. Renamed lingering legacy-oriented runtime/debug terminology in active Vulkan paths.
+3. Renamed remaining old-path runtime/debug terminology in active Vulkan paths.
 4. Simplified smoke/parity scripts to deterministic dumpfb capture flow.
 5. Restricted smoke backend support to Vulkan only.
 6. Set upstream `GLideN64` as default parity reference target.

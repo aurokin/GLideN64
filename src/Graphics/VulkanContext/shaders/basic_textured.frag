@@ -48,9 +48,9 @@ bool isTestColor(vec4 c)
     return all(equal(c, kTexrectTestColor));
 }
 
-vec4 patchTestColor(vec4 sampleColor, vec4 fallbackColor)
+vec4 patchTestColor(vec4 sampleColor, vec4 replacementColor)
 {
-    return isTestColor(sampleColor) ? fallbackColor : sampleColor;
+    return isTestColor(sampleColor) ? replacementColor : sampleColor;
 }
 
 vec4 sampleTexrectSpecial(vec2 uv)

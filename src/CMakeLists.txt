@@ -10,10 +10,6 @@ option(NO_OSD "Set to ON to disable OSD text drawing" ${NO_OSD})
 option(USE_IPO "Enables IPO/LTO when supported" ON)
 option(REALITYVK_BUILD_RVK2_TESTS "Build RealityVK2 unit tests" ON)
 
-if(DEFINED REALITYVK_BUILD_LEGACY_RENDERER AND REALITYVK_BUILD_LEGACY_RENDERER)
-  message(FATAL_ERROR "Vulkan-only branch: REALITYVK_BUILD_LEGACY_RENDERER is not supported.")
-endif()
-
 # run script to generate Revision.h
 set(PATH_REVISION "${CMAKE_CURRENT_BINARY_DIR}/inc/Revision.h")
 find_package(Git)

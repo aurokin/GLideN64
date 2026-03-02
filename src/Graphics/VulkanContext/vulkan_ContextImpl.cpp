@@ -2570,10 +2570,10 @@ bool ContextImpl::executeOffscreenDrawPacket(const DrawPacket & _packet, graphic
 			static const bool forceOffscreenRasterRectTransform = std::getenv("REALITYVK_VK_FORCE_OFFSCREEN_RASTER_RECT_TRANSFORM") != nullptr;
 				normalizePacket.forceRasterRectTransform = forceOffscreenRasterRectTransform
 					&& normalizePacket.transformMode == vulkan::VertexTransformMode::Rect;
-		std::vector<DrawVertex> normalizedVertices;
-		normalizedVertices.reserve(_packet.vertices.size());
-		for (const DrawVertex & vertex : _packet.vertices)
-			normalizedVertices.push_back(vulkan::packet_normalize::normalizeFallbackVertex(normalizePacket, vertex));
+			std::vector<DrawVertex> normalizedVertices;
+			normalizedVertices.reserve(_packet.vertices.size());
+			for (const DrawVertex & vertex : _packet.vertices)
+				normalizedVertices.push_back(vulkan::packet_normalize::normalizePacketVertex(normalizePacket, vertex));
 		const VkDeviceSize vertexBytes = static_cast<VkDeviceSize>(normalizedVertices.size() * sizeof(DrawVertex));
 		if (vertexBytes == 0)
 			break;
@@ -3220,10 +3220,10 @@ bool ContextImpl::present()
 				normalizePacket.state.raster.viewportValid = true;
 				normalizePacket.forceRasterRectTransform = normalizePacket.transformMode == vulkan::VertexTransformMode::Rect;
 					DrawPacket packetCopy = packet;
-					packetCopy.vertices.clear();
-					packetCopy.vertices.reserve(packet.vertices.size());
-					for (const DrawVertex & vertex : packet.vertices)
-						packetCopy.vertices.push_back(vulkan::packet_normalize::normalizeFallbackVertex(normalizePacket, vertex));
+						packetCopy.vertices.clear();
+						packetCopy.vertices.reserve(packet.vertices.size());
+						for (const DrawVertex & vertex : packet.vertices)
+							packetCopy.vertices.push_back(vulkan::packet_normalize::normalizePacketVertex(normalizePacket, vertex));
 					bool appliedRtTexrectFlip = false;
 					u32 appliedRtTexrectFlipSlotMask = 0U;
 

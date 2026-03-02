@@ -220,14 +220,14 @@ open_viewer() {
     return
   fi
 
-  for fallback in eog display xdg-open; do
-    if [[ "${fallback}" == "${VIEWER}" ]]; then
+  for candidate_viewer in eog display xdg-open; do
+    if [[ "${candidate_viewer}" == "${VIEWER}" ]]; then
       continue
     fi
-    if ! command -v "${fallback}" >/dev/null 2>&1; then
+    if ! command -v "${candidate_viewer}" >/dev/null 2>&1; then
       continue
     fi
-    VIEWER="${fallback}"
+    VIEWER="${candidate_viewer}"
     if launch_with "${VIEWER}"; then
       return
     fi

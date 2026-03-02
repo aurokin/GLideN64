@@ -5,7 +5,7 @@
 namespace vulkan {
 namespace packet_normalize {
 
-vulkan::DrawVertex normalizeFallbackVertex(const vulkan::DrawPacket & _packet, const vulkan::DrawVertex & _src);
+vulkan::DrawVertex normalizePacketVertex(const vulkan::DrawPacket & _packet, const vulkan::DrawVertex & _src);
 
 void normalizePacketPositions(vulkan::DrawPacket & _packet);
 
