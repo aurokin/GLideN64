@@ -2,7 +2,7 @@
 
 ## Canonical Maintainer Docs
 
-- `vulkan-core-status.md`: roadmap phase status, remaining work, and debugging targets.
+- `rvk2-video-plan.md`: single-source RVK2 video roadmap and execution batches.
 - `local-ci.md`: build/gate/parity/smoke command contract.
 - `adr/0001-rvk2-schema-ownership.md`: schema-v1 ownership and compatibility policy.
 - `adr/0002-rvk2-runtime-switch-policy.md`: rvk2 single-path runtime decision.

@@ -72,7 +72,7 @@ python3 scripts/rvk2_packet_trace_replay.py \
 ## Docs
 
 - `docs/README.md`
-- `docs/vulkan-core-status.md`
+- `docs/rvk2-video-plan.md`
 - `docs/local-ci.md`
 - `docs/references/n64/README.md`
 
