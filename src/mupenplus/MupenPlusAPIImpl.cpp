@@ -123,7 +123,6 @@ m64p_error PluginAPI::PluginStartup(m64p_dynlib_handle _CoreLibHandle, void* Con
 
 	CoreGetVersion = (ptr_PluginGetVersion) DLSYM(_CoreLibHandle, "PluginGetVersion");
 
-#ifndef M64P_GLIDENUI
 	if (Config_SetDefault()) {
 		config.version = ConfigGetParamInt(g_configVideoGliden64, "configVersion");
 		if (config.version != CONFIG_VERSION_CURRENT) {
@@ -133,18 +132,9 @@ m64p_error PluginAPI::PluginStartup(m64p_dynlib_handle _CoreLibHandle, void* Con
 			Config_SetDefault();
 		}
 	}
-#endif // M64P_GLIDENUI
 
 	return M64ERR_SUCCESS;
 }
-
-#ifdef M64P_GLIDENUI
-m64p_error PluginAPI::PluginConfig(void* parent)
-{
-	Config_DoConfig(parent);
-	return M64ERR_SUCCESS;
-}
-#endif // M64P_GLIDENUI
 
 m64p_error PluginAPI::PluginShutdown()
 {

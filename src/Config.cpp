@@ -72,11 +72,7 @@ void Config::resetToDefaults()
 	frameBufferEmulation.copyDepthToRDRAM = cdSoftwareRender;
 	frameBufferEmulation.copyFromRDRAM = 0;
 	frameBufferEmulation.copyAuxToRDRAM = 0;
-#ifdef M64P_GLIDENUI
-	frameBufferEmulation.copyToRDRAM = ctSync;
-#else
 	frameBufferEmulation.copyToRDRAM = ctDoubleBuffer;
-#endif
 	frameBufferEmulation.N64DepthCompare = dcDisable;
 	frameBufferEmulation.forceDepthBufferClear = 0;
 	frameBufferEmulation.aspect = a43;

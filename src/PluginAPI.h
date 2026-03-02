@@ -52,10 +52,8 @@ public:
 	void FindPluginPath(wchar_t * _strPath);
 	void GetUserDataPath(wchar_t * _strPath);
 	void GetUserCachePath(wchar_t * _strPath);
-#ifdef M64P_GLIDENUI
 	void GetUserConfigPath(wchar_t * _strPath);
 	void GetSharedDataPath(wchar_t * _strPath);
-#endif // M64P_GLIDENUI
 	bool isRomOpen() const { return m_bRomOpen; }
 
 #ifndef MUPENPLUSAPI
@@ -84,9 +82,6 @@ public:
 	void ReadScreen2(void * _dest, int * _width, int * _height, int _front);
 
 	m64p_error PluginStartup(m64p_dynlib_handle _CoreLibHandle, void * Context, void (*DebugCallback)(void *, int, const char *));
-#ifdef M64P_GLIDENUI
-	m64p_error PluginConfig(void* parent);
-#endif // M64P_GLIDENUI
 	m64p_error PluginShutdown();
 	m64p_error PluginGetVersion(
 		m64p_plugin_type * _PluginType,

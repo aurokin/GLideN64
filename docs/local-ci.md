@@ -23,17 +23,16 @@ This configures `core.hooksPath=.githooks` and runs the gate automatically on ev
 
 By default, the gate runs:
 
-- Release CLI build (`MUPENPLUSAPI=ON`, `MUPENPLUSAPI_GLIDENUI=OFF`)
-- Debug CLI build (`MUPENPLUSAPI=ON`, `MUPENPLUSAPI_GLIDENUI=OFF`)
+- Release CLI build (`MUPENPLUSAPI=ON`)
+- Debug CLI build (`MUPENPLUSAPI=ON`)
 - `rvk2_unit_tests` in both Release and Debug gate builds.
 - `rvk2_conformance_tests` in both Release and Debug gate builds.
 
 ## Optional knobs
 
-- `REALITYVK_GATE_WITH_QT=1` adds the Qt UI build to the gate.
 - `REALITYVK_GATE_WITH_SMOKE=1` runs Paper Mario parity checks after build:
-  - Reference plugin from upstream worktree (`REALITYVK_PM_REFERENCE_PLUGIN`)
   - Candidate plugin built from this branch (`REALITYVK_PM_CANDIDATE_PLUGIN`)
+  - Reference plugin defaults to the candidate plugin unless explicitly overridden (`REALITYVK_PM_REFERENCE_PLUGIN`)
   - Readback baseline marker check is enabled by default in smoke mode:
     - `REALITYVK_GATE_SMOKE_REQUIRE_READBACK_MARKER=1` (default)
     - Forces smoke to fail if Vulkan readback marker logs are missing.
@@ -72,7 +71,6 @@ By default, the gate runs:
 Examples:
 
 ```bash
-REALITYVK_GATE_WITH_QT=1 ./scripts/local_gate.sh
 REALITYVK_GATE_WITH_SMOKE=1 ./scripts/local_gate.sh
 REALITYVK_GATE_WITH_SMOKE=1 REALITYVK_PM_VISUAL_GATE=0 ./scripts/local_gate.sh
 REALITYVK_GATE_TX_PACK_DIR=/path/to/pack ./scripts/local_gate.sh

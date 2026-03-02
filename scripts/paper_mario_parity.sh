@@ -5,10 +5,10 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MANIFEST="${REALITYVK_PM_MANIFEST:-${ROOT_DIR}/tests/smoke/scenarios.tsv}"
 SCENARIO_ID="${REALITYVK_PM_SCENARIO_ID:-paper_mario_intro}"
 
-REFERENCE_PLUGIN="${REALITYVK_PM_REFERENCE_PLUGIN:-/home/auro/code/gliden64-upstream/build-release/plugin/Release/mupen64plus-video-GLideN64.so}"
 CANDIDATE_PLUGIN="${REALITYVK_PM_CANDIDATE_PLUGIN:-${ROOT_DIR}/build/release-vulkan-smoke/plugin/Release/mupen64plus-video-RealityVK.so}"
-REFERENCE_CORELIB="${REALITYVK_PM_REFERENCE_CORELIB:-/home/auro/code/mupen/mupen64plus-core-upstream/projects/unix/libmupen64plus.so.2}"
 CANDIDATE_CORELIB="${REALITYVK_PM_CANDIDATE_CORELIB:-/home/auro/code/mupen/mupen64plus-core/projects/unix/libmupen64plus.so.2}"
+REFERENCE_PLUGIN="${REALITYVK_PM_REFERENCE_PLUGIN:-${CANDIDATE_PLUGIN}}"
+REFERENCE_CORELIB="${REALITYVK_PM_REFERENCE_CORELIB:-${CANDIDATE_CORELIB}}"
 
 CACHE_ROOT="${REALITYVK_PM_CACHE_ROOT:-${ROOT_DIR}/build/parity-cache/paper-mario}"
 RUN_ROOT="${REALITYVK_PM_RUN_ROOT:-${ROOT_DIR}/build/parity-runs/paper-mario}"

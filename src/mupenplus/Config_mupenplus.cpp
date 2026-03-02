@@ -5,7 +5,6 @@
 #include <string.h>
 #include <osal_files.h>
 #include <algorithm>
-#include <fstream>
 
 #include "../Textures.h"
 #include "../Config.h"
@@ -20,9 +19,7 @@ m64p_handle g_configVideoGeneral = nullptr;
 m64p_handle g_configVideoGliden64 = nullptr;
 
 static const char * kPrimaryVideoSectionName = "Video-RealityVK";
-static const char * kLegacyVideoSectionName = "Video-RealityVK";
 static const char * kPrimaryCustomConfigName = "RealityVK.custom.ini";
-static const char * kLegacyCustomConfigName = "RealityVK.custom.ini";
 
 static
 const char* _hotkeyDescription(u32 _idx)
@@ -104,19 +101,15 @@ u8 ASCIItoHID(const char * pStr) {
 
 bool Config_SetDefault()
 {
-	const char * activeVideoSectionName = kPrimaryVideoSectionName;
 	if (ConfigOpenSection("Video-General", &g_configVideoGeneral) != M64ERR_SUCCESS) {
 		LOG(LOG_ERROR, "Unable to open Video-General configuration section");
 		g_configVideoGeneral = nullptr;
 		return false;
 	}
 	if (ConfigOpenSection(kPrimaryVideoSectionName, &g_configVideoGliden64) != M64ERR_SUCCESS) {
-		if (ConfigOpenSection(kLegacyVideoSectionName, &g_configVideoGliden64) != M64ERR_SUCCESS) {
-			LOG(LOG_ERROR, "Unable to open RealityVK configuration section");
-			g_configVideoGliden64 = nullptr;
-			return false;
-		}
-		activeVideoSectionName = kLegacyVideoSectionName;
+		LOG(LOG_ERROR, "Unable to open RealityVK configuration section");
+		g_configVideoGliden64 = nullptr;
+		return false;
 	}
 
 	config.resetToDefaults();
@@ -331,7 +324,7 @@ bool Config_SetDefault()
 	assert(res == M64ERR_SUCCESS);
 #endif
 
-	return ConfigSaveSection(activeVideoSectionName) == M64ERR_SUCCESS;
+	return ConfigSaveSection(kPrimaryVideoSectionName) == M64ERR_SUCCESS;
 }
 
 void Config_LoadCustomConfig()
@@ -344,13 +337,6 @@ void Config_LoadCustomConfig()
 	const char* pathName = ConfigGetSharedDataFilepath(kPrimaryCustomConfigName);
 	if (pathName == nullptr)
 		return;
-	std::ifstream customConfig(pathName);
-	if (!customConfig.good()) {
-		const char * legacyPath = ConfigGetSharedDataFilepath(kLegacyCustomConfigName);
-		if (legacyPath != nullptr) {
-			pathName = legacyPath;
-		}
-	}
 	for (size_t pos = ROMname.find(' '); pos != std::string::npos; pos = ROMname.find(' ', pos))
 		ROMname.replace(pos, 1, "%20");
 	for (size_t pos = ROMname.find('\''); pos != std::string::npos; pos = ROMname.find('\'', pos))

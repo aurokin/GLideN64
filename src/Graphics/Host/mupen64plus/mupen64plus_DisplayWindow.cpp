@@ -9,7 +9,6 @@
 #include <gSP.h>
 #include <Log.h>
 #include <Revision.h>
-#include <GLideNUI/GLideNUI.h>
 #include <DisplayWindow.h>
 
 #ifdef VC
@@ -36,9 +35,6 @@ private:
 	void _changeWindow() override;
 	void _readScreen(void **_pDest, long *_pWidth, long *_pHeight) override {}
 	void _readScreen2(void * _dest, int * _width, int * _height, int _front) override;
-#ifdef M64P_GLIDENUI
-	bool _supportsWithRateFunctions = true;
-#endif // M64P_GLIDENUI
 	graphics::ObjectHandle _getDefaultFramebuffer() override;
 };
 
@@ -80,16 +76,12 @@ bool DisplayWindowMupen64plus::_start()
 
 	LOG(LOG_VERBOSE, "Setting video mode %dx%d", m_screenWidth, m_screenHeight);
 	const m64p_video_flags flags = M64VIDEOFLAG_SUPPORT_RESIZING;
-#ifdef M64P_GLIDENUI
-	returnValue = CoreVideo_SetVideoModeWithRate(m_screenWidth, m_screenHeight, m_screenRefresh, 0, m_bFullscreen ? M64VIDEO_FULLSCREEN : M64VIDEO_WINDOWED, flags);
-	if (returnValue != M64ERR_SUCCESS)
-	{
-		_supportsWithRateFunctions = false;
-#endif // M64P_GLIDENUI
-		returnValue = CoreVideo_SetVideoMode(m_screenWidth, m_screenHeight, 0, m_bFullscreen ? M64VIDEO_FULLSCREEN : M64VIDEO_WINDOWED, flags);
-#ifdef M64P_GLIDENUI
-	}
-#endif // M64P_GLIDENUI
+	returnValue = CoreVideo_SetVideoMode(
+		m_screenWidth,
+		m_screenHeight,
+		0,
+		m_bFullscreen ? M64VIDEO_FULLSCREEN : M64VIDEO_WINDOWED,
+		flags);
 	if (returnValue != M64ERR_SUCCESS) {
 		LOG(LOG_ERROR, "Error setting videomode %dx%d @ %d. Error code: %d", m_screenWidth, m_screenHeight, m_screenRefresh, returnValue);
 		CoreVideo_Quit();
@@ -124,10 +116,8 @@ void DisplayWindowMupen64plus::_stop()
 
 void DisplayWindowMupen64plus::_restart()
 {
-#ifdef M64P_GLIDENUI
 	m_resizeWidth = 0;
 	m_resizeHeight = 0;
-#endif // M64P_GLIDENUI
 }
 
 void DisplayWindowMupen64plus::_swapBuffers()
@@ -163,11 +153,9 @@ void DisplayWindowMupen64plus::_saveBufferContent(graphics::ObjectHandle /*_fbo*
 
 bool DisplayWindowMupen64plus::_resizeWindow()
 {
-#ifdef M64P_GLIDENUI
 	if (m_resizeWidth == 0 && m_resizeHeight == 0) {
 		return true;
 	}
-#endif // M64P_GLIDENUI
 
 	_setAttributes();
 
@@ -181,32 +169,7 @@ bool DisplayWindowMupen64plus::_resizeWindow()
 
 void DisplayWindowMupen64plus::_changeWindow()
 {
-#ifdef M64P_GLIDENUI
-	if (_supportsWithRateFunctions) {
-		m64p_error returnValue;
-		m_bFullscreen = !m_bFullscreen;
-		if (m_bFullscreen) {
-			m_screenWidth = config.video.fullscreenWidth;
-			m_screenHeight = config.video.fullscreenHeight;
-			m_screenRefresh = config.video.fullscreenRefresh;
-		} else {
-			m_screenWidth = config.video.windowedWidth;
-			m_screenHeight = config.video.windowedHeight;
-		}
-
-		m64p_video_flags flags = {};
-		returnValue = CoreVideo_SetVideoModeWithRate(m_screenWidth, m_screenHeight, m_screenRefresh, 0, m_bFullscreen ? M64VIDEO_FULLSCREEN : M64VIDEO_WINDOWED, flags);
-
-		if (returnValue != M64ERR_SUCCESS) {
-			LOG(LOG_ERROR, "Error setting videomode %dx%d @ %d. Error code: %d", m_screenWidth, m_screenHeight, m_screenRefresh, returnValue);
-			CoreVideo_Quit();
-		}
-	} else {
-#endif // M64P_GLIDENUI
-		CoreVideo_ToggleFullScreen();
-#ifdef M64P_GLIDENUI
-		}
-#endif // M64P_GLIDENUI
+	CoreVideo_ToggleFullScreen();
 
 	_updatePresentationWindowInfo();
 }

@@ -7,7 +7,6 @@
 #include "Platform.h"
 #include "Graphics/Context.h"
 #include "DisplayWindow.h"
-#include "SoftwareRender.h"
 #include "GraphicsDrawer.h"
 #include "Performance.h"
 #include "TextureFilterHandler.h"
@@ -106,6 +105,45 @@ inline void submitRvk2SyntheticTriangles(const SPVertex * _vertices, u32 _numVtx
 		for (u32 i = 1U; i + 1U < _numVtx; ++i)
 			submitRvk2SyntheticTriangle(_vertices[0], _vertices[i], _vertices[i + 1U]);
 	}
+}
+
+inline f32 maxYForTriangles(const SPVertex * _vertices, const u16 * _elements, u32 _count)
+{
+	if (_vertices == nullptr || _count == 0U)
+		return 0.0f;
+	f32 maxY = 0.0f;
+	if (_elements != nullptr) {
+		for (u32 i = 0U; i < _count; ++i)
+			maxY = std::max(maxY, _vertices[_elements[i]].y);
+	}
+	else {
+		for (u32 i = 0U; i < _count; ++i)
+			maxY = std::max(maxY, _vertices[i].y);
+	}
+	return maxY;
+}
+
+inline f32 renderTriangles(const SPVertex * _vertices, const u16 * _elements, u32 _count)
+{
+	return maxYForTriangles(_vertices, _elements, _count);
+}
+
+inline f32 renderAndDrawTriangles(
+	const SPVertex * _vertices,
+	const u16 * _elements,
+	u32 _count,
+	bool /*_flatColors*/,
+	GraphicsDrawer::Statistics & /*_stats*/)
+{
+	return maxYForTriangles(_vertices, _elements, _count);
+}
+
+inline f32 renderScreenSpaceTriangles(
+	const SPVertex * _vertices,
+	u32 _count,
+	graphics::DrawModeParam /*_mode*/)
+{
+	return maxYForTriangles(_vertices, nullptr, _count);
 }
 
 } // namespace

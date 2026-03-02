@@ -3,8 +3,6 @@ cmake_minimum_required(VERSION 3.10)
 option(PANDORA "Set to ON if targeting an OpenPandora" ${PANDORA})
 option(ODROID "Set to ON if targeting an Odroid" ${ODROID})
 option(MUPENPLUSAPI "Set to ON for Mupen64Plus plugin" ${MUPENPLUSAPI})
-option(MUPENPLUSAPI_GLIDENUI "Set to ON for GLideNUI for Mupen64Plus" ${MUPENPLUSAPI_GLIDENUI})
-option(GLIDENUI_QT6 "Set to ON to use Qt6 for GLideNUI" ${GLIDENUI_QT6})
 option(MESA "Set to ON to disable Raspberry Pi autodetection" ${MESA})
 option(VERO4K "Set to ON if targeting a Vero4k" ${VERO4K})
 option(ANDROID "Set to ON if targeting an Android device" ${ANDROID})
@@ -81,7 +79,6 @@ set(RealityVK_SOURCES
   RDP.cpp
   RSP.cpp
   RSP_LoadMatrix.cpp
-  SoftwareRender.cpp
   TexrectDrawer.cpp
   TextDrawer.cpp
   TextureFilterHandler.cpp
@@ -92,8 +89,6 @@ set(RealityVK_SOURCES
   BufferCopy/ColorBufferToRDRAM.cpp
   BufferCopy/DepthBufferToRDRAM.cpp
   BufferCopy/RDRAMtoColorBuffer.cpp
-  DepthBufferRender/ClipPolygon.cpp
-  DepthBufferRender/DepthBufferRender.cpp
   common/CommonAPIImpl_common.cpp
   Graphics/Context.cpp
   Graphics/ContextFactory.cpp
@@ -158,47 +153,7 @@ set(RealityVK_SOURCES
   uCodes/ZSortBOSS.cpp
 )
 
-set(GLideNUI_SOURCES
-  GLideNUI/AboutDialog.cpp
-  GLideNUI/AboutDialog.ui
-  GLideNUI/ConfigDialog.cpp
-  GLideNUI/Config_GLideNUI.cpp
-  GLideNUI/GLideNUI.cpp
-  GLideNUI/Settings.cpp
-  GLideNUI/QtKeyToHID.cpp
-  GLideNUI/HIDKeyToName.cpp
-  GLideNUI/configDialog.ui
-  GLideNUI/icon.qrc
-)
-
 message(STATUS "Legacy renderer sources: disabled (Vulkan-only branch)")
-
-if(MUPENPLUSAPI_GLIDENUI OR NOT MUPENPLUSAPI)
-  set(CMAKE_AUTOMOC ON)
-  set(CMAKE_AUTORCC ON)
-  set(CMAKE_AUTOUIC ON)
-
-  if (GLIDENUI_QT6)
-    find_package(Qt6 COMPONENTS Core Widgets Gui REQUIRED)
-    set(GLIDENUI_LIBRARIES
-        Qt6::Widgets Qt6::Core Qt6::Gui
-    )
-  else(GLIDENUI_QT6)
-    find_package(Qt5 COMPONENTS Core Widgets Gui REQUIRED)
-    set(GLIDENUI_LIBRARIES
-        Qt5::Widgets Qt5::Core Qt5::Gui
-    )
-  endif(GLIDENUI_QT6)
-  if (MUPENPLUSAPI)
-    list(APPEND GLideNUI_SOURCES
-      GLideNUI/fullscreenresolutions_mupen64plus.cpp
-    )
-  else()
-    list(APPEND GLideNUI_SOURCES
-      GLideNUI/fullscreenresolutions_windows.cpp
-    )
-  endif()
-endif()
 
 # Build type
 
@@ -257,19 +212,9 @@ if(MUPENPLUSAPI)
 	mupenplus/CommonAPIImpl_mupenplus.cpp
 	mupenplus/MemoryStatus_mupenplus.cpp
 	mupenplus/MupenPlusAPIImpl.cpp
+	mupenplus/Config_mupenplus.cpp
 	Graphics/Host/mupen64plus/mupen64plus_DisplayWindow.cpp
   )
-
-  if(MUPENPLUSAPI_GLIDENUI)
-      add_definitions(-DM64P_GLIDENUI)
-      list(APPEND RealityVK_SOURCES_UNIX
-        ${GLideNUI_SOURCES}
-      )
-  else()
-      list(APPEND RealityVK_SOURCES_UNIX
-        mupenplus/Config_mupenplus.cpp
-      )
-  endif()
 
   set(RealityVK_SOURCES_WIN ${RealityVK_SOURCES_UNIX}
   )
@@ -280,18 +225,6 @@ if(MUPENPLUSAPI)
   endif()
 else(MUPENPLUSAPI)
   message(FATAL_ERROR "Vulkan-only branch currently supports only MUPENPLUSAPI builds.")
-  include_directories( . inc )
-	set(RealityVK_SOURCES_WIN
-		ZilmarPluginAPI.cpp
-		GLideNUI/Config_GLideNUI.cpp
-		windows/CommonAPIImpl_windows.cpp
-		windows/RealityVK_windows.cpp
-		windows/MemoryStatus_windows.cpp
-		windows/ZilmarAPIImpl_windows.cpp
-	  windows/ScreenShot.cpp
-	  ${GLideNUI_SOURCES}
-	  )
-	set(RealityVK_DLL_NAME RealityVK)
 endif(MUPENPLUSAPI)
 
 add_subdirectory( osal )
@@ -572,29 +505,29 @@ endif(REALITYVK_BUILD_RVK2_TESTS)
 if(REALITYVK_BUILD_TYPE STREQUAL "Debug")
   if(SDL)
 	if (NOHQ)
-	  target_link_libraries(${RealityVK_DLL_NAME} PRIVATE ${SDL_LIBRARIES} ${FREETYPE_LIBRARIES} ${LOG_LIB} ${GLIDENUI_LIBRARIES} osald ${REALITYVK_VULKAN_LIBRARIES} )
+	  target_link_libraries(${RealityVK_DLL_NAME} PRIVATE ${SDL_LIBRARIES} ${FREETYPE_LIBRARIES} ${LOG_LIB} osald ${REALITYVK_VULKAN_LIBRARIES} )
 	else (NOHQ)
-	  target_link_libraries(${RealityVK_DLL_NAME} PRIVATE ${SDL_LIBRARIES} ${FREETYPE_LIBRARIES} ${LOG_LIB} ${GLIDENUI_LIBRARIES} osald GLideNHQd ${REALITYVK_VULKAN_LIBRARIES} )
+	  target_link_libraries(${RealityVK_DLL_NAME} PRIVATE ${SDL_LIBRARIES} ${FREETYPE_LIBRARIES} ${LOG_LIB} osald GLideNHQd ${REALITYVK_VULKAN_LIBRARIES} )
 	endif (NOHQ)
   else(SDL)
 	if (NOHQ)
-	  target_link_libraries(${RealityVK_DLL_NAME} PRIVATE ${FREETYPE_LIBRARIES} ${LOG_LIB} ${GLIDENUI_LIBRARIES} osald ${REALITYVK_VULKAN_LIBRARIES} )
+	  target_link_libraries(${RealityVK_DLL_NAME} PRIVATE ${FREETYPE_LIBRARIES} ${LOG_LIB} osald ${REALITYVK_VULKAN_LIBRARIES} )
 	else (NOHQ)
-	  target_link_libraries(${RealityVK_DLL_NAME} PRIVATE ${FREETYPE_LIBRARIES} ${LOG_LIB} ${GLIDENUI_LIBRARIES} osald GLideNHQd ${REALITYVK_VULKAN_LIBRARIES} )
+	  target_link_libraries(${RealityVK_DLL_NAME} PRIVATE ${FREETYPE_LIBRARIES} ${LOG_LIB} osald GLideNHQd ${REALITYVK_VULKAN_LIBRARIES} )
 	endif (NOHQ)
   endif(SDL)
 else(REALITYVK_BUILD_TYPE STREQUAL "Debug")
   if(SDL)
         if (NOHQ)
-          target_link_libraries(${RealityVK_DLL_NAME} ${SDL_LIBRARIES} ${FREETYPE_LIBRARIES} ${LOG_LIB} ${GLIDENUI_LIBRARIES} osal ${REALITYVK_VULKAN_LIBRARIES} )
+          target_link_libraries(${RealityVK_DLL_NAME} ${SDL_LIBRARIES} ${FREETYPE_LIBRARIES} ${LOG_LIB} osal ${REALITYVK_VULKAN_LIBRARIES} )
         else (NOHQ)
-          target_link_libraries(${RealityVK_DLL_NAME} ${SDL_LIBRARIES} ${FREETYPE_LIBRARIES} ${LOG_LIB} ${GLIDENUI_LIBRARIES} osal GLideNHQ ${REALITYVK_VULKAN_LIBRARIES} )
+          target_link_libraries(${RealityVK_DLL_NAME} ${SDL_LIBRARIES} ${FREETYPE_LIBRARIES} ${LOG_LIB} osal GLideNHQ ${REALITYVK_VULKAN_LIBRARIES} )
         endif (NOHQ)
   else(SDL)
         if (NOHQ)
-          target_link_libraries(${RealityVK_DLL_NAME} ${FREETYPE_LIBRARIES} ${LOG_LIB} ${GLIDENUI_LIBRARIES} osal ${REALITYVK_VULKAN_LIBRARIES} )
+          target_link_libraries(${RealityVK_DLL_NAME} ${FREETYPE_LIBRARIES} ${LOG_LIB} osal ${REALITYVK_VULKAN_LIBRARIES} )
         else (NOHQ)
-          target_link_libraries(${RealityVK_DLL_NAME} ${FREETYPE_LIBRARIES} ${LOG_LIB} ${GLIDENUI_LIBRARIES} osal GLideNHQ ${REALITYVK_VULKAN_LIBRARIES} )
+          target_link_libraries(${RealityVK_DLL_NAME} ${FREETYPE_LIBRARIES} ${LOG_LIB} osal GLideNHQ ${REALITYVK_VULKAN_LIBRARIES} )
         endif (NOHQ)
   endif(SDL)
 endif(REALITYVK_BUILD_TYPE STREQUAL "Debug")

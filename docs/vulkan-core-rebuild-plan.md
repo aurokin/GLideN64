@@ -96,7 +96,7 @@ Exit:
 
 1. Make `rvk2` default path.
 2. Remove dead GLideN64-derived execution paths.
-3. Keep fallback only if explicitly required.
+3. Do not retain runtime fallback paths.
 
 Exit:
 

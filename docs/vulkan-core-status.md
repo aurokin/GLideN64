@@ -86,11 +86,11 @@ This is the single execution tracker for the rewrite.
 | C: Core Rendering Correctness | Done | Fill/copy/texrect/triangle/depth/coverage/blend hazard behavior is closed for the scoped synthetic contract and covered by conformance. |
 | D: VI and Presentation | Done | Register-driven source selection/scaling/filter/fail-safe behavior is implemented with unit + conformance + smoke coverage for current scoped contract. |
 | E: Texture Replacement | Done | Deterministic key/cache contracts, store APIs, `.hts` IO, pack-index ingest, lifecycle controls, bounded load policy, optional executor sampling, runtime control-file UX, summary visibility, and maintainer tooling are landed. |
-| F: Cutover and Deletion | In progress | Runtime/context fallback is removed, ingest is unconditional, and present fallback injection is deleted; full legacy-path deletion and cleanup are still open. |
+| F: Cutover and Deletion | In progress | Runtime/context fallback is removed, tooling/config/runtime switch surfaces are cleaned, dead UI/Windows trees are deleted, and software fallback modules are removed; legacy core draw/FB path retirement remains. |
 
 ## Completion Estimate
 
-Estimated overall roadmap completion: **~99%**.
+Estimated overall roadmap completion: **~99.5%**.
 
 Heuristic phase weighting used for this estimate:
 - A: 20%
@@ -106,7 +106,7 @@ Estimated phase progress used:
 - C: 100%
 - D: 100%
 - E: 100%
-- F: 80%
+- F: 90%
 
 ## Completed Recently
 
@@ -374,34 +374,46 @@ Estimated phase progress used:
    - replay-validated maintained determinism traces under strict mode (`S=72`, `R=71`, `W=109`)
    - refreshed local maintained gate trace/report artifacts to strict-clean outputs (`frames=124 failed=0 warned=0 strict=1`)
    - docs/tooling examples now reference `.hts` cache files
+63. Removed dead GLideNUI/Qt and non-Mupen build/runtime surfaces:
+   - deleted `src/GLideNUI*`, `src/windows/*`, and `src/ZilmarPluginAPI.cpp` from tree
+   - removed `MUPENPLUSAPI_GLIDENUI`/Qt gating and non-Mupen source branches from `src/CMakeLists.txt`
+   - simplified Mupen host/runtime code paths by deleting now-dead `M64P_GLIDENUI` conditionals
+64. Hardened local tooling around rvk2-only operation:
+   - local gate no longer passes dead UI toggles or upstream-reference defaults
+   - smoke runner no longer uses `agentctl load --allow-legacy`
+   - compare-view no longer exposes OpenGL quad panel mode; smoke baselines now keep Vulkan-only committed set
+65. Pruned software fallback renderer modules from compiled/runtime paths:
+   - removed `SoftwareRender.*` and `DepthBufferRender/*` from tree and build graph
+   - replaced software-render callsites in `GraphicsDrawer` with deterministic local max-Y helpers used only for buffer-change bookkeeping
+   - local gate remains clean after this module deletion pass
 
 ## Current Bottlenecks
 
 1. Visual parity threshold still fails on maintained Paper Mario metric (`rmse=0.259169` vs `0.25` gate target).
-2. Legacy-derived renderer code still exists in-tree and is still compiled; runtime fallback is removed, and high-churn blend legacy surfaces were pruned, but broader code deletion is incomplete.
+2. Legacy draw/FB path modules are still present in-tree and compiled for state-flow compatibility during cutover debugging.
 3. Trace strict parser and maintained local trace artifacts are refreshed, but broader parity reference refresh remains pending while current capture path is visually unstable.
 4. Texture replacement is functionally closed, but pack/caching behavior still needs wider parity burn-in across additional title coverage.
 
 ## Next Coding Priorities
 
-1. Continue Phase F: delete legacy-derived render execution paths and related dead code now that fallback runtime + switch-gating are removed.
+1. Continue Phase F core-renderer deletion: retire remaining legacy draw/FB execution modules after command/frontend ownership is fully rvk2-native.
 2. Continue parity reduction on maintained Paper Mario comparison while preserving deterministic trace/replay contracts.
 3. Expand strict-schema trace/parity fixture coverage beyond the currently maintained local set.
 4. Expand parity burn-in coverage for texture replacement packs/caches now that Phase E runtime UX is closed.
 
 ## Remaining Work Split (Approx)
 
-1. Phase F cutover/deletion (legacy path deletion/cleanup): **45%** of remaining work.
-2. Parity stabilization and metric closure: **40%**.
-3. Strict-schema trace/parity fixture expansion: **10%**.
+1. Phase F cutover/deletion (legacy path deletion/cleanup): **30%** of remaining work.
+2. Parity stabilization and metric closure: **50%**.
+3. Strict-schema trace/parity fixture expansion: **15%**.
 4. Post-closure texture replacement burn-in/coverage expansion: **5%**.
 
 ## Remaining Work by Phase
 
 1. **Phase F (Cutover and Deletion, in progress)**
-   - Delete legacy-derived Vulkan/GLideN64 render execution paths now that runtime fallback is removed.
-   - Prune transitional test/docs paths that only exist for dual-runtime support.
-   - Remove stale runtime-switch policy/config surfaces that implied dual-path operation.
+   - Delete remaining legacy-derived Vulkan/GLideN64 core draw/FB execution paths now that runtime fallback is removed.
+   - Keep only rvk2-driven state/execution surfaces in compiled plugin target.
+   - Remove remaining stale compat comments/docs/config naming that imply dual-path operation.
 2. **Cross-phase parity + strictness work**
    - Reduce maintained Paper Mario parity metric to target threshold.
    - Expand maintained strict-schema trace/parity artifacts once capture path stability is restored.

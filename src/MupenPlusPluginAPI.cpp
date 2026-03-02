@@ -35,13 +35,6 @@ EXPORT m64p_error CALL PluginStartup(
 	return api().PluginStartup(CoreLibHandle, Context, DebugCallback);
 }
 
-#ifdef M64P_GLIDENUI
-EXPORT m64p_error CALL PluginConfig(void* parent)
-{
-	return api().PluginConfig(parent);
-}
-#endif // M64P_GLIDENUI
-
 EXPORT m64p_error CALL PluginShutdown(void)
 {
 	return api().PluginShutdown();

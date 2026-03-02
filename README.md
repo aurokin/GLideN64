@@ -38,8 +38,7 @@ For live status, see:
 ```bash
 cmake -S src -B build/release-vulkan-smoke \
   -DCMAKE_BUILD_TYPE=Release \
-  -DMUPENPLUSAPI=ON \
-  -DMUPENPLUSAPI_GLIDENUI=OFF
+  -DMUPENPLUSAPI=ON
 
 cmake --build build/release-vulkan-smoke -j$(nproc)
 ```

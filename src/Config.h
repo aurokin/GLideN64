@@ -185,7 +185,7 @@ struct Config
 		u32 txHiresVramLimit; // Limit of uploading hi-res textures to VRAM (in MB)
 
 		wchar_t txPath[PLUGIN_PATH_SIZE]; // Path to texture packs
-		wchar_t txCachePath[PLUGIN_PATH_SIZE]; // Path to store texture cache files (.hts / legacy .htc)
+		wchar_t txCachePath[PLUGIN_PATH_SIZE]; // Path to store texture cache files (.hts)
 		wchar_t txDumpPath[PLUGIN_PATH_SIZE]; // Path to store texture dumps
 	} textureFilter;
 
@@ -286,7 +286,7 @@ struct Config
 extern Config config;
 
 void Config_LoadConfig();
-#if defined(M64P_GLIDENUI) || !defined(MUPENPLUSAPI)
+#if !defined(MUPENPLUSAPI)
 void Config_DoConfig(void* parent);
 #endif
 

@@ -22,7 +22,6 @@ Useful compare-view env vars:
 
 - `REALITYVK_PM_COMPARE_VIEW_MODE`:
   - `triptych` (default): reference + candidate + diff.
-  - `quad`: adds local OpenGL capture slot if present.
 - `REALITYVK_PM_COMPARE_VISUAL_GATE`:
   - `0` (default): always produce compare image, even when metrics exceed gate limits.
   - `1`: enforce parity gate during compare-view run.
@@ -163,7 +162,7 @@ REALITYVK_SMOKE_UPDATE_BASELINES=1 ./scripts/local_smoke.sh
   - `1`: launch emulator under a pseudo-terminal (`script`) for plugins/environments that require TTY-like startup behavior.
 - `M64_CORELIB`:
   - Optional override for the core library path used by `launch.sh`.
-  - Useful when comparing upstream GL reference against RealityVK candidate without changing runtime defaults.
+  - Useful when pinning an alternate core build for deterministic parity/smoke runs.
 - `REALITYVK_VK_DEBUG_READBACK=1`:
   - Enables readback marker logs inside RealityVK.
   - Usually paired with `REALITYVK_SMOKE_REQUIRE_READBACK_MARKER=1`.
@@ -268,7 +267,7 @@ This prevents false parity passes caused by reusing the same plugin binary for e
   - Default for `paper_mario_parity.sh` is `1`.
 - `REALITYVK_PM_REFERENCE_CORELIB`:
   - Core library used for reference capture.
-  - Default: `/home/auro/code/mupen/mupen64plus-core-upstream/projects/unix/libmupen64plus.so.2`
+  - Default: same as `REALITYVK_PM_CANDIDATE_CORELIB`.
 - `REALITYVK_PM_CANDIDATE_CORELIB`:
   - Core library used for candidate capture.
   - Default: `/home/auro/code/mupen/mupen64plus-core/projects/unix/libmupen64plus.so.2`

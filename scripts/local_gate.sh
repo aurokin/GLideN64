@@ -4,7 +4,6 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_ROOT="${ROOT_DIR}/build/local-gate"
 JOBS="${REALITYVK_GATE_JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || echo 4)}"
-WITH_QT="${REALITYVK_GATE_WITH_QT:-0}"
 WITH_SMOKE="${REALITYVK_GATE_WITH_SMOKE:-0}"
 SMOKE_REQUIRE_READBACK_MARKER="${REALITYVK_GATE_SMOKE_REQUIRE_READBACK_MARKER:-1}"
 SMOKE_REQUIRE_NO_DEPTH_BLIT_FAIL="${REALITYVK_GATE_SMOKE_REQUIRE_NO_DEPTH_BLIT_FAIL:-1}"
@@ -79,14 +78,12 @@ validate_doc_links() {
 configure_and_build() {
   local name="$1"
   local build_type="$2"
-  local with_ui="$3"
   local build_dir="${BUILD_ROOT}/${name}"
 
   echo "==> [${name}] Configure"
   cmake -S "${ROOT_DIR}/src" -B "${build_dir}" \
     -DCMAKE_BUILD_TYPE="${build_type}" \
     -DMUPENPLUSAPI=ON \
-    -DMUPENPLUSAPI_GLIDENUI="${with_ui}" \
     -DUSE_IPO=OFF
 
   echo "==> [${name}] Build"
@@ -180,8 +177,8 @@ mkdir -p "${BUILD_ROOT}"
 validate_doc_links
 validate_texture_pack_index
 
-configure_and_build "linux-release-cli" "Release" "OFF"
-configure_and_build "linux-debug-cli" "Debug" "OFF"
+configure_and_build "linux-release-cli" "Release"
+configure_and_build "linux-debug-cli" "Debug"
 if [[ "${RUN_RVK2_UNIT_TESTS}" == "1" ]]; then
   run_rvk2_unit_tests "linux-release-cli"
   run_rvk2_unit_tests "linux-debug-cli"
@@ -191,13 +188,9 @@ if [[ "${RUN_RVK2_CONFORMANCE_TESTS}" == "1" ]]; then
   run_rvk2_conformance_tests "linux-debug-cli"
 fi
 
-if [[ "${WITH_QT}" == "1" ]]; then
-  configure_and_build "linux-release-qt" "Release" "ON"
-fi
-
 if [[ "${WITH_SMOKE}" == "1" ]]; then
   smoke_name="smoke-release-vulkan"
-  configure_and_build "${smoke_name}" "Release" "OFF"
+  configure_and_build "${smoke_name}" "Release"
   if [[ "${RUN_RVK2_UNIT_TESTS}" == "1" ]]; then
     run_rvk2_unit_tests "${smoke_name}"
   fi
@@ -212,10 +205,8 @@ if [[ "${WITH_SMOKE}" == "1" ]]; then
     exit 1
   fi
 
-  reference_plugin="${REALITYVK_PM_REFERENCE_PLUGIN:-/home/auro/code/realityvk-upstream/build-release/plugin/Release/mupen64plus-video-RealityVK.so}"
-  echo "==> [smoke] Run Paper Mario visual compare (reference vs candidate)"
+  echo "==> [smoke] Run Paper Mario visual compare"
   smoke_env=(
-    REALITYVK_PM_REFERENCE_PLUGIN="${reference_plugin}"
     REALITYVK_PM_CANDIDATE_PLUGIN="${smoke_plugin_path}"
   )
   if [[ "${WITH_RVK2_TRACE_REPLAY}" == "1" ]]; then

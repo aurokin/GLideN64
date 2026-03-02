@@ -68,7 +68,6 @@ void PluginAPI::GetUserCachePath(wchar_t * _strPath)
 	_getWSPath(ConfigGetUserCachePath(), _strPath);
 }
 
-#ifdef M64P_GLIDENUI
 void PluginAPI::GetUserConfigPath(wchar_t * _strPath)
 {
 	_getWSPath(ConfigGetUserConfigPath(), _strPath);
@@ -83,7 +82,6 @@ void PluginAPI::GetSharedDataPath(wchar_t * _strPath)
 	 */
 	_getWSPath(ConfigGetSharedDataFilepath("mupen64plus.ini"), _strPath, true);
 }
-#endif // M64P_GLIDENUI
 
 void PluginAPI::FindPluginPath(wchar_t * _strPath)
 {

@@ -535,7 +535,7 @@ run_agentctl --wait-running --wait-timeout 30 status >/dev/null
 run_agentctl pause >/dev/null
 
 if [[ -n "${STATE_PATH}" ]]; then
-  run_agentctl load "${STATE_PATH}" --allow-legacy >/dev/null
+  run_agentctl load "${STATE_PATH}" >/dev/null
   run_agentctl pause >/dev/null
   step_frames "${SETTLE_FRAMES_AFTER_LOAD}"
 fi

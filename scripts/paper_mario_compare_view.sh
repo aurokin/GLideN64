@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUN_ROOT="${REALITYVK_PM_RUN_ROOT:-${ROOT_DIR}/build/parity-runs/paper-mario}"
 CACHE_ROOT="${REALITYVK_PM_CACHE_ROOT:-${ROOT_DIR}/build/parity-cache/paper-mario}"
 SCENARIO_ID="${REALITYVK_PM_SCENARIO_ID:-paper_mario_intro}"
-VIEW_MODE="${REALITYVK_PM_COMPARE_VIEW_MODE:-triptych}" # triptych|quad
+VIEW_MODE="${REALITYVK_PM_COMPARE_VIEW_MODE:-triptych}" # triptych
 REFRESH_REFERENCE="${REALITYVK_PM_REFRESH_REFERENCE:-0}"
 VIEWER="${REALITYVK_PM_COMPARE_VIEWER:-eog}"
 VISUAL_GATE="${REALITYVK_PM_COMPARE_VISUAL_GATE:-0}"
@@ -21,20 +21,18 @@ fi
 REFERENCE_CAPTURE="${CACHE_ROOT}/${SCENARIO_ID}.${CAPTURE_METHOD_TAG}.reference.ppm"
 CANDIDATE_CAPTURE="${RUN_ROOT}/${SCENARIO_ID}.candidate.ppm"
 DIFF_CAPTURE="${RUN_ROOT}/${SCENARIO_ID}.diff.png"
-OPENGL_CAPTURE="${RUN_ROOT}/${SCENARIO_ID}.opengl.ppm"
 METRICS_JSON="${RUN_ROOT}/${SCENARIO_ID}.metrics.json"
 CAPTURE_CONTEXT_JSON="${RUN_ROOT}/${SCENARIO_ID}.capture-context.json"
 REFERENCE_PNG="${RUN_ROOT}/${SCENARIO_ID}.reference.png"
 CANDIDATE_PNG="${RUN_ROOT}/${SCENARIO_ID}.candidate.png"
-OPENGL_PNG="${RUN_ROOT}/${SCENARIO_ID}.opengl.png"
 
 COMPARE_OUT="${RUN_ROOT}/${SCENARIO_ID}.compare_${VIEW_MODE}.latest.png"
 VIEWER_PID_FILE="${RUN_ROOT}/.paper_mario_compare_view.pid"
 
 mkdir -p "${RUN_ROOT}" "${CACHE_ROOT}"
 
-if [[ "${VIEW_MODE}" != "triptych" && "${VIEW_MODE}" != "quad" ]]; then
-  echo "ERROR: REALITYVK_PM_COMPARE_VIEW_MODE must be 'triptych' or 'quad'." >&2
+if [[ "${VIEW_MODE}" != "triptych" ]]; then
+  echo "ERROR: REALITYVK_PM_COMPARE_VIEW_MODE must be 'triptych'." >&2
   exit 2
 fi
 
@@ -62,25 +60,6 @@ if [[ ! -s "${CANDIDATE_SOURCE}" ]]; then
   CANDIDATE_SOURCE="${CANDIDATE_CAPTURE}"
 fi
 
-if [[ -s "${OPENGL_CAPTURE}" ]]; then
-  python3 - "${OPENGL_CAPTURE}" "${OPENGL_PNG}" <<'PY'
-from pathlib import Path
-from PIL import Image
-import sys
-
-source = Path(sys.argv[1])
-target = Path(sys.argv[2])
-target.parent.mkdir(parents=True, exist_ok=True)
-Image.open(source).convert("RGB").save(target)
-print(target)
-PY
-fi
-
-OPENGL_SOURCE="${OPENGL_CAPTURE}"
-if [[ -s "${OPENGL_PNG}" ]]; then
-  OPENGL_SOURCE="${OPENGL_PNG}"
-fi
-
 for required in "${REFERENCE_SOURCE}" "${CANDIDATE_SOURCE}" "${DIFF_CAPTURE}"; do
   if [[ ! -s "${required}" ]]; then
     echo "ERROR: missing required compare artifact: ${required}" >&2
@@ -89,7 +68,7 @@ for required in "${REFERENCE_SOURCE}" "${CANDIDATE_SOURCE}" "${DIFF_CAPTURE}"; d
 done
 
 echo "==> [compare-view] build composed image (${VIEW_MODE})"
-python3 - "${VIEW_MODE}" "${REFERENCE_SOURCE}" "${CANDIDATE_SOURCE}" "${DIFF_CAPTURE}" "${OPENGL_SOURCE}" "${METRICS_JSON}" "${COMPARE_OUT}" <<'PY'
+python3 - "${VIEW_MODE}" "${REFERENCE_SOURCE}" "${CANDIDATE_SOURCE}" "${DIFF_CAPTURE}" "${METRICS_JSON}" "${COMPARE_OUT}" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -100,9 +79,8 @@ view_mode = sys.argv[1]
 reference_path = Path(sys.argv[2])
 candidate_path = Path(sys.argv[3])
 diff_path = Path(sys.argv[4])
-opengl_path = Path(sys.argv[5])
-metrics_path = Path(sys.argv[6])
-out_path = Path(sys.argv[7])
+metrics_path = Path(sys.argv[5])
+out_path = Path(sys.argv[6])
 
 base_h = 0
 panels = []
@@ -111,13 +89,8 @@ def load_panel(path: Path, label: str):
     img = Image.open(path).convert("RGB")
     return {"label": label, "img": img}
 
-panels.append(load_panel(reference_path, "Reference (upstream GL baseline)"))
+panels.append(load_panel(reference_path, "Reference (maintained capture)"))
 panels.append(load_panel(candidate_path, "Candidate (RealityVK Vulkan)"))
-if view_mode == "quad":
-    if opengl_path.exists():
-        panels.append(load_panel(opengl_path, "Local OpenGL Capture"))
-    else:
-        panels.append({"label": "Local OpenGL Capture (missing)", "img": None})
 panels.append(load_panel(diff_path, "Absolute Difference"))
 
 for panel in panels:
