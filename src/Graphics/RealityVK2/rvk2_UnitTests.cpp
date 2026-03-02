@@ -1364,16 +1364,16 @@ void testVIRendererAspectScaling()
 		"VIRenderer pixel-advance overflow second sample mismatch");
 
 	std::vector<u32> viTypeSource{
-		0x12345678U, 0x89ABCDEFU,
-		0x0A1B2C3DU, 0x44556677U
+		0x12345678U, 0x89ABCDEFU, 0x0A1B2C3DU, 0x44556677U,
+		0x13579BDFU, 0x2468ACE0U, 0x10203040U, 0x50607080U
 	};
 	rvk2::VIFrameInput viTypeInput{};
-	viTypeInput.sourceWidth = 2U;
+	viTypeInput.sourceWidth = 4U;
 	viTypeInput.sourceHeight = 2U;
 	viTypeInput.sourcePixels = &viTypeSource;
 	viTypeInput.registers.valid = true;
 	viTypeInput.registers.status = 3U | (3U << 8U);
-	viTypeInput.registers.width = 2U;
+	viTypeInput.registers.width = 4U;
 	viTypeInput.registers.vSync = 525U;
 	viTypeInput.registers.hStart = (0U << 16U) | 2U;
 	viTypeInput.registers.vStart = (0U << 16U) | 4U;
@@ -1403,16 +1403,16 @@ void testVIRendererAspectScaling()
 	viTypeOffsetInput.sourceAddressValid = true;
 	viTypeOffsetInput.sourceAddress = 0U;
 	viTypeOffsetInput.registers.status = 2U | (3U << 8U);
-	viTypeOffsetInput.registers.origin = 2U;
+	viTypeOffsetInput.registers.origin = 8U;
 	std::vector<u32> viTypeOffsetPixels;
 	const rvk2::VIFrameSummary viTypeOffsetSummary =
 		rendererSquare.present(viTypeOffsetInput, &viTypeOffsetPixels);
 	expectEq(viTypeOffsetSummary.presentWidth, 2U, "VIRenderer type2 origin-offset width mismatch");
 	expectEq(viTypeOffsetSummary.presentHeight, 2U, "VIRenderer type2 origin-offset height mismatch");
 	expectEq(viTypeOffsetPixels.size(), static_cast<size_t>(4U), "VIRenderer type2 origin-offset pixel count mismatch");
-	expectEq(viTypeOffsetPixels[0], viType16Pixels[1], "VIRenderer type2 origin-offset sample (0,0) mismatch");
-	expectEq(viTypeOffsetPixels[1], viType16Pixels[2], "VIRenderer type2 origin-offset sample (1,0) mismatch");
-	expectEq(viTypeOffsetPixels[2], viType16Pixels[3], "VIRenderer type2 origin-offset sample (0,1) mismatch");
+	expectEq(viTypeOffsetPixels[0], viType16Pixels[2], "VIRenderer type2 origin-offset sample (0,0) mismatch");
+	expectEq(viTypeOffsetPixels[1], viType16Pixels[3], "VIRenderer type2 origin-offset sample (1,0) mismatch");
+	expectEq(viTypeOffsetPixels[2], 0x00000000U, "VIRenderer type2 origin-offset sample (0,1) mismatch");
 	expectEq(viTypeOffsetPixels[3], 0x00000000U, "VIRenderer type2 origin-offset sample (1,1) mismatch");
 
 	std::vector<u32> deditherSource{
@@ -1724,6 +1724,20 @@ void testVIRendererAspectScaling()
 	const rvk2::VIFrameSummary invalidWidthSummary = rendererSquare.present(invalidWidthInput);
 	expectEq(invalidWidthSummary.presentWidth, 0U, "VIRenderer zero VI width mismatch");
 	expectEq(invalidWidthSummary.presentHeight, 0U, "VIRenderer zero VI height mismatch");
+
+	rvk2::VIFrameInput invalidStride16Input = wrappedVStartInput;
+	invalidStride16Input.registers.status = 2U | (3U << 8U);
+	invalidStride16Input.registers.width = 2U;
+	const rvk2::VIFrameSummary invalidStride16Summary = rendererSquare.present(invalidStride16Input);
+	expectEq(invalidStride16Summary.presentWidth, 0U, "VIRenderer invalid 16bpp stride width mismatch");
+	expectEq(invalidStride16Summary.presentHeight, 0U, "VIRenderer invalid 16bpp stride height mismatch");
+
+	rvk2::VIFrameInput invalidStride32Input = wrappedVStartInput;
+	invalidStride32Input.registers.status = 3U | (3U << 8U);
+	invalidStride32Input.registers.width = 1U;
+	const rvk2::VIFrameSummary invalidStride32Summary = rendererSquare.present(invalidStride32Input);
+	expectEq(invalidStride32Summary.presentWidth, 0U, "VIRenderer invalid 32bpp stride width mismatch");
+	expectEq(invalidStride32Summary.presentHeight, 0U, "VIRenderer invalid 32bpp stride height mismatch");
 
 	rvk2::VIFrameInput invalidWindowInput = clipInput;
 	invalidWindowInput.registers.xScale = 1024U;

@@ -35,6 +35,7 @@ This is the single execution tracker for the rewrite.
 29. VI register path now hard-fails reserved/invalid control states (`TYPE=1`, `VI_WIDTH=0`) to deterministic blank output.
 30. VI-specific conformance now covers filter-mode behavior and fail-safe control-state blanking at executor level.
 31. VI register path now models `PIXEL_ADVANCE[15:12]` as deterministic horizontal subpixel sample offset.
+32. VI register path now enforces type-aware `VI_WIDTH` line-stride alignment (16bpp `%4`, 32bpp `%2`) as deterministic fail-safe blanking.
 
 ## Phase Status
 
@@ -43,13 +44,13 @@ This is the single execution tracker for the rewrite.
 | A: Contracts and Determinism | Done | Schema, trace, replay, gate wiring, ADR baseline are in place. |
 | B: Semantic Pipeline Backbone | In progress | Semantic/raster/render/submission/executor pipeline exists, but semantic coverage is incomplete. |
 | C: Core Rendering Correctness | In progress | Fill/texrect/triangle backbone exists in executor path; full combiner/blender/depth/hazard correctness not closed. |
-| D: VI and Presentation | In progress | VI register-driven source selection/scaling + gamma/divot/interlace behavior are wired; full VI filtering/parity behavior remains incomplete. |
+| D: VI and Presentation | Done | Register-driven source selection/scaling/filter/fail-safe behavior is implemented with unit + conformance + smoke coverage for current scoped contract. |
 | E: Texture Replacement | Not started | Hi-res pack + `.htc` rewrite path not implemented yet. |
 | F: Cutover and Deletion | Not started | `rvk2` is not default and legacy-derived paths still exist. |
 
 ## Completion Estimate
 
-Estimated overall roadmap completion: **~72%**.
+Estimated overall roadmap completion: **~73%**.
 
 Heuristic phase weighting used for this estimate:
 - A: 20%
@@ -63,7 +64,7 @@ Estimated phase progress used:
 - A: 100%
 - B: 74%
 - C: 65%
-- D: 89%
+- D: 100%
 - E: 0%
 - F: 0%
 
@@ -203,22 +204,26 @@ Estimated phase progress used:
    - out-of-range pixel-advance samples deterministically clip to black through existing stride/bounds validation
    - unit coverage added for pixel-advance shift and overflow clip behavior
    - executor-level conformance added for pixel-advance hash/frame divergence and overflow clipping
+33. Added VI stride-alignment fail-safe semantics:
+   - register-driven VI now requires type-aligned `VI_WIDTH` scanline stride (16bpp `%4`, 32bpp `%2`) for deterministic presentation
+   - invalid stride states now resolve to blank output instead of undefined sampling behavior
+   - unit + executor conformance coverage added for invalid 16bpp/32bpp stride blanking behavior
 
 ## Current Bottlenecks
 
 1. Semantic completeness gap remains for cycle-accurate combiner/blender/depth/cvg behavior versus real RDP.
 2. Visual parity threshold still fails on maintained Paper Mario metric.
-3. VI path now includes register-driven source selection/scaling and gamma/divot/interlace, but still lacks additional VI parity/filters and full register-accurate edge behavior.
-4. Texture replacement stack (`hi-res` + `.htc`) is not started.
-5. Conformance matrix is broad, but additional hazard corners remain as semantic coverage expands.
+3. Texture replacement stack (`hi-res` + `.htc`) is not started.
+4. Conformance matrix is broad, but additional hazard corners remain as semantic coverage expands.
+5. VI is closed for current scoped contract, but hardware-specific corner behavior beyond this scope may still be revisited later if parity data demands it.
 
 ## Next Coding Priorities
 
 1. Continue non-triangle semantic closure for remaining high-impact state interactions not yet modeled in synthetic combiner/blender.
-2. Extend VI path toward additional register-accurate VI parity/filter behavior beyond current gamma/divot/interlace modeling.
-3. Start Phase E interface contracts for texture replacement keying and `.htc` flow.
-4. Continue adding targeted hazard-corner conformance where semantic gaps are discovered.
-5. Keep reducing Paper Mario parity delta while preserving deterministic trace/replay contracts.
+2. Start Phase E interface contracts for texture replacement keying and `.htc` flow.
+3. Continue adding targeted hazard-corner conformance where semantic gaps are discovered.
+4. Keep reducing Paper Mario parity delta while preserving deterministic trace/replay contracts.
+5. Keep Phase D tests stable while B/C work expands executor semantics.
 
 ## Remaining Work Split (Approx)
 

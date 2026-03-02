@@ -1524,6 +1524,36 @@ void testVIFailSafeConformance()
 		zeroWidthOut.presentFrame.height,
 		0U,
 		"VI zero width should blank present height");
+
+	rvk2::ExecutorConfig invalidStride16Config = validConfig;
+	invalidStride16Config.viStatus = 2U | (3U << 8U);
+	invalidStride16Config.viWidth = 2U;
+	rvk2::Executor invalidStride16Executor(invalidStride16Config);
+	const rvk2::ExecutorOutput invalidStride16Out =
+		invalidStride16Executor.executeWithOutput(workPackets, batches);
+	expectEq(
+		invalidStride16Out.presentFrame.width,
+		0U,
+		"VI invalid 16bpp stride should blank present width");
+	expectEq(
+		invalidStride16Out.presentFrame.height,
+		0U,
+		"VI invalid 16bpp stride should blank present height");
+
+	rvk2::ExecutorConfig invalidStride32Config = validConfig;
+	invalidStride32Config.viStatus = 3U | (3U << 8U);
+	invalidStride32Config.viWidth = 1U;
+	rvk2::Executor invalidStride32Executor(invalidStride32Config);
+	const rvk2::ExecutorOutput invalidStride32Out =
+		invalidStride32Executor.executeWithOutput(workPackets, batches);
+	expectEq(
+		invalidStride32Out.presentFrame.width,
+		0U,
+		"VI invalid 32bpp stride should blank present width");
+	expectEq(
+		invalidStride32Out.presentFrame.height,
+		0U,
+		"VI invalid 32bpp stride should blank present height");
 }
 
 void testVIPixelAdvanceConformance()

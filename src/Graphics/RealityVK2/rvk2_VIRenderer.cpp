@@ -307,6 +307,20 @@ u32 deriveOutputHeightFromRegisters(const rvk2::VIRegisterState & _registers)
 	return std::max<u32>(1U, (vEnd - vStart) >> 1U);
 }
 
+bool isValidLineStrideForType(u8 _viType, u32 _lineStridePixels)
+{
+	// N64 VI expects scanline byte stride to be 8-byte aligned:
+	// 16bpp => 2 bytes/pixel => width multiple of 4
+	// 32bpp => 4 bytes/pixel => width multiple of 2
+	if (_lineStridePixels == 0U)
+		return false;
+	if (_viType == kVIType16Bpp)
+		return (_lineStridePixels & 0x3U) == 0U;
+	if (_viType == kVIType32Bpp)
+		return (_lineStridePixels & 0x1U) == 0U;
+	return false;
+}
+
 VIResolvedState resolveVIState(
 	const rvk2::VIFrameInput & _input,
 	const rvk2::VIRendererConfig & _config)
@@ -343,6 +357,11 @@ VIResolvedState resolveVIState(
 	state.pixelAdvance = (_input.registers.status & kVIStatusPixelAdvanceMask) >> 12U;
 	const u32 viWidth = _input.registers.width & 0x0FFFU;
 	if (viWidth == 0U) {
+		state.outputWidth = 0U;
+		state.outputHeight = 0U;
+		return state;
+	}
+	if (!isValidLineStrideForType(state.viType, viWidth)) {
 		state.outputWidth = 0U;
 		state.outputHeight = 0U;
 		return state;
