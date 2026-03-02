@@ -1675,6 +1675,50 @@ void testCycle2TexelNextPixelHazardConformance()
 		"cycle2 TEX1/TEX0 transition should alter presented pixels under next-pixel hazard semantics");
 }
 
+void testTMEM32AuthoritativePathConformance()
+{
+	rvk2::Executor executor;
+	rvk2::RenderWorkPacket work = makeTexRectWork(false);
+	work.sourcePacketId = 207ULL;
+	work.colorImageAddress = 0x00A0E000U;
+	work.colorImageWidth = 8U;
+	work.rectULX = 0U;
+	work.rectULY = 0U;
+	work.rectLRX = 7U;
+	work.rectLRY = 3U;
+	work.textureImageFormat = 0U;
+	work.textureImageSize = 3U;
+	work.textureImageWidth = 32U;
+	work.tileFormat = 0U;
+	work.tileSize = 3U;
+	work.tileLine = 0x20U;
+	work.tileTmem = 0x40U;
+	work.tileULS = 0U;
+	work.tileULT = 0U;
+	work.tileLRS = 0x007CU;
+	work.tileLRT = 0x003CU;
+
+	const std::vector<rvk2::SubmissionBatchPacket> oneBatch{makeSingleBatch()};
+	const rvk2::ExecutorOutput out =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{work}, oneBatch);
+
+	expectTrue(
+		out.summary.colorWriteCount > 0ULL,
+		"TMEM32 authoritative path baseline should write pixels");
+	expectEq(
+		out.summary.stageTexelSourceTMEMWriteCount,
+		out.summary.colorWriteCount,
+		"TMEM32 texrect should source writes from TMEM path");
+	expectEq(
+		out.summary.stageTexelSourceRdramWriteCount,
+		0ULL,
+		"TMEM32 authoritative path should not fall back to RDRAM");
+	expectEq(
+		out.summary.stageTexelSourceSyntheticWriteCount,
+		0ULL,
+		"TMEM32 authoritative path should not fall back to synthetic texels");
+}
+
 void testFillPhaseIgnoresBlendCombinerConformance()
 {
 	rvk2::Executor executor;
@@ -2881,6 +2925,7 @@ int main()
 	testCycle2PhaseDistinctConformance();
 	testCycle2CombinerSelectorIsolationConformance();
 	testCycle2TexelNextPixelHazardConformance();
+	testTMEM32AuthoritativePathConformance();
 	testFillPhaseIgnoresBlendCombinerConformance();
 	testCopyFillBypassAlphaCoverageConformance();
 	testTexRectFlipConformance();

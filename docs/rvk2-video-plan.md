@@ -18,22 +18,25 @@ Accuracy-first. RVK2-only path. No legacy renderer fallback.
 3. Paper Mario parity metric is stable but still visually incorrect.
 4. Deep-dive corpus is integrated under `docs/references/n64/deep-dive-pack/`.
 5. Cycle2 hazard approximations now include TEX1 next-pixel combiner sourcing and cycle2 alpha-compare next-pixel combiner lookahead.
+6. TMEM32 sampling now uses a single authoritative split-word decode path (no experimental mode matrix).
 
-## Remaining Work Map (28%)
+## Remaining Work Map (25%)
 
 1. `P5` cycle semantics closure (combiner/blender/coverage/depth): **9%**
-2. `P3` authoritative TMEM path closure (especially 32b): **9%**
+2. `P3` authoritative TMEM path closure (especially 32b): **6%**
 3. `P4` raster/coefficient edge behavior: **5%**
 4. `P2` present-source determinism polish: **3%**
 5. `P6` VI finishing polish: **2%**
 
 ## Latest Batch (2026-03-02)
 
-1. Added cycle2 combiner TEX hazard approximation in executor:
-   - cycle2 `TEX1` now uses next-pixel TEX0 approximation.
-2. Added cycle2 alpha-compare hazard approximation:
-   - cycle2 alpha compare now uses next-pixel first-cycle combiner output approximation.
-3. Added conformance coverage for cycle2 TEX selector hazard behavior.
+1. Closed TMEM32 experimental branch in executor:
+   - removed env-gated experimental mode selection and compare matrix paths.
+   - removed env-gated 32b TMEM disable path.
+2. Implemented a single authoritative 32b TMEM decode path:
+   - split-word (GR/AB), odd/even row XOR addressing, legacy line32 stride derivation.
+3. Added conformance coverage for TMEM32 authority:
+   - 32b texrect writes now assert TMEM source usage and no RDRAM/synthetic fallback.
 4. Kept local gate green after this batch.
 
 ## What Deep-Dive Changed In Our Plan
