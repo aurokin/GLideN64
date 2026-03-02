@@ -88,6 +88,12 @@ inline bool parseBooleanToken(const std::string & _token, bool & _out)
 	return false;
 }
 
+bool experimentalTMEM32Enabled()
+{
+	static const bool enabled = envStringIsTrue(std::getenv("REALITYVK_RVK2_EXPERIMENTAL_TMEM32"));
+	return enabled;
+}
+
 inline bool parseUnsignedToken(const std::string & _token, u64 & _out)
 {
 	const std::string token = trimAsciiWhitespace(_token);
@@ -689,6 +695,11 @@ inline u16 readTmem16BitColor(u16 _offset, u16 _x, u16 _i)
 	return tmem16[((static_cast<u32>(_offset) << 2U) + (static_cast<u32>(_x) ^ static_cast<u32>(_i))) & 0x7FFU];
 }
 
+inline u16 swapU16(u16 _value)
+{
+	return static_cast<u16>((_value << 8U) | (_value >> 8U));
+}
+
 inline u32 bitsPerTexelFromSize(u8 _size)
 {
 	switch (_size & 0x3U) {
@@ -902,10 +913,6 @@ inline bool sampleCITextureFromTMEM(
 		? (_work.tileFormat & 0x7U)
 		: (_work.textureImageFormat & 0x7U);
 	const u8 size = _work.tileSize & 0x3U;
-	if (size == 3U) {
-		_outRejectReason = 2U;
-		return false;
-	}
 
 	const s32 tileBaseS = static_cast<s32>(_work.tileULS >> 2U);
 	const s32 tileBaseT = static_cast<s32>(_work.tileULT >> 2U);
@@ -1010,6 +1017,48 @@ inline bool sampleCITextureFromTMEM(
 			_outRejectReason = 1U;
 			return false;
 		}
+	}
+
+	case 3U: { // 32b
+		if (!experimentalTMEM32Enabled()) {
+			_outRejectReason = 2U;
+			return false;
+		}
+		if (format != 0U) {
+			_outRejectReason = 1U;
+			return false;
+		}
+		const u16 * tmem16 = reinterpret_cast<const u16 *>(TMEM);
+		const u16 lowU = std::min<u16>(_work.tileULS, _work.tileLRS);
+		const u16 highU = std::max<u16>(_work.tileULS, _work.tileLRS);
+		u32 tileWidth = ((static_cast<u32>(highU) - static_cast<u32>(lowU)) >> 2U) + 1U;
+		if (tileWidth == 0U)
+			tileWidth = 1U;
+
+		s32 wid64 = static_cast<s32>(tileWidth) << 2;
+		if ((wid64 & 15) != 0)
+			wid64 += 16;
+		wid64 &= ~15;
+		wid64 >>= 3;
+		s32 line32 = static_cast<s32>(_work.tileLine) << 1;
+		line32 = (line32 - wid64) << 3;
+		if (wid64 < 1)
+			wid64 = 1;
+		const s32 width = wid64 << 1;
+		line32 = width + (line32 >> 2);
+
+		const s32 tline = (static_cast<s32>(_work.tileTmem) << 2) + line32 * static_cast<s32>(t);
+		const u32 xorVal = (t & 1U) != 0U ? 3U : 1U;
+		const u32 taddr = (static_cast<u32>((tline + static_cast<s32>(s))) ^ xorVal) & 0x3FFU;
+		const u16 gr = swapU16(tmem16[taddr]);
+		const u16 ab = swapU16(tmem16[taddr | 0x400U]);
+		const u32 packed = (static_cast<u32>(ab) << 16U) | static_cast<u32>(gr);
+		const u8 r = static_cast<u8>(packed & 0xFFU);
+		const u8 g = static_cast<u8>((packed >> 8U) & 0xFFU);
+		const u8 b = static_cast<u8>((packed >> 16U) & 0xFFU);
+		const u8 a = static_cast<u8>((packed >> 24U) & 0xFFU);
+		_outRgba = packRgba8(r, g, b, a);
+		return true;
 	}
 
 	default:
