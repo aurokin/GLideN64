@@ -57,6 +57,7 @@ This is the single execution tracker for the rewrite.
 51. Executor replacement observability now reports loaded entries/pixels and replacement sample hit/miss counters, with env-gated runtime summary logging.
 52. Executor/replay now model `SetScissor` field mode (even/odd line filtering) and mode-specific scissor edge semantics (lower-exclusive always, right-edge inclusive only in copy/fill).
 53. Executor/replay now model scissor-aware dither Y indexing (`[2:1]` under explicit scissoring) with conformance coverage.
+54. Executor/replay now model explicit texture-filter mode variants (point/bilerp/average/sharpen-style) with expanded conformance coverage.
 
 ## Phase Status
 
@@ -71,7 +72,7 @@ This is the single execution tracker for the rewrite.
 
 ## Completion Estimate
 
-Estimated overall roadmap completion: **~86%**.
+Estimated overall roadmap completion: **~87%**.
 
 Heuristic phase weighting used for this estimate:
 - A: 20%
@@ -83,8 +84,8 @@ Heuristic phase weighting used for this estimate:
 
 Estimated phase progress used:
 - A: 100%
-- B: 93%
-- C: 86%
+- B: 94%
+- C: 88%
 - D: 100%
 - E: 65%
 - F: 0%
@@ -281,6 +282,10 @@ Estimated phase progress used:
    - executor now applies scissor-aware Bayer Y indexing for dither (`y>>1` under explicit scissor)
    - replay model now mirrors identical dither indexing behavior for deterministic trace consistency
    - conformance coverage now asserts scissor-driven dither output divergence with stable write coverage
+45. Added B/C explicit texture-filter mode closure:
+   - executor/replay now differentiate texture-filter modes (`point`, `bilerp`, `average`, and sharpen-style mode)
+   - texrect and textured-triangle sampling paths now consume explicit filter mode instead of binary filtered/unfiltered behavior
+   - conformance coverage now asserts deterministic divergence across filter-mode transitions while preserving write coverage
 
 ## Current Bottlenecks
 

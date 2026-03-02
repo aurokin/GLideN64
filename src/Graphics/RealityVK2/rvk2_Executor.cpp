@@ -118,10 +118,13 @@ inline u8 decodeDepthMode(const rvk2::RenderWorkPacket & _work)
 	return static_cast<u8>((mode1Word(_work) >> 10U) & 0x3U);
 }
 
-inline bool isTextureFilterEnabled(const rvk2::RenderWorkPacket & _work)
+inline u8 decodeTextureFilterMode(const rvk2::RenderWorkPacket & _work)
 {
 	const u32 mode0 = mode0Word(_work);
-	return ((mode0 >> 12U) & 0x3U) != 0U || ((mode0 >> 10U) & 0x3U) != 0U;
+	const u8 filterModePrimary = static_cast<u8>((mode0 >> 12U) & 0x3U);
+	if (filterModePrimary != 0U)
+		return filterModePrimary;
+	return static_cast<u8>((mode0 >> 10U) & 0x3U);
 }
 
 inline u8 decodeTextureLUTMode(const rvk2::RenderWorkPacket & _work)
@@ -343,6 +346,56 @@ inline u32 bilerpColorRGBA(
 	const u32 b = blendChannel(8U);
 	const u32 a = blendChannel(0U);
 	return (r << 24U) | (g << 16U) | (b << 8U) | a;
+}
+
+inline u32 averageColorRGBA(
+	u32 _c00,
+	u32 _c10,
+	u32 _c01,
+	u32 _c11)
+{
+	const auto averageChannel = [&](u32 _shift) -> u32 {
+		const u32 sum =
+			((_c00 >> _shift) & 0xFFU)
+			+ ((_c10 >> _shift) & 0xFFU)
+			+ ((_c01 >> _shift) & 0xFFU)
+			+ ((_c11 >> _shift) & 0xFFU);
+		return (sum + 2U) >> 2U;
+	};
+	const u32 r = averageChannel(24U);
+	const u32 g = averageChannel(16U);
+	const u32 b = averageChannel(8U);
+	const u32 a = averageChannel(0U);
+	return (r << 24U) | (g << 16U) | (b << 8U) | a;
+}
+
+inline u32 applyTextureFilterMode(
+	u8 _filterMode,
+	u32 _c00,
+	u32 _c10,
+	u32 _c01,
+	u32 _c11,
+	u32 _fracS,
+	u32 _fracT)
+{
+	if ((_filterMode & 0x3U) == 1U)
+		return bilerpColorRGBA(_c00, _c10, _c01, _c11, _fracS, _fracT);
+	if ((_filterMode & 0x3U) == 2U)
+		return averageColorRGBA(_c00, _c10, _c01, _c11);
+	if ((_filterMode & 0x3U) == 3U) {
+		const u32 bilerp = bilerpColorRGBA(_c00, _c10, _c01, _c11, _fracS, _fracT);
+		const auto sharpenChannel = [&](u32 _shift) -> u32 {
+			const u32 base = (bilerp >> _shift) & 0xFFU;
+			const u32 point = (_c00 >> _shift) & 0xFFU;
+			return (base * 3U + point + 2U) >> 2U;
+		};
+		const u32 r = sharpenChannel(24U);
+		const u32 g = sharpenChannel(16U);
+		const u32 b = sharpenChannel(8U);
+		const u32 a = sharpenChannel(0U);
+		return (r << 24U) | (g << 16U) | (b << 8U) | a;
+	}
+	return _c00;
 }
 
 inline void applyTextureCoordinateModes(
@@ -573,7 +626,8 @@ inline u32 pseudoTexel(
 		_work.tileCmt,
 		_work.tileULT,
 		_work.tileLRT);
-	if (!isTextureFilterEnabled(_work))
+	const u8 filterMode = decodeTextureFilterMode(_work);
+	if (filterMode == 0U)
 		return samplePseudoTexelColor(_work, s, t, 0, false, _x, _y);
 
 	const s32 sNext = applyTileAxisTransform(
@@ -596,7 +650,7 @@ inline u32 pseudoTexel(
 	const u32 c10 = samplePseudoTexelColor(_work, sNext, t, 0, false, _x, _y);
 	const u32 c01 = samplePseudoTexelColor(_work, s, tNext, 0, false, _x, _y);
 	const u32 c11 = samplePseudoTexelColor(_work, sNext, tNext, 0, false, _x, _y);
-	return bilerpColorRGBA(c00, c10, c01, c11, fracS, fracT);
+	return applyTextureFilterMode(filterMode, c00, c10, c01, c11, fracS, fracT);
 }
 
 struct ColorSurface {
@@ -1546,7 +1600,8 @@ inline u32 evaluateTriangleTextureColor(
 		_work.tileCmt,
 		_work.tileULT,
 		_work.tileLRT);
-	if (!isTextureFilterEnabled(_work))
+	const u8 filterMode = decodeTextureFilterMode(_work);
+	if (filterMode == 0U)
 		return samplePseudoTexelColor(_work, s, t, w, true, _x, _y);
 
 	const s32 sNext = applyTileAxisTransform(
@@ -1569,7 +1624,7 @@ inline u32 evaluateTriangleTextureColor(
 	const u32 c10 = samplePseudoTexelColor(_work, sNext, t, w, true, _x, _y);
 	const u32 c01 = samplePseudoTexelColor(_work, s, tNext, w, true, _x, _y);
 	const u32 c11 = samplePseudoTexelColor(_work, sNext, tNext, w, true, _x, _y);
-	return bilerpColorRGBA(c00, c10, c01, c11, fracS, fracT);
+	return applyTextureFilterMode(filterMode, c00, c10, c01, c11, fracS, fracT);
 }
 
 inline u32 modulateRGBA(u32 _base, u32 _shade)

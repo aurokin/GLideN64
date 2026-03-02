@@ -4064,9 +4064,12 @@ def _decode_depth_mode(work: RenderWorkRecord) -> int:
     return (_mode1_word(work) >> 10) & 0x3
 
 
-def _is_texture_filter_enabled(work: RenderWorkRecord) -> bool:
+def _decode_texture_filter_mode(work: RenderWorkRecord) -> int:
     mode0 = _mode0_word(work)
-    return ((mode0 >> 12) & 0x3) != 0 or ((mode0 >> 10) & 0x3) != 0
+    primary = (mode0 >> 12) & 0x3
+    if primary != 0:
+        return primary
+    return (mode0 >> 10) & 0x3
 
 
 def _decode_texture_lut_mode(work: RenderWorkRecord) -> int:
@@ -4210,6 +4213,53 @@ def _bilerp_color_rgba(c00: int, c10: int, c01: int, c11: int, frac_s: int, frac
     b = blend_channel(8)
     a = blend_channel(0)
     return ((r & 0xFF) << 24) | ((g & 0xFF) << 16) | ((b & 0xFF) << 8) | (a & 0xFF)
+
+
+def _average_color_rgba(c00: int, c10: int, c01: int, c11: int) -> int:
+    def average_channel(shift: int) -> int:
+        s = (
+            ((c00 >> shift) & 0xFF)
+            + ((c10 >> shift) & 0xFF)
+            + ((c01 >> shift) & 0xFF)
+            + ((c11 >> shift) & 0xFF)
+        )
+        return (s + 2) >> 2
+
+    r = average_channel(24)
+    g = average_channel(16)
+    b = average_channel(8)
+    a = average_channel(0)
+    return ((r & 0xFF) << 24) | ((g & 0xFF) << 16) | ((b & 0xFF) << 8) | (a & 0xFF)
+
+
+def _apply_texture_filter_mode(
+    filter_mode: int,
+    c00: int,
+    c10: int,
+    c01: int,
+    c11: int,
+    frac_s: int,
+    frac_t: int,
+) -> int:
+    mode = filter_mode & 0x3
+    if mode == 1:
+        return _bilerp_color_rgba(c00, c10, c01, c11, frac_s, frac_t)
+    if mode == 2:
+        return _average_color_rgba(c00, c10, c01, c11)
+    if mode == 3:
+        bilerp = _bilerp_color_rgba(c00, c10, c01, c11, frac_s, frac_t)
+
+        def sharpen_channel(shift: int) -> int:
+            base = (bilerp >> shift) & 0xFF
+            point = (c00 >> shift) & 0xFF
+            return (base * 3 + point + 2) >> 2
+
+        r = sharpen_channel(24)
+        g = sharpen_channel(16)
+        b = sharpen_channel(8)
+        a = sharpen_channel(0)
+        return ((r & 0xFF) << 24) | ((g & 0xFF) << 16) | ((b & 0xFF) << 8) | (a & 0xFF)
+    return c00 & 0xFFFFFFFF
 
 
 def _clamp_s32_from_s64(value: int) -> int:
@@ -4367,7 +4417,8 @@ def _pseudo_texel(work: RenderWorkRecord, x: int, y: int) -> int:
     t = _apply_tile_axis_transform(
         t_raw, work.tile_shiftt, work.tile_maskt, work.tile_cmt, work.tile_ult, work.tile_lrt
     )
-    if not _is_texture_filter_enabled(work):
+    filter_mode = _decode_texture_filter_mode(work)
+    if filter_mode == 0:
         return _sample_pseudo_texel_color(work, s, t, 0, False, x, y)
 
     s_next = _apply_tile_axis_transform(
@@ -4382,7 +4433,7 @@ def _pseudo_texel(work: RenderWorkRecord, x: int, y: int) -> int:
     c10 = _sample_pseudo_texel_color(work, s_next, t, 0, False, x, y)
     c01 = _sample_pseudo_texel_color(work, s, t_next, 0, False, x, y)
     c11 = _sample_pseudo_texel_color(work, s_next, t_next, 0, False, x, y)
-    return _bilerp_color_rgba(c00, c10, c01, c11, frac_s, frac_t)
+    return _apply_texture_filter_mode(filter_mode, c00, c10, c01, c11, frac_s, frac_t)
 
 
 def _pseudo_triangle_color(work: RenderWorkRecord, x: int, y: int) -> int:
@@ -4583,7 +4634,8 @@ def _evaluate_triangle_texture_color(work: RenderWorkRecord, x: int, y: int) -> 
     t = _apply_tile_axis_transform(
         t_raw, work.tile_shiftt, work.tile_maskt, work.tile_cmt, work.tile_ult, work.tile_lrt
     )
-    if not _is_texture_filter_enabled(work):
+    filter_mode = _decode_texture_filter_mode(work)
+    if filter_mode == 0:
         return _sample_pseudo_texel_color(work, s, t, w, True, x, y)
 
     s_next = _apply_tile_axis_transform(
@@ -4598,7 +4650,7 @@ def _evaluate_triangle_texture_color(work: RenderWorkRecord, x: int, y: int) -> 
     c10 = _sample_pseudo_texel_color(work, s_next, t, w, True, x, y)
     c01 = _sample_pseudo_texel_color(work, s, t_next, w, True, x, y)
     c11 = _sample_pseudo_texel_color(work, s_next, t_next, w, True, x, y)
-    return _bilerp_color_rgba(c00, c10, c01, c11, frac_s, frac_t)
+    return _apply_texture_filter_mode(filter_mode, c00, c10, c01, c11, frac_s, frac_t)
 
 
 def _modulate_rgba(base: int, shade: int) -> int:

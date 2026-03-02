@@ -1718,23 +1718,56 @@ void testTextureFilterConformance()
 	rvk2::RenderWorkPacket filteredWork = pointWork;
 	filteredWork.sourcePacketId = 161ULL;
 	filteredWork.otherModes = (2ULL << (32U + 12U));
+	rvk2::RenderWorkPacket bilerpWork = pointWork;
+	bilerpWork.sourcePacketId = 162ULL;
+	bilerpWork.otherModes = (1ULL << (32U + 12U));
+	rvk2::RenderWorkPacket sharpenWork = pointWork;
+	sharpenWork.sourcePacketId = 163ULL;
+	sharpenWork.otherModes = (3ULL << (32U + 12U));
 
 	const std::vector<rvk2::SubmissionBatchPacket> batches{makeSingleBatch()};
 	const rvk2::ExecutorOutput pointOut =
 		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{pointWork}, batches);
+	const rvk2::ExecutorOutput bilerpOut =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{bilerpWork}, batches);
 	const rvk2::ExecutorOutput filteredOut =
 		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{filteredWork}, batches);
+	const rvk2::ExecutorOutput sharpenOut =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{sharpenWork}, batches);
 
 	expectTrue(
 		pointOut.summary.colorWriteCount > 0ULL,
 		"texture-filter conformance baseline should write pixels");
 	expectEq(
+		bilerpOut.summary.colorWriteCount,
+		pointOut.summary.colorWriteCount,
+		"texture-filter bilerp transition should preserve write coverage");
+	expectEq(
 		filteredOut.summary.colorWriteCount,
 		pointOut.summary.colorWriteCount,
 		"texture-filter transition should preserve write coverage");
+	expectEq(
+		sharpenOut.summary.colorWriteCount,
+		pointOut.summary.colorWriteCount,
+		"texture-filter sharpen transition should preserve write coverage");
+	expectTrue(
+		bilerpOut.summary.presentHash != pointOut.summary.presentHash,
+		"texture-filter bilerp transition should alter present hash");
 	expectTrue(
 		filteredOut.summary.presentHash != pointOut.summary.presentHash,
 		"texture-filter transition should alter present hash");
+	expectTrue(
+		sharpenOut.summary.presentHash != pointOut.summary.presentHash,
+		"texture-filter sharpen transition should alter present hash");
+	expectTrue(
+		bilerpOut.summary.presentHash != filteredOut.summary.presentHash,
+		"texture-filter bilerp and average transitions should diverge");
+	expectTrue(
+		sharpenOut.summary.presentHash != bilerpOut.summary.presentHash,
+		"texture-filter sharpen and bilerp transitions should diverge");
+	expectTrue(
+		sharpenOut.summary.presentHash != filteredOut.summary.presentHash,
+		"texture-filter sharpen and average transitions should diverge");
 	expectTrue(
 		!presentFramesEqual(filteredOut, pointOut),
 		"texture-filter transition should alter presented pixels");
