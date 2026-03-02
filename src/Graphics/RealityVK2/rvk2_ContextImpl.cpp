@@ -115,6 +115,81 @@ void ContextImpl::destroy()
 	vulkan::ContextImpl::destroy();
 }
 
+void ContextImpl::enable(graphics::EnableParam _parameter, bool _enable)
+{
+	(void)_parameter;
+	(void)_enable;
+}
+
+u32 ContextImpl::isEnabled(graphics::EnableParam _parameter)
+{
+	(void)_parameter;
+	return 0U;
+}
+
+void ContextImpl::cullFace(graphics::CullModeParam _mode)
+{
+	(void)_mode;
+}
+
+void ContextImpl::enableDepthWrite(bool _enable)
+{
+	(void)_enable;
+}
+
+void ContextImpl::setDepthCompare(graphics::CompareParam _mode)
+{
+	(void)_mode;
+}
+
+void ContextImpl::setViewport(s32 _x, s32 _y, s32 _width, s32 _height)
+{
+	(void)_x;
+	(void)_y;
+	(void)_width;
+	(void)_height;
+}
+
+void ContextImpl::setScissor(s32 _x, s32 _y, s32 _width, s32 _height)
+{
+	(void)_x;
+	(void)_y;
+	(void)_width;
+	(void)_height;
+}
+
+void ContextImpl::setBlending(graphics::BlendParam _sfactor, graphics::BlendParam _dfactor)
+{
+	(void)_sfactor;
+	(void)_dfactor;
+}
+
+void ContextImpl::setBlendingSeparate(
+	graphics::BlendParam _sfactorcolor,
+	graphics::BlendParam _dfactorcolor,
+	graphics::BlendParam _sfactoralpha,
+	graphics::BlendParam _dfactoralpha)
+{
+	(void)_sfactorcolor;
+	(void)_dfactorcolor;
+	(void)_sfactoralpha;
+	(void)_dfactoralpha;
+}
+
+void ContextImpl::setBlendColor(f32 _red, f32 _green, f32 _blue, f32 _alpha)
+{
+	(void)_red;
+	(void)_green;
+	(void)_blue;
+	(void)_alpha;
+}
+
+void ContextImpl::setPolygonOffset(f32 _factor, f32 _units)
+{
+	(void)_factor;
+	(void)_units;
+}
+
 void ContextImpl::drawTriangles(const graphics::Context::DrawTriangleParameters & _params)
 {
 	(void)_params;

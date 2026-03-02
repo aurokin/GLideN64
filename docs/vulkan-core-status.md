@@ -69,6 +69,7 @@ This is the single execution tracker for the rewrite.
 63. Runtime cutover hardening started: context creation is now rvk2-only, runtime-switch fallback is removed, legacy draw pass-through in `rvk2::ContextImpl` is disabled, and no-work presents now clear to deterministic black.
 64. Command ingest is now unconditional on rvk2 path (RSP/RDP/HLE/Turbo3D/T3DUX no longer guard on runtime-switch capture checks), and dead runtime-switch selector APIs were removed.
 65. Legacy present fallback injection path is deleted from Vulkan present, and stale runtime-switch naming/config surfaces were renamed to trace-config (`rvk2_TraceConfig`) for rvk2-only operation clarity.
+66. `rvk2::ContextImpl` now hard-noops high-frequency legacy draw-state mutators (`enable`, cull/depth/blend/viewport/scissor/polygon-offset setters), reducing dead legacy draw-recorder churn while preserving base-qualified presenter operations.
 
 ## Phase Status
 
@@ -99,7 +100,7 @@ Estimated phase progress used:
 - C: 100%
 - D: 100%
 - E: 100%
-- F: 45%
+- F: 55%
 
 ## Completed Recently
 
@@ -336,6 +337,10 @@ Estimated phase progress used:
    - deleted Vulkan present fallback candidate/injection path and associated env gate (`REALITYVK_VK_ENABLE_PRESENT_FALLBACK`)
    - removed fallback packet debug source classification from present packet metadata
    - renamed stale `rvk2_RuntimeSwitch` module to `rvk2_TraceConfig` to reflect rvk2-only trace/config responsibilities
+55. Reduced dead legacy state churn in rvk2 runtime:
+   - `rvk2::ContextImpl` now overrides high-frequency draw-state mutators to explicit no-op for runtime-facing calls
+   - rvk2 presenter path remains intact via explicit base-qualified Vulkan calls in present/upload steps
+   - local gate remains clean after this cutover-focused API behavior narrowing
 
 ## Current Bottlenecks
 
@@ -353,8 +358,8 @@ Estimated phase progress used:
 
 ## Remaining Work Split (Approx)
 
-1. Phase F cutover/deletion (legacy path deletion/cleanup): **45%** of remaining work.
-2. Parity stabilization and metric closure: **30%**.
+1. Phase F cutover/deletion (legacy path deletion/cleanup): **40%** of remaining work.
+2. Parity stabilization and metric closure: **35%**.
 3. Trace/replay strictness + schema tightening: **20%**.
 4. Post-closure texture replacement burn-in/coverage expansion: **5%**.
 

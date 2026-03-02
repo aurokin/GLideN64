@@ -17,6 +17,21 @@ public:
 	void setPresentationWindowInfo(const graphics::Context::PresentationWindowInfo & _info) override;
 	void init() override;
 	void destroy() override;
+	void enable(graphics::EnableParam _parameter, bool _enable) override;
+	u32 isEnabled(graphics::EnableParam _parameter) override;
+	void cullFace(graphics::CullModeParam _mode) override;
+	void enableDepthWrite(bool _enable) override;
+	void setDepthCompare(graphics::CompareParam _mode) override;
+	void setViewport(s32 _x, s32 _y, s32 _width, s32 _height) override;
+	void setScissor(s32 _x, s32 _y, s32 _width, s32 _height) override;
+	void setBlending(graphics::BlendParam _sfactor, graphics::BlendParam _dfactor) override;
+	void setBlendingSeparate(
+		graphics::BlendParam _sfactorcolor,
+		graphics::BlendParam _dfactorcolor,
+		graphics::BlendParam _sfactoralpha,
+		graphics::BlendParam _dfactoralpha) override;
+	void setBlendColor(f32 _red, f32 _green, f32 _blue, f32 _alpha) override;
+	void setPolygonOffset(f32 _factor, f32 _units) override;
 
 	void drawTriangles(const graphics::Context::DrawTriangleParameters & _params) override;
 	void drawRects(const graphics::Context::DrawRectParameters & _params) override;
