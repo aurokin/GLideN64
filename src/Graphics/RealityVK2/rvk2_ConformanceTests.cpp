@@ -1084,10 +1084,108 @@ void testCoverageScissorConformance()
 		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{clipped}, batches);
 
 	expectEq(outFull.summary.colorWriteCount, 25ULL, "full fill-rect coverage write count mismatch");
-	expectEq(outClipped.summary.colorWriteCount, 6ULL, "scissored fill-rect coverage write count mismatch");
+	expectEq(outClipped.summary.colorWriteCount, 4ULL, "scissored fill-rect coverage write count mismatch");
 	expectTrue(
 		outClipped.summary.presentHash != outFull.summary.presentHash,
 		"scissor coverage change should alter present hash");
+}
+
+void testScissorModeFieldAndEdgeConformance()
+{
+	rvk2::Executor executor;
+
+	rvk2::RenderWorkPacket fill = makeFillWork(112ULL, 0x00A10000U, 0xFF8020FFU);
+	fill.rectULX = 0U;
+	fill.rectULY = 0U;
+	fill.rectLRX = 4U;
+	fill.rectLRY = 4U;
+	fill.scissorXH = 1U;
+	fill.scissorXL = 2U;
+	fill.scissorYH = 1U;
+	fill.scissorYL = 3U;
+
+	rvk2::RenderWorkPacket copy = makeTexRectWork(false);
+	copy.sourcePacketId = 113ULL;
+	copy.phase = static_cast<u8>(rvk2::RenderPhase::kCopy);
+	copy.cycleType = 2U;
+	copy.colorImageAddress = fill.colorImageAddress;
+	copy.colorImageWidth = fill.colorImageWidth;
+	copy.rectULX = fill.rectULX;
+	copy.rectULY = fill.rectULY;
+	copy.rectLRX = fill.rectLRX;
+	copy.rectLRY = fill.rectLRY;
+	copy.scissorXH = fill.scissorXH;
+	copy.scissorXL = fill.scissorXL;
+	copy.scissorYH = fill.scissorYH;
+	copy.scissorYL = fill.scissorYL;
+
+	rvk2::RenderWorkPacket cycle1 = copy;
+	cycle1.sourcePacketId = 114ULL;
+	cycle1.phase = static_cast<u8>(rvk2::RenderPhase::kCycle1);
+	cycle1.cycleType = 0U;
+
+	rvk2::SubmissionBatchPacket fillBatch = makeSingleBatch();
+	fillBatch.phase = static_cast<u8>(rvk2::RenderPhase::kFill);
+	fillBatch.cycleType = 3U;
+	const std::vector<rvk2::SubmissionBatchPacket> fillBatches{fillBatch};
+
+	rvk2::SubmissionBatchPacket copyBatch = makeSingleBatch();
+	copyBatch.phase = static_cast<u8>(rvk2::RenderPhase::kCopy);
+	copyBatch.cycleType = 2U;
+	const std::vector<rvk2::SubmissionBatchPacket> copyBatches{copyBatch};
+
+	rvk2::SubmissionBatchPacket cycle1Batch = makeSingleBatch();
+	cycle1Batch.phase = static_cast<u8>(rvk2::RenderPhase::kCycle1);
+	cycle1Batch.cycleType = 0U;
+	const std::vector<rvk2::SubmissionBatchPacket> cycle1Batches{cycle1Batch};
+
+	const rvk2::ExecutorOutput fillOut =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{fill}, fillBatches);
+	const rvk2::ExecutorOutput copyOut =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{copy}, copyBatches);
+	const rvk2::ExecutorOutput cycle1Out =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{cycle1}, cycle1Batches);
+
+	expectEq(
+		fillOut.summary.colorWriteCount,
+		4ULL,
+		"fill-phase scissor should keep right edge inclusive and lower edge exclusive");
+	expectEq(
+		copyOut.summary.colorWriteCount,
+		4ULL,
+		"copy-phase scissor should keep right edge inclusive and lower edge exclusive");
+	expectEq(
+		cycle1Out.summary.colorWriteCount,
+		2ULL,
+		"cycle1 scissor should use right/lower exclusive edges");
+
+	rvk2::RenderWorkPacket evenField = fill;
+	evenField.sourcePacketId = 115ULL;
+	evenField.scissorMode = 2U;
+	rvk2::RenderWorkPacket oddField = fill;
+	oddField.sourcePacketId = 116ULL;
+	oddField.scissorMode = 3U;
+
+	const rvk2::ExecutorOutput evenFieldOut =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{evenField}, fillBatches);
+	const rvk2::ExecutorOutput oddFieldOut =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{oddField}, fillBatches);
+
+	expectEq(
+		evenFieldOut.summary.colorWriteCount,
+		2ULL,
+		"scissor field-even mode should keep only even raster lines");
+	expectEq(
+		oddFieldOut.summary.colorWriteCount,
+		2ULL,
+		"scissor field-odd mode should keep only odd raster lines");
+	expectEq(
+		evenFieldOut.summary.colorWriteCount + oddFieldOut.summary.colorWriteCount,
+		fillOut.summary.colorWriteCount,
+		"field-even and field-odd scissor modes should partition non-interlaced coverage");
+	expectTrue(
+		evenFieldOut.summary.presentHash != oddFieldOut.summary.presentHash,
+		"field-even and field-odd scissor modes should alter present hash");
 }
 
 void testCopyPhaseDestinationBypassConformance()
@@ -2197,6 +2295,7 @@ int main()
 	testMixedStateBatchSegmentationConformance();
 	testMixedStateRapidTransitionMatrixConformance();
 	testCoverageScissorConformance();
+	testScissorModeFieldAndEdgeConformance();
 	testCopyPhaseDestinationBypassConformance();
 	testCycle2PhaseDistinctConformance();
 	testFillPhaseIgnoresBlendCombinerConformance();

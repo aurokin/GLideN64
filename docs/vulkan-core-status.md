@@ -55,6 +55,7 @@ This is the single execution tracker for the rewrite.
 49. Replacement store now supports deterministic bounds policy (`max entries` / `max pixels`) applied at load time.
 50. Texture-pack index tooling is now landed (`scripts/rvk2_texture_pack_index.py`) and local gate can validate pack indexes with opt-in knobs.
 51. Executor replacement observability now reports loaded entries/pixels and replacement sample hit/miss counters, with env-gated runtime summary logging.
+52. Executor/replay now model `SetScissor` field mode (even/odd line filtering) and mode-specific scissor edge semantics (lower-exclusive always, right-edge inclusive only in copy/fill).
 
 ## Phase Status
 
@@ -69,7 +70,7 @@ This is the single execution tracker for the rewrite.
 
 ## Completion Estimate
 
-Estimated overall roadmap completion: **~85%**.
+Estimated overall roadmap completion: **~86%**.
 
 Heuristic phase weighting used for this estimate:
 - A: 20%
@@ -81,8 +82,8 @@ Heuristic phase weighting used for this estimate:
 
 Estimated phase progress used:
 - A: 100%
-- B: 92%
-- C: 84%
+- B: 93%
+- C: 86%
 - D: 100%
 - E: 65%
 - F: 0%
@@ -270,6 +271,11 @@ Estimated phase progress used:
    - replacement sample counters are wired directly at replacement lookup path for deterministic hit/miss accounting
    - added runtime env knob `REALITYVK_RVK2_TX_LOG_SUMMARY=1` to emit per-frame replacement summary logs in rvk2 presenter path
    - extended unit coverage to assert replacement summary counter behavior for baseline/cache/pack/combined replacement runs
+43. Added B/C scissor semantics closure and conformance:
+   - executor now applies `SetScissor` mode bit behavior for interlaced field filtering (even/odd scanline selection)
+   - executor now applies mode-specific scissor edge behavior (lower edge exclusive in all phases, right edge exclusive in cycle phases and inclusive in copy/fill)
+   - replay model now mirrors identical scissor semantics for deterministic trace consistency
+   - conformance coverage now asserts phase edge behavior and field-mode filtering behavior
 
 ## Current Bottlenecks
 

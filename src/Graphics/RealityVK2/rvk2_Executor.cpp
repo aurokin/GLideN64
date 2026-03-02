@@ -734,13 +734,29 @@ bool computeWriteBounds(
 
 	const u32 scissorX0 = std::min<u32>(_work.scissorXH, _work.scissorXL);
 	const u32 scissorY0 = std::min<u32>(_work.scissorYH, _work.scissorYL);
-	const u32 scissorX1 = std::max<u32>(_work.scissorXH, _work.scissorXL);
-	const u32 scissorY1 = std::max<u32>(_work.scissorYH, _work.scissorYL);
+	u32 scissorX1 = std::max<u32>(_work.scissorXH, _work.scissorXL);
+	u32 scissorY1 = std::max<u32>(_work.scissorYH, _work.scissorYL);
 	const bool defaultScissor =
 		_work.scissorXH == 0U
 		&& _work.scissorYH == 0U
 		&& _work.scissorXL == 0U
 		&& _work.scissorYL == 0U;
+	if (!defaultScissor) {
+		// N64 scissor lower edge is exclusive in every phase.
+		if (scissorY1 == 0U)
+			return false;
+		--scissorY1;
+
+		// N64 scissor right edge is exclusive in cycle phases and inclusive in copy/fill.
+		const bool inclusiveRightEdge =
+			_work.phase == static_cast<u8>(rvk2::RenderPhase::kCopy)
+			|| _work.phase == static_cast<u8>(rvk2::RenderPhase::kFill);
+		if (!inclusiveRightEdge) {
+			if (scissorX1 == 0U)
+				return false;
+			--scissorX1;
+		}
+	}
 	const u32 clipX0 = defaultScissor ? ulx : scissorX0;
 	const u32 clipY0 = defaultScissor ? uly : scissorY0;
 	const u32 clipX1 = defaultScissor ? lrx : scissorX1;
@@ -758,6 +774,15 @@ bool computeWriteBounds(
 	_bounds.x1 = writeX1;
 	_bounds.y1 = writeY1;
 	return true;
+}
+
+inline bool passesScissorFieldFilter(const rvk2::RenderWorkPacket & _work, u32 _y)
+{
+	const bool interlacedFieldScissor = (_work.scissorMode & 0x2U) != 0U;
+	if (!interlacedFieldScissor)
+		return true;
+	const u32 oddField = static_cast<u32>(_work.scissorMode & 0x1U);
+	return (_y & 0x1U) == oddField;
 }
 
 inline double edgeFunction(
@@ -1742,6 +1767,8 @@ void writeRect(
 		return;
 
 	for (u32 y = bounds.y0; y <= bounds.y1; ++y) {
+		if (!passesScissorFieldFilter(_work, y))
+			continue;
 		for (u32 x = bounds.x0; x <= bounds.x1; ++x) {
 			const size_t colorIdx = pixelIndex(_surface.width, static_cast<u16>(x), static_cast<u16>(y));
 			const u32 dstColor = _surface.pixels[colorIdx];
@@ -1812,6 +1839,8 @@ void writeTriangle(
 		return;
 
 	for (u32 y = bounds.y0; y <= bounds.y1; ++y) {
+		if (!passesScissorFieldFilter(_work, y))
+			continue;
 		const double py = static_cast<double>(y) + 0.5;
 		for (u32 x = bounds.x0; x <= bounds.x1; ++x) {
 			const double px = static_cast<double>(x) + 0.5;

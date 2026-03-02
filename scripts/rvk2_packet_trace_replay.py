@@ -4464,6 +4464,17 @@ def _write_render_work_rect(
         and work.scissor_xl == 0
         and work.scissor_yl == 0
     )
+    if not default_scissor:
+        # N64 scissor lower edge is exclusive in every phase.
+        if scissor_y1 == 0:
+            return
+        scissor_y1 -= 1
+        # N64 scissor right edge is exclusive in cycle phases and inclusive in copy/fill.
+        inclusive_right_edge = work.phase in (RENDER_PHASE_COPY, RENDER_PHASE_FILL)
+        if not inclusive_right_edge:
+            if scissor_x1 == 0:
+                return
+            scissor_x1 -= 1
     clip_x0 = ulx if default_scissor else scissor_x0
     clip_y0 = uly if default_scissor else scissor_y0
     clip_x1 = lrx if default_scissor else scissor_x1
@@ -4481,9 +4492,13 @@ def _write_render_work_rect(
     pixels = surface.pixels
     width = surface.width
     color_write_count = 0
+    interlaced_field_scissor = (work.scissor_mode & 0x2) != 0
+    odd_field = work.scissor_mode & 0x1
 
     if is_fill:
         for y in range(write_y0, write_y1 + 1):
+            if interlaced_field_scissor and (y & 0x1) != odd_field:
+                continue
             row_index = y * width + write_x0
             for x in range(write_x0, write_x1 + 1):
                 dst_color = pixels[row_index] & 0xFFFFFFFF
@@ -4499,6 +4514,8 @@ def _write_render_work_rect(
         return
 
     for y in range(write_y0, write_y1 + 1):
+        if interlaced_field_scissor and (y & 0x1) != odd_field:
+            continue
         row_index = y * width + write_x0
         for x in range(write_x0, write_x1 + 1):
             dst_color = pixels[row_index] & 0xFFFFFFFF
@@ -5264,6 +5281,17 @@ def _write_render_work_triangle(
         and work.scissor_xl == 0
         and work.scissor_yl == 0
     )
+    if not default_scissor:
+        # N64 scissor lower edge is exclusive in every phase.
+        if scissor_y1 == 0:
+            return
+        scissor_y1 -= 1
+        # N64 scissor right edge is exclusive in cycle phases and inclusive in copy/fill.
+        inclusive_right_edge = work.phase in (RENDER_PHASE_COPY, RENDER_PHASE_FILL)
+        if not inclusive_right_edge:
+            if scissor_x1 == 0:
+                return
+            scissor_x1 -= 1
     clip_x0 = ulx if default_scissor else scissor_x0
     clip_y0 = uly if default_scissor else scissor_y0
     clip_x1 = lrx if default_scissor else scissor_x1
@@ -5300,6 +5328,8 @@ def _write_render_work_triangle(
     width = surface.width
     color_write_count = 0
     area_positive = area > 0.0
+    interlaced_field_scissor = (work.scissor_mode & 0x2) != 0
+    odd_field = work.scissor_mode & 0x1
 
     abx = bx - ax
     aby = by - ay
@@ -5309,6 +5339,8 @@ def _write_render_work_triangle(
     cay = ay - cy
 
     for y in range(write_y0, write_y1 + 1):
+        if interlaced_field_scissor and (y & 0x1) != odd_field:
+            continue
         py = float(y) + 0.5
         row_index = y * width + write_x0
         for x in range(write_x0, write_x1 + 1):
