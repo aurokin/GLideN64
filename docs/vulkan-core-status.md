@@ -56,6 +56,7 @@ This is the single execution tracker for the rewrite.
 50. Texture-pack index tooling is now landed (`scripts/rvk2_texture_pack_index.py`) and local gate can validate pack indexes with opt-in knobs.
 51. Executor replacement observability now reports loaded entries/pixels and replacement sample hit/miss counters, with env-gated runtime summary logging.
 52. Executor/replay now model `SetScissor` field mode (even/odd line filtering) and mode-specific scissor edge semantics (lower-exclusive always, right-edge inclusive only in copy/fill).
+53. Executor/replay now model scissor-aware dither Y indexing (`[2:1]` under explicit scissoring) with conformance coverage.
 
 ## Phase Status
 
@@ -276,6 +277,10 @@ Estimated phase progress used:
    - executor now applies mode-specific scissor edge behavior (lower edge exclusive in all phases, right edge exclusive in cycle phases and inclusive in copy/fill)
    - replay model now mirrors identical scissor semantics for deterministic trace consistency
    - conformance coverage now asserts phase edge behavior and field-mode filtering behavior
+44. Added B/C scissor-aware dither indexing closure:
+   - executor now applies scissor-aware Bayer Y indexing for dither (`y>>1` under explicit scissor)
+   - replay model now mirrors identical dither indexing behavior for deterministic trace consistency
+   - conformance coverage now asserts scissor-driven dither output divergence with stable write coverage
 
 ## Current Bottlenecks
 

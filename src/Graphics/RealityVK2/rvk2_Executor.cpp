@@ -169,6 +169,15 @@ inline bool isTextureEdgeEnabled(const rvk2::RenderWorkPacket & _work)
 	return (mode1Word(_work) & (1U << 15U)) != 0U;
 }
 
+inline bool hasExplicitScissor(const rvk2::RenderWorkPacket & _work)
+{
+	return !(
+		_work.scissorXH == 0U
+		&& _work.scissorYH == 0U
+		&& _work.scissorXL == 0U
+		&& _work.scissorYL == 0U);
+}
+
 struct BlendMuxSelectors
 {
 	u8 m1a = 0U;
@@ -736,11 +745,7 @@ bool computeWriteBounds(
 	const u32 scissorY0 = std::min<u32>(_work.scissorYH, _work.scissorYL);
 	u32 scissorX1 = std::max<u32>(_work.scissorXH, _work.scissorXL);
 	u32 scissorY1 = std::max<u32>(_work.scissorYH, _work.scissorYL);
-	const bool defaultScissor =
-		_work.scissorXH == 0U
-		&& _work.scissorYH == 0U
-		&& _work.scissorXL == 0U
-		&& _work.scissorYL == 0U;
+	const bool defaultScissor = !hasExplicitScissor(_work);
 	if (!defaultScissor) {
 		// N64 scissor lower edge is exclusive in every phase.
 		if (scissorY1 == 0U)
@@ -1380,7 +1385,9 @@ inline u32 applySyntheticBlender(
 	const u8 colorDitherMode = decodeColorDitherMode(_work);
 	const u8 alphaDitherMode = decodeAlphaDitherMode(_work);
 	if (colorDitherMode != 0U || alphaDitherMode != 0U) {
-		const s32 bayer = bayerDither4x4(_x, _y);
+		// Under active scissoring, the Y dither index uses bits [2:1].
+		const u32 ditherY = hasExplicitScissor(_work) ? (_y >> 1U) : _y;
+		const s32 bayer = bayerDither4x4(_x, ditherY);
 		if (colorDitherMode != 0U) {
 			out.r = applySyntheticDitherMode(
 				out.r,

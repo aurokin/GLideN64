@@ -1188,6 +1188,51 @@ void testScissorModeFieldAndEdgeConformance()
 		"field-even and field-odd scissor modes should alter present hash");
 }
 
+void testScissorDitherIndexConformance()
+{
+	rvk2::Executor executor;
+	rvk2::RenderWorkPacket base = makeTexRectWork(false);
+	base.sourcePacketId = 117ULL;
+	base.colorImageAddress = 0x00A11000U;
+	base.colorImageWidth = 8U;
+	base.phase = static_cast<u8>(rvk2::RenderPhase::kCycle1);
+	base.cycleType = 0U;
+	base.rectULX = 0U;
+	base.rectULY = 0U;
+	base.rectLRX = 3U;
+	base.rectLRY = 3U;
+	base.otherModes = (1ULL << (32U + 6U));
+	base.blendParams = 0x00008040U;
+
+	rvk2::RenderWorkPacket scissored = base;
+	scissored.sourcePacketId = 118ULL;
+	scissored.scissorXH = 0U;
+	scissored.scissorYH = 0U;
+	scissored.scissorXL = 4U;
+	scissored.scissorYL = 4U;
+
+	rvk2::SubmissionBatchPacket batch = makeSingleBatch();
+	batch.phase = static_cast<u8>(rvk2::RenderPhase::kCycle1);
+	batch.cycleType = 0U;
+	const std::vector<rvk2::SubmissionBatchPacket> batches{batch};
+
+	const rvk2::ExecutorOutput baseOut =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{base}, batches);
+	const rvk2::ExecutorOutput scissoredOut =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{scissored}, batches);
+
+	expectEq(
+		scissoredOut.summary.colorWriteCount,
+		baseOut.summary.colorWriteCount,
+		"scissor dither-index transition should preserve write coverage");
+	expectTrue(
+		scissoredOut.summary.presentHash != baseOut.summary.presentHash,
+		"scissor dither-index transition should alter present hash");
+	expectTrue(
+		!presentFramesEqual(scissoredOut, baseOut),
+		"scissor dither-index transition should alter presented pixels");
+}
+
 void testCopyPhaseDestinationBypassConformance()
 {
 	rvk2::Executor executor;
@@ -2296,6 +2341,7 @@ int main()
 	testMixedStateRapidTransitionMatrixConformance();
 	testCoverageScissorConformance();
 	testScissorModeFieldAndEdgeConformance();
+	testScissorDitherIndexConformance();
 	testCopyPhaseDestinationBypassConformance();
 	testCycle2PhaseDistinctConformance();
 	testFillPhaseIgnoresBlendCombinerConformance();

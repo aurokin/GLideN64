@@ -4806,6 +4806,15 @@ def _bayer_dither_4x4(x: int, y: int) -> int:
     return table[((y & 0x3) << 2) | (x & 0x3)]
 
 
+def _has_explicit_scissor(work: RenderWorkRecord) -> bool:
+    return not (
+        work.scissor_xh == 0
+        and work.scissor_yh == 0
+        and work.scissor_xl == 0
+        and work.scissor_yl == 0
+    )
+
+
 def _synthetic_noise_signed8(work: RenderWorkRecord, x: int, y: int, lane: int) -> int:
     seed = FNV_OFFSET
     seed = _mix_texture_seed(seed, x & 0xFFFFFFFF)
@@ -5047,7 +5056,9 @@ def _apply_synthetic_blender(
     color_dither_mode = _decode_color_dither_mode(work)
     alpha_dither_mode = _decode_alpha_dither_mode(work)
     if color_dither_mode != 0 or alpha_dither_mode != 0:
-        bayer = _bayer_dither_4x4(x, y)
+        # Under active scissoring, the Y dither index uses bits [2:1].
+        dither_y = (y >> 1) if _has_explicit_scissor(work) else y
+        bayer = _bayer_dither_4x4(x, dither_y)
         if color_dither_mode != 0:
             out_r = _apply_synthetic_dither_mode(
                 out_r,
