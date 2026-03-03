@@ -625,6 +625,102 @@ void testCombinerExtendedSelectorConformance()
 		"extended combiner K5 transition should alter present hash");
 }
 
+void testCombinerOverflowBandConformance()
+{
+	rvk2::Executor executor;
+	rvk2::RenderWorkPacket background = makeFillWork(53ULL, 0x00A06500U, 0x202020FFU);
+	background.rectLRX = 3U;
+	background.rectLRY = 0U;
+
+	rvk2::RenderWorkPacket base = makeTexRectWork(false);
+	base.sourcePacketId = 54ULL;
+	base.colorImageAddress = background.colorImageAddress;
+	base.colorImageWidth = 8U;
+	base.rectULX = 0U;
+	base.rectULY = 0U;
+	base.rectLRX = 3U;
+	base.rectLRY = 0U;
+	base.phase = static_cast<u8>(rvk2::RenderPhase::kCycle1);
+	base.cycleType = 0U;
+	base.textured = false;
+	base.combineMux = 0ULL;
+	base.primColor = 0x000000FFU;
+
+	constexpr u64 kCycle2ColorAMask = 0xFULL << (32U + 5U);
+	constexpr u64 kCycle2ColorBMask = 0xFULL << 24U;
+	constexpr u64 kCycle2ColorCMask = 0x1FULL << 32U;
+	constexpr u64 kCycle2ColorDMask = 0x7ULL << 6U;
+	constexpr u64 kCycle2AlphaAMask = 0x7ULL << 21U;
+	constexpr u64 kCycle2AlphaBMask = 0x7ULL << 3U;
+	constexpr u64 kCycle2AlphaCMask = 0x7ULL << 18U;
+	constexpr u64 kCycle2AlphaDMask = 0x7ULL << 0U;
+	constexpr u64 kCycle2SelectorMask =
+		kCycle2ColorAMask
+		| kCycle2ColorBMask
+		| kCycle2ColorCMask
+		| kCycle2ColorDMask
+		| kCycle2AlphaAMask
+		| kCycle2AlphaBMask
+		| kCycle2AlphaCMask
+		| kCycle2AlphaDMask;
+	base.combineMux &= ~kCycle2SelectorMask;
+	base.combineMux |=
+		(6ULL << (32U + 5U))  // color A: 1 (256)
+		| (8ULL << 24U)       // color B: 0
+		| (10ULL << 32U)      // color C: primitive alpha (255)
+		| (3ULL << 6U)        // color D: primitive
+		| (0ULL << 21U)
+		| (0ULL << 3U)
+		| (0ULL << 18U)
+		| (3ULL << 0U);       // alpha D: primitive alpha
+
+	rvk2::RenderWorkPacket satBand = base;
+	satBand.sourcePacketId = 55ULL;
+	satBand.primColor = 0x010101FFU; // 255 + 1 = 256 -> saturated 255 band.
+
+	rvk2::RenderWorkPacket overflowBand = base;
+	overflowBand.sourcePacketId = 56ULL;
+	overflowBand.primColor = 0x828282FFU; // 255 + 130 = 385 -> overflow-to-zero band.
+
+	const std::vector<rvk2::SubmissionBatchPacket> twoWorkBatches{makeBatchForWorkCount(2U)};
+	const rvk2::ExecutorOutput baseOut = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, base},
+		twoWorkBatches);
+	const rvk2::ExecutorOutput satOut = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, satBand},
+		twoWorkBatches);
+	const rvk2::ExecutorOutput overflowOut = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, overflowBand},
+		twoWorkBatches);
+
+	expectTrue(
+		baseOut.summary.colorWriteCount > 0ULL,
+		"combiner overflow baseline should write pixels");
+	expectEq(
+		baseOut.summary.colorWriteCount,
+		satOut.summary.colorWriteCount,
+		"combiner overflow saturation-band transition should preserve write coverage");
+	expectEq(
+		baseOut.summary.colorWriteCount,
+		overflowOut.summary.colorWriteCount,
+		"combiner overflow zero-band transition should preserve write coverage");
+	expectTrue(
+		!baseOut.presentFrame.pixels.empty()
+		&& !satOut.presentFrame.pixels.empty()
+		&& !overflowOut.presentFrame.pixels.empty(),
+		"combiner overflow scene should produce present pixels");
+	expectEq(
+		baseOut.summary.presentHash,
+		satOut.summary.presentHash,
+		"combiner overflow saturation band should match base saturated output");
+	expectTrue(
+		overflowOut.summary.presentHash != baseOut.summary.presentHash,
+		"combiner overflow zero band should diverge from saturated output");
+	expectTrue(
+		overflowOut.summary.outputLumaSum < baseOut.summary.outputLumaSum,
+		"combiner overflow zero band should produce lower luma than saturated output");
+}
+
 void testDepthOrderingConformance()
 {
 	rvk2::Executor executor;
@@ -3670,6 +3766,7 @@ int main()
 	testBlendDestinationDependencyConformance();
 	testCombinerMuxConformance();
 	testCombinerExtendedSelectorConformance();
+	testCombinerOverflowBandConformance();
 	testDepthOrderingConformance();
 	testDepthPhaseParticipationConformance();
 	testPrimitiveDepthSourceConformance();

@@ -1035,6 +1035,45 @@ void testRuntimeDrawSemanticCapture()
 		"Truncated payload opcode mismatch");
 }
 
+void testTriangleSignedYBounds()
+{
+	rvk2::Runtime runtime;
+	runtime.beginFrame(41ULL);
+
+	rvk2::CommandProvenance provenance{};
+	provenance.taskId = 41U;
+	provenance.microcode = 20U;
+
+	// Triangle Y edges are signed 14-bit values in 10.2 subpixel units.
+	const u16 yl = static_cast<u16>(0x3FF0U); // -16 subpixels => -4 pixels.
+	const u16 ym = static_cast<u16>(0x0010U); // +16 subpixels => +4 pixels.
+	const u16 yh = static_cast<u16>(0x0000U); // 0 subpixels.
+
+	runtime.submitRDPWord(
+		0x00410000U,
+		(0x08U << 24) | (1U << 23) | yl,
+		(static_cast<u32>(ym) << 16U) | static_cast<u32>(yh),
+		provenance,
+		6U,
+		0x00010000U, // XL
+		0x00000000U, // DxLDY
+		0x00000000U, // XH
+		0x00000000U, // DxHDY
+		0x00000000U, // XM
+		0x00000000U, // DxMDY
+		8U);
+
+	const std::vector<rvk2::RenderWorkPacket> & renderPlan = runtime.renderPlan();
+	expectEq(renderPlan.size(), static_cast<size_t>(1U), "Signed-Y triangle render plan count mismatch");
+	expectEq(renderPlan[0].triangleYL, yl, "Signed-Y triangle raw YL mismatch");
+	expectEq(renderPlan[0].triangleYM, ym, "Signed-Y triangle raw YM mismatch");
+	expectEq(renderPlan[0].triangleYH, yh, "Signed-Y triangle raw YH mismatch");
+	expectEq(renderPlan[0].rectULY, static_cast<u16>(0U), "Signed-Y triangle rect ULY should clamp to zero");
+	expectTrue(
+		renderPlan[0].rectLRY <= static_cast<u16>(4U),
+		"Signed-Y triangle rect LRY should stay near top edge");
+}
+
 void testSyntheticTrianglePacking()
 {
 	SPVertex v0{};
@@ -3332,6 +3371,7 @@ int main()
 	testRDPExtendedStateFields();
 	testTMEMStateTransitions();
 	testRuntimeDrawSemanticCapture();
+	testTriangleSignedYBounds();
 	testSyntheticTrianglePacking();
 	testTexRectSemanticExtraction();
 	testVIRendererAspectScaling();

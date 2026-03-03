@@ -2728,10 +2728,15 @@ def _eval_edge_x_fixed16(x_start: int, dxdy: int, y_start: int, y_target: int) -
     return x
 
 
+def _sign_extend_14(value: int) -> int:
+    raw = int(value) & 0x3FFF
+    return (raw ^ 0x2000) - 0x2000
+
+
 def _derive_triangle_rect_bounds(op: RasterOpRecord) -> tuple[int, int, int, int]:
-    yh = int(op.triangle_yh)
-    ym = int(op.triangle_ym)
-    yl = int(op.triangle_yl)
+    yh = _sign_extend_14(op.triangle_yh)
+    ym = _sign_extend_14(op.triangle_ym)
+    yl = _sign_extend_14(op.triangle_yl)
     y_min_subpixel = min(yh, ym, yl)
     y_max_subpixel = max(yh, ym, yl)
     y_min = _clamp_rect_coord(y_min_subpixel >> 2)
@@ -4676,14 +4681,17 @@ def _write_render_work_triangle(
     if write_x1 < write_x0 or write_y1 < write_y0:
         return
 
-    yh = float(work.triangle_yh) * 0.25
-    ym = float(work.triangle_ym) * 0.25
-    yl = float(work.triangle_yl) * 0.25
+    yh_signed = _sign_extend_14(work.triangle_yh)
+    ym_signed = _sign_extend_14(work.triangle_ym)
+    yl_signed = _sign_extend_14(work.triangle_yl)
+    yh = float(yh_signed) * 0.25
+    ym = float(ym_signed) * 0.25
+    yl = float(yl_signed) * 0.25
     xh = float(work.triangle_xh) / 65536.0
     xl = float(work.triangle_xl) / 65536.0
     x_long_at_yl = (
         float(work.triangle_xh)
-        + float(work.triangle_dxhdy) * float(int(work.triangle_yl) - int(work.triangle_yh))
+        + float(work.triangle_dxhdy) * float(yl_signed - yh_signed)
     ) / 65536.0
 
     ax = xh

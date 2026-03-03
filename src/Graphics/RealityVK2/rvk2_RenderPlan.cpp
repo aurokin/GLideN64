@@ -49,11 +49,18 @@ inline s32 evalEdgeXFixed16(s32 _xStart, s32 _dxdy, s32 _yStart, s32 _yTarget)
 	return static_cast<s32>(x);
 }
 
+inline s32 signExtend14(u16 _value)
+{
+	const u32 raw = static_cast<u32>(_value) & 0x3FFFU;
+	return static_cast<s32>((raw ^ 0x2000U) - 0x2000U);
+}
+
 void applyTriangleRectBounds(const rvk2::RasterOpPacket & _op, rvk2::RenderWorkPacket & _work)
 {
-	const s32 yh = static_cast<s32>(_op.triangleYH);
-	const s32 ym = static_cast<s32>(_op.triangleYM);
-	const s32 yl = static_cast<s32>(_op.triangleYL);
+	// Triangle Y edges are signed 14-bit s10.2 values.
+	const s32 yh = signExtend14(_op.triangleYH);
+	const s32 ym = signExtend14(_op.triangleYM);
+	const s32 yl = signExtend14(_op.triangleYL);
 	const s32 yMinSubpixel = std::min(yh, std::min(ym, yl));
 	const s32 yMaxSubpixel = std::max(yh, std::max(ym, yl));
 	const s32 yMin = clampToRectCoord(yMinSubpixel >> 2);

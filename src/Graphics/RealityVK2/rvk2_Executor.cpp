@@ -2011,6 +2011,12 @@ inline double edgeFunction(
 	return (_px - _ax) * (_by - _ay) - (_py - _ay) * (_bx - _ax);
 }
 
+inline s32 signExtend14(u16 _value)
+{
+	const u32 raw = static_cast<u32>(_value) & 0x3FFFU;
+	return static_cast<s32>((raw ^ 0x2000U) - 0x2000U);
+}
+
 inline u32 pseudoTriangleColor(
 	const rvk2::RenderWorkPacket & _work,
 	u32 _x,
@@ -2281,6 +2287,17 @@ inline s32 selectCombinerAlphaInputC(u8 _selector, const CombinerAlphaInputs & _
 inline u8 evalCombinerEquation(s32 _a, s32 _b, s32 _c, s32 _d)
 {
 	const s32 value = (((_a - _b) * _c + 128) >> 8) + _d;
+	const u32 value9 = static_cast<u32>(value) & 0x1FFU;
+	if (value9 < 0x100U)
+		return static_cast<u8>(value9);
+	if (value9 < 0x180U)
+		return 0xFFU;
+	return 0x00U;
+}
+
+inline u8 evalCombinerAlphaEquation(s32 _a, s32 _b, s32 _c, s32 _d)
+{
+	const s32 value = (((_a - _b) * _c + 128) >> 8) + _d;
 	return clampU8FromS32(value);
 }
 
@@ -2429,7 +2446,7 @@ inline u32 applySyntheticCombiner(
 			selectCombinerColorInputB(colorBSel, colorInputsB),
 			selectCombinerColorInputC(colorCSel, colorInputsB),
 			selectCombinerColorInputD(colorDSel, colorInputsB)),
-		evalCombinerEquation(
+		evalCombinerAlphaEquation(
 			selectCombinerAlphaInputABorD(alphaASel, alphaInputs),
 			selectCombinerAlphaInputABorD(alphaBSel, alphaInputs),
 			selectCombinerAlphaInputC(alphaCSel, alphaInputs),
@@ -3574,14 +3591,18 @@ void writeTriangle(
 	if (_depthSurface != nullptr)
 		ensureDepthSurfaceSize(*_depthSurface, requiredWidth, requiredHeight, _config.maxSurfaceWidth, _config.maxSurfaceHeight);
 
-	const double yh = static_cast<double>(_work.triangleYH) * 0.25;
-	const double ym = static_cast<double>(_work.triangleYM) * 0.25;
-	const double yl = static_cast<double>(_work.triangleYL) * 0.25;
+	// Triangle Y edges are signed 14-bit s10.2 values.
+	const s32 yhSigned = signExtend14(_work.triangleYH);
+	const s32 ymSigned = signExtend14(_work.triangleYM);
+	const s32 ylSigned = signExtend14(_work.triangleYL);
+	const double yh = static_cast<double>(yhSigned) * 0.25;
+	const double ym = static_cast<double>(ymSigned) * 0.25;
+	const double yl = static_cast<double>(ylSigned) * 0.25;
 	const double xh = static_cast<double>(_work.triangleXH) / 65536.0;
 	const double xl = static_cast<double>(_work.triangleXL) / 65536.0;
 	const double xLongAtYL =
 		(static_cast<double>(_work.triangleXH)
-			+ static_cast<double>(_work.triangleDxHDY) * static_cast<double>(static_cast<s32>(_work.triangleYL) - static_cast<s32>(_work.triangleYH)))
+			+ static_cast<double>(_work.triangleDxHDY) * static_cast<double>(ylSigned - yhSigned))
 		/ 65536.0;
 
 	const double ax = xh;

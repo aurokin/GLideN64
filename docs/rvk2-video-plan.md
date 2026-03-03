@@ -28,40 +28,32 @@ Accuracy-first. RVK2-only path. No legacy renderer fallback.
 9. VI origin selection now prefers in-range surfaces matching VI width when multiple candidates overlap.
 10. Hidden coverage bit-plane is now persisted per surface and consumed by blender memory-coverage alpha paths.
 11. TEXEL1 sampling from secondary tile descriptors (tile+1) is now wired into both cycle hazard paths.
+12. Triangle Y edge values are now consumed as signed 14-bit s10.2 values in both render-plan bound derivation and executor rasterization.
 
-## Remaining Work Map (5.1%)
+## Remaining Work Map (3.8%)
 
 1. `P5` cycle semantics closure (combiner/blender/coverage/depth): **0.6%**
 2. `P3` authoritative TMEM path closure (especially 32b): **2.2%**
-3. `P4` raster/coefficient edge behavior: **0.8%**
-4. `P2` present-source determinism polish: **1%**
-5. `P6` VI finishing polish: **0.5%**
+3. `P4` raster/coefficient edge behavior: **0.2%**
+4. `P2` present-source determinism polish: **0.5%**
+5. `P6` VI finishing polish: **0.3%**
 
 ## Latest Batch (2026-03-03)
 
-1. Closed missing cycle hazard semantics in combiner path:
-   - 1-cycle: `TEX1` now aliases next-pixel `TEX0` (RH#001).
-   - cycle2 second cycle: `TEX0` now aliases current `TEX1`, `TEX1` aliases next-pixel `TEX0` (RH#002).
-2. Added conformance locks for both hazard surfaces:
-   - `testCycle1Texel1NextPixelHazardConformance`
-   - `testCycle2Texel0AliasTexel1HazardConformance`
-3. Strengthened cycle2 alias conformance fixture:
-   - explicit TMEM seeding/restore in-test,
-   - IA8 path with alpha-sensitive cycle2 blend wiring to ensure the alias is observable.
-4. Corrected 1-cycle selector-bank semantics:
-   - 1-cycle combiner now decodes second-cycle selector fields (matching documented RDP behavior).
-   - 1-cycle blender now decodes second-cycle selector fields.
-   - cycle2-only shade-alpha next-pixel hazard remains scoped to cycle2 second-pass only.
-5. Updated conformance expectations/fixtures for the selector-bank correction:
-   - `testCycle2PhaseDistinctConformance`
-   - `testCycle2CombinerSelectorIsolationConformance` (cycle1 path now intentionally selector-sensitive)
-   - cycle1 combiner/coverage fixtures now write cycle2 selector fields when targeting 1-cycle behavior.
-6. Validation:
+1. Closed signed-triangle-Y interpretation gap:
+   - render-plan triangle bounds now sign-extend `YL/YM/YH` as signed 14-bit s10.2 values.
+   - executor triangle raster now uses signed `YL/YM/YH` for edge reconstruction and area tests.
+2. Updated trace-replay mirror (`scripts/rvk2_packet_trace_replay.py`) to preserve schema-v1 consistency with runtime math.
+3. Added regression lock:
+   - unit test `testTriangleSignedYBounds` verifies negative-Y triangle commands no longer explode bounds.
+4. Validation:
    - `./scripts/local_gate.sh` PASS (release+debug unit+conformance).
-7. Fresh parity + forensics snapshot:
-   - metrics unchanged (`rmse=0.188514`, `mae=0.056238`),
-   - texture source remains fully TMEM-authoritative in capture (`tx_tmem=792216`, `tx_rdram=0`, `tx_synth=0`),
-   - frame-level counters shifted slightly (`vi_out_nonblack=65546`, `stage_c2b_delta=57885`) but signal is still non-black and not yet recognizable, so remaining work stays focused on P3/P4/P2 closure.
+   - `./build/release-vulkan-smoke/rvk2_unit_tests` PASS.
+   - `./build/release-vulkan-smoke/rvk2_conformance_tests` PASS.
+5. Fresh parity + forensics snapshot:
+   - metrics changed (`rmse=0.202891`, `mae=0.068396`) vs prior black-reference delta baseline.
+   - triangle path activated in live capture (`write_triangle_share=0.378955`, `stage_textured_triangle_share=0.374742`; previously near-zero in this path).
+   - TMEM dominance retained (`stage_texel_source_tmem_rate=0.993263`), with small synthetic spill (`0.001063`) still to close.
 
 ## Previous Batch (2026-03-03)
 
