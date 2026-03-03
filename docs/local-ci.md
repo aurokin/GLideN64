@@ -24,6 +24,25 @@ Smoke/parity configuration:
 - smoke backend: `Vulkan` only
 - packet trace replay: enabled in smoke gate
 
+## Deep Telemetry (Single Smoke Run)
+
+```bash
+REALITYVK_GATE_WITH_SMOKE=1 \
+REALITYVK_GATE_SMOKE_DEEP_TELEMETRY=1 \
+./scripts/local_gate.sh
+```
+
+Deep telemetry artifacts (Paper Mario intro) are emitted under:
+- `build/local-gate/paper-mario-telemetry/`
+  - `paper_mario_intro.candidate.packet.tsv`
+  - `paper_mario_intro.candidate.packet.replay.json`
+  - `paper_mario_intro.candidate.frame-forensics.tsv`
+  - `paper_mario_intro.candidate.frame-forensics.summary.txt`
+  - `paper_mario_intro.candidate.frame-forensics.active.summary.txt`
+  - `paper_mario_intro.candidate.trace.tsv`
+  - `paper_mario_intro.candidate.launch.log`
+  - `paper_mario_intro.telemetry.bundle.json`
+
 ## Core Validation Commands
 
 ```bash

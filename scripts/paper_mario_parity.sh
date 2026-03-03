@@ -38,6 +38,13 @@ SCREENSHOT_FLIP_Y="${REALITYVK_PM_SCREENSHOT_FLIP_Y:-auto}"
 SCREENSHOT_FLIP_Y_EFFECTIVE=""
 CAPTURE_SCALE_DIV="${REALITYVK_PM_CAPTURE_SCALE_DIV:-1}"
 LAUNCH_WITH_PTY="${REALITYVK_PM_LAUNCH_WITH_PTY:-1}"
+DEEP_TELEMETRY="${REALITYVK_PM_DEEP_TELEMETRY:-0}"
+TELEMETRY_ROOT="${REALITYVK_PM_TELEMETRY_ROOT:-${RUN_ROOT}/telemetry}"
+DEEP_TELEMETRY_REPLAY_STRICT="${REALITYVK_PM_DEEP_TELEMETRY_REPLAY_STRICT:-0}"
+DEEP_TELEMETRY_REPLAY_JOBS="${REALITYVK_PM_DEEP_TELEMETRY_REPLAY_JOBS:-0}"
+DEEP_TELEMETRY_TRACE_LOG_SUMMARY="${REALITYVK_PM_DEEP_TELEMETRY_TRACE_LOG_SUMMARY:-1}"
+DEEP_TELEMETRY_FBO_TRACE_LIMIT="${REALITYVK_PM_DEEP_TELEMETRY_FBO_TRACE_LIMIT:-20000}"
+DEEP_TELEMETRY_READBACK_LIMIT="${REALITYVK_PM_DEEP_TELEMETRY_READBACK_LIMIT:-20000}"
 
 if [[ ! -f "${MANIFEST}" ]]; then
   echo "ERROR: scenario manifest not found: ${MANIFEST}" >&2
@@ -145,6 +152,36 @@ if [[ "${LAUNCH_WITH_PTY}" != "0" && "${LAUNCH_WITH_PTY}" != "1" ]]; then
   exit 2
 fi
 
+if [[ "${DEEP_TELEMETRY}" != "0" && "${DEEP_TELEMETRY}" != "1" ]]; then
+  echo "ERROR: REALITYVK_PM_DEEP_TELEMETRY must be 0 or 1." >&2
+  exit 2
+fi
+
+if [[ "${DEEP_TELEMETRY_REPLAY_STRICT}" != "0" && "${DEEP_TELEMETRY_REPLAY_STRICT}" != "1" ]]; then
+  echo "ERROR: REALITYVK_PM_DEEP_TELEMETRY_REPLAY_STRICT must be 0 or 1." >&2
+  exit 2
+fi
+
+if [[ "${DEEP_TELEMETRY_TRACE_LOG_SUMMARY}" != "0" && "${DEEP_TELEMETRY_TRACE_LOG_SUMMARY}" != "1" ]]; then
+  echo "ERROR: REALITYVK_PM_DEEP_TELEMETRY_TRACE_LOG_SUMMARY must be 0 or 1." >&2
+  exit 2
+fi
+
+if ! [[ "${DEEP_TELEMETRY_REPLAY_JOBS}" =~ ^[0-9]+$ ]]; then
+  echo "ERROR: REALITYVK_PM_DEEP_TELEMETRY_REPLAY_JOBS must be an integer >= 0." >&2
+  exit 2
+fi
+
+if ! [[ "${DEEP_TELEMETRY_FBO_TRACE_LIMIT}" =~ ^[0-9]+$ ]] || [[ "${DEEP_TELEMETRY_FBO_TRACE_LIMIT}" == "0" ]]; then
+  echo "ERROR: REALITYVK_PM_DEEP_TELEMETRY_FBO_TRACE_LIMIT must be an integer >= 1." >&2
+  exit 2
+fi
+
+if ! [[ "${DEEP_TELEMETRY_READBACK_LIMIT}" =~ ^[0-9]+$ ]] || [[ "${DEEP_TELEMETRY_READBACK_LIMIT}" == "0" ]]; then
+  echo "ERROR: REALITYVK_PM_DEEP_TELEMETRY_READBACK_LIMIT must be an integer >= 1." >&2
+  exit 2
+fi
+
 if [[ ! -f "${CANDIDATE_PLUGIN}" ]]; then
   echo "ERROR: candidate plugin not found: ${CANDIDATE_PLUGIN}" >&2
   exit 2
@@ -188,6 +225,10 @@ fi
 
 mkdir -p "${CACHE_ROOT}" "${RUN_ROOT}"
 
+if [[ "${DEEP_TELEMETRY}" == "1" && "${SCENARIO_ID}" != "paper_mario_intro" ]]; then
+  echo "WARN: deep telemetry profile is tuned for paper_mario_intro (running ${SCENARIO_ID})." >&2
+fi
+
 capture_method_tag() {
   local method="$1"
   if [[ "${method}" == "screenshot" ]]; then
@@ -207,6 +248,19 @@ REFERENCE_PNG="${RUN_ROOT}/${SCENARIO_ID}.reference.png"
 CANDIDATE_PNG="${RUN_ROOT}/${SCENARIO_ID}.candidate.png"
 
 CANDIDATE_CAPTURE_METHOD_TAG=""
+VISUAL_COMPARE_EXIT_CODE="0"
+DEEP_REPLAY_EXIT_CODE="-1"
+DEEP_FORENSICS_SUMMARY_EXIT_CODE="-1"
+DEEP_FORENSICS_ACTIVE_SUMMARY_EXIT_CODE="-1"
+TELEMETRY_BUNDLE_OUT=""
+CANDIDATE_TRACE_OUT=""
+CANDIDATE_PACKET_TRACE_OUT=""
+CANDIDATE_PACKET_REPLAY_OUT=""
+CANDIDATE_FRAME_FORENSICS_OUT=""
+CANDIDATE_FRAME_FORENSICS_SUMMARY_OUT=""
+CANDIDATE_FRAME_FORENSICS_ACTIVE_SUMMARY_OUT=""
+CANDIDATE_LAUNCH_LOG_OUT=""
+CANDIDATE_DEPTH_SUMMARY_OUT=""
 
 SCENARIO_ARGS_ARRAY=()
 if [[ -n "${SCENARIO_ARGS// }" ]]; then
@@ -240,6 +294,29 @@ if ! [[ "${CAPTURE_SCALE_DIV}" =~ ^[0-9]+$ ]] || [[ "${CAPTURE_SCALE_DIV}" == "0
   exit 2
 fi
 
+if [[ "${DEEP_TELEMETRY}" == "1" ]]; then
+  mkdir -p "${TELEMETRY_ROOT}"
+  CANDIDATE_TRACE_OUT="${TELEMETRY_ROOT}/${SCENARIO_ID}.candidate.trace.tsv"
+  CANDIDATE_PACKET_TRACE_OUT="${TELEMETRY_ROOT}/${SCENARIO_ID}.candidate.packet.tsv"
+  CANDIDATE_PACKET_REPLAY_OUT="${TELEMETRY_ROOT}/${SCENARIO_ID}.candidate.packet.replay.json"
+  CANDIDATE_FRAME_FORENSICS_OUT="${TELEMETRY_ROOT}/${SCENARIO_ID}.candidate.frame-forensics.tsv"
+  CANDIDATE_FRAME_FORENSICS_SUMMARY_OUT="${TELEMETRY_ROOT}/${SCENARIO_ID}.candidate.frame-forensics.summary.txt"
+  CANDIDATE_FRAME_FORENSICS_ACTIVE_SUMMARY_OUT="${TELEMETRY_ROOT}/${SCENARIO_ID}.candidate.frame-forensics.active.summary.txt"
+  CANDIDATE_LAUNCH_LOG_OUT="${TELEMETRY_ROOT}/${SCENARIO_ID}.candidate.launch.log"
+  CANDIDATE_DEPTH_SUMMARY_OUT="${TELEMETRY_ROOT}/${SCENARIO_ID}.candidate.depth-blit-summary.json"
+  TELEMETRY_BUNDLE_OUT="${TELEMETRY_ROOT}/${SCENARIO_ID}.telemetry.bundle.json"
+  rm -f \
+    "${CANDIDATE_TRACE_OUT}" \
+    "${CANDIDATE_PACKET_TRACE_OUT}" \
+    "${CANDIDATE_PACKET_REPLAY_OUT}" \
+    "${CANDIDATE_FRAME_FORENSICS_OUT}" \
+    "${CANDIDATE_FRAME_FORENSICS_SUMMARY_OUT}" \
+    "${CANDIDATE_FRAME_FORENSICS_ACTIVE_SUMMARY_OUT}" \
+    "${CANDIDATE_LAUNCH_LOG_OUT}" \
+    "${CANDIDATE_DEPTH_SUMMARY_OUT}" \
+    "${TELEMETRY_BUNDLE_OUT}"
+fi
+
 REFERENCE_CAPTURE_METHOD_TAG="$(capture_method_tag "${REFERENCE_CAPTURE_METHOD}")"
 REFERENCE_CAPTURE="${CACHE_ROOT}/${SCENARIO_ID}.${REFERENCE_CAPTURE_METHOD_TAG}.reference.ppm"
 CANDIDATE_CAPTURE_METHOD_TAG="$(capture_method_tag "${CANDIDATE_CAPTURE_METHOD}")"
@@ -263,7 +340,11 @@ capture_plugin() {
     rvk2_present_flip_y="${RVK2_PRESENT_FLIP_Y}"
   fi
   if [[ "${CAPTURE_DEPTH_SUMMARY}" == "1" ]]; then
-    depth_summary_out="${RUN_ROOT}/${SCENARIO_ID}.${label}.depth-blit-summary.json"
+    if [[ "${label}" == "candidate" && "${DEEP_TELEMETRY}" == "1" ]]; then
+      depth_summary_out="${CANDIDATE_DEPTH_SUMMARY_OUT}"
+    else
+      depth_summary_out="${RUN_ROOT}/${SCENARIO_ID}.${label}.depth-blit-summary.json"
+    fi
   fi
 
   local -a cmd=(
@@ -277,24 +358,45 @@ capture_plugin() {
     cmd+=("${SCENARIO_ARGS_ARRAY[@]}")
   fi
 
-  M64_CORELIB="${corelib_path}" \
-  REALITYVK_SMOKE_PLUGIN_VULKAN="${plugin_path}" \
-  REALITYVK_SMOKE_REQUIRE_NO_DEPTH_BLIT_FAIL="${require_no_depth_fail}" \
-  REALITYVK_SMOKE_REQUIRE_DEPTH_BLIT_STATS="${require_depth_stats}" \
-  REALITYVK_SMOKE_DEPTH_BLIT_SUMMARY_OUT="${depth_summary_out}" \
-  REALITYVK_SMOKE_REQUIRE_NON_BLACK_CAPTURE="${REQUIRE_NON_BLACK_CAPTURE}" \
-  REALITYVK_SMOKE_CAPTURE_RETRY_COUNT="${CAPTURE_RETRY_COUNT}" \
-  REALITYVK_SMOKE_CAPTURE_RETRY_STEP_FRAMES="${CAPTURE_RETRY_STEP_FRAMES}" \
-  REALITYVK_SMOKE_CAPTURE_RETRY_RESUME_MS="${CAPTURE_RETRY_RESUME_MS}" \
-  REALITYVK_SMOKE_CAPTURE_MIN_NONBLACK_RATIO="${CAPTURE_MIN_NONBLACK_RATIO}" \
-  REALITYVK_SMOKE_CAPTURE_MIN_MEAN_LUMA="${CAPTURE_MIN_MEAN_LUMA}" \
-  REALITYVK_SMOKE_CAPTURE_METHOD="${capture_method}" \
-  REALITYVK_SMOKE_SCREENSHOT_DIR="${SCREENSHOT_DIR}" \
-  REALITYVK_SMOKE_SCREENSHOT_FLIP_Y="${SCREENSHOT_FLIP_Y_EFFECTIVE}" \
-  REALITYVK_SMOKE_DUMPFB_FLIP_Y="${DUMPFB_FLIP_Y}" \
-  REALITYVK_RVK2_PRESENT_FLIP_Y="${rvk2_present_flip_y}" \
-  REALITYVK_SMOKE_LAUNCH_WITH_PTY="${LAUNCH_WITH_PTY}" \
-  "${cmd[@]}"
+  local -a run_env=(
+    "M64_CORELIB=${corelib_path}"
+    "REALITYVK_SMOKE_PLUGIN_VULKAN=${plugin_path}"
+    "REALITYVK_SMOKE_REQUIRE_NO_DEPTH_BLIT_FAIL=${require_no_depth_fail}"
+    "REALITYVK_SMOKE_REQUIRE_DEPTH_BLIT_STATS=${require_depth_stats}"
+    "REALITYVK_SMOKE_DEPTH_BLIT_SUMMARY_OUT=${depth_summary_out}"
+    "REALITYVK_SMOKE_REQUIRE_NON_BLACK_CAPTURE=${REQUIRE_NON_BLACK_CAPTURE}"
+    "REALITYVK_SMOKE_CAPTURE_RETRY_COUNT=${CAPTURE_RETRY_COUNT}"
+    "REALITYVK_SMOKE_CAPTURE_RETRY_STEP_FRAMES=${CAPTURE_RETRY_STEP_FRAMES}"
+    "REALITYVK_SMOKE_CAPTURE_RETRY_RESUME_MS=${CAPTURE_RETRY_RESUME_MS}"
+    "REALITYVK_SMOKE_CAPTURE_MIN_NONBLACK_RATIO=${CAPTURE_MIN_NONBLACK_RATIO}"
+    "REALITYVK_SMOKE_CAPTURE_MIN_MEAN_LUMA=${CAPTURE_MIN_MEAN_LUMA}"
+    "REALITYVK_SMOKE_CAPTURE_METHOD=${capture_method}"
+    "REALITYVK_SMOKE_SCREENSHOT_DIR=${SCREENSHOT_DIR}"
+    "REALITYVK_SMOKE_SCREENSHOT_FLIP_Y=${SCREENSHOT_FLIP_Y_EFFECTIVE}"
+    "REALITYVK_SMOKE_DUMPFB_FLIP_Y=${DUMPFB_FLIP_Y}"
+    "REALITYVK_RVK2_PRESENT_FLIP_Y=${rvk2_present_flip_y}"
+    "REALITYVK_SMOKE_LAUNCH_WITH_PTY=${LAUNCH_WITH_PTY}"
+  )
+  if [[ "${label}" == "candidate" && "${DEEP_TELEMETRY}" == "1" ]]; then
+    run_env+=(
+      "REALITYVK_SMOKE_LAUNCH_LOG=${CANDIDATE_LAUNCH_LOG_OUT}"
+      "REALITYVK_SMOKE_REQUIRE_READBACK_MARKER=1"
+      "REALITYVK_SMOKE_READBACK_MARKER_REGEX=VK readback debug: kind=(pixel|color)"
+      "REALITYVK2_TRACE_FILE=${CANDIDATE_TRACE_OUT}"
+      "REALITYVK2_CAPTURE_RDP_TRACE=1"
+      "REALITYVK2_PACKET_TRACE_FILE=${CANDIDATE_PACKET_TRACE_OUT}"
+      "REALITYVK2_FRAME_FORENSICS_FILE=${CANDIDATE_FRAME_FORENSICS_OUT}"
+      "REALITYVK_VK_TRACE_FBO=1"
+      "REALITYVK_VK_TRACE_FBO_LIMIT=${DEEP_TELEMETRY_FBO_TRACE_LIMIT}"
+      "REALITYVK_VK_DEBUG_READBACK=1"
+      "REALITYVK_VK_DEBUG_READBACK_LIMIT=${DEEP_TELEMETRY_READBACK_LIMIT}"
+    )
+    if [[ "${DEEP_TELEMETRY_TRACE_LOG_SUMMARY}" == "1" ]]; then
+      run_env+=("REALITYVK2_TRACE_LOG_SUMMARY=1")
+    fi
+  fi
+
+  env "${run_env[@]}" "${cmd[@]}"
 }
 
 capture_has_content() {
@@ -391,7 +493,7 @@ out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 print(f"capture context: {out_path}")
 PY
 
-python3 - "${REFERENCE_CAPTURE}" "${CANDIDATE_CAPTURE}" "${DIFF_OUT}" "${METRICS_OUT}" "${RMSE_MAX}" "${MAE_MAX}" "${VISUAL_GATE}" <<'PY'
+if python3 - "${REFERENCE_CAPTURE}" "${CANDIDATE_CAPTURE}" "${DIFF_OUT}" "${METRICS_OUT}" "${RMSE_MAX}" "${MAE_MAX}" "${VISUAL_GATE}" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -473,6 +575,15 @@ if violations:
         print(f"ERROR: {item}", file=sys.stderr)
     raise SystemExit(1)
 PY
+then
+  :
+else
+  VISUAL_COMPARE_EXIT_CODE="$?"
+  if [[ "${DEEP_TELEMETRY}" != "1" ]]; then
+    exit "${VISUAL_COMPARE_EXIT_CODE}"
+  fi
+  echo "WARN: visual parity gate failed; continuing to emit deep telemetry bundle." >&2
+fi
 
 python3 - "${REFERENCE_CAPTURE}" "${CANDIDATE_CAPTURE}" "${REFERENCE_PNG}" "${CANDIDATE_PNG}" <<'PY'
 from pathlib import Path
@@ -493,11 +604,86 @@ PY
 
 if [[ "${CAPTURE_DEPTH_SUMMARY}" == "1" ]]; then
   ref_depth_summary="${RUN_ROOT}/${SCENARIO_ID}.reference.depth-blit-summary.json"
-  cand_depth_summary="${RUN_ROOT}/${SCENARIO_ID}.candidate.depth-blit-summary.json"
+  if [[ "${DEEP_TELEMETRY}" == "1" ]]; then
+    cand_depth_summary="${CANDIDATE_DEPTH_SUMMARY_OUT}"
+  else
+    cand_depth_summary="${RUN_ROOT}/${SCENARIO_ID}.candidate.depth-blit-summary.json"
+  fi
   if [[ -f "${ref_depth_summary}" ]]; then
     echo "depth blit summary (reference): ${ref_depth_summary}"
   fi
   if [[ -f "${cand_depth_summary}" ]]; then
     echo "depth blit summary (candidate): ${cand_depth_summary}"
   fi
+fi
+
+if [[ "${DEEP_TELEMETRY}" == "1" ]]; then
+  echo "==> [telemetry] replay packet trace"
+  if [[ -s "${CANDIDATE_PACKET_TRACE_OUT}" ]]; then
+    replay_args=(
+      "${ROOT_DIR}/scripts/rvk2_packet_trace_replay.py"
+      --input "${CANDIDATE_PACKET_TRACE_OUT}"
+      --json-out "${CANDIDATE_PACKET_REPLAY_OUT}"
+      --jobs "${DEEP_TELEMETRY_REPLAY_JOBS}"
+    )
+    if [[ "${DEEP_TELEMETRY_REPLAY_STRICT}" == "1" ]]; then
+      replay_args+=(--strict)
+    fi
+    if python3 "${replay_args[@]}"; then
+      DEEP_REPLAY_EXIT_CODE="0"
+    else
+      DEEP_REPLAY_EXIT_CODE="$?"
+      echo "WARN: packet trace replay reported failures (exit=${DEEP_REPLAY_EXIT_CODE})." >&2
+    fi
+  else
+    DEEP_REPLAY_EXIT_CODE="2"
+    echo "WARN: packet trace missing for replay: ${CANDIDATE_PACKET_TRACE_OUT}" >&2
+  fi
+
+  echo "==> [telemetry] summarize frame forensics"
+  if [[ -s "${CANDIDATE_FRAME_FORENSICS_OUT}" ]]; then
+    if python3 "${ROOT_DIR}/scripts/rvk2_forensics_summary.py" --input "${CANDIDATE_FRAME_FORENSICS_OUT}" > "${CANDIDATE_FRAME_FORENSICS_SUMMARY_OUT}"; then
+      DEEP_FORENSICS_SUMMARY_EXIT_CODE="0"
+    else
+      DEEP_FORENSICS_SUMMARY_EXIT_CODE="$?"
+      echo "WARN: full forensics summary failed (exit=${DEEP_FORENSICS_SUMMARY_EXIT_CODE})." >&2
+    fi
+    if python3 "${ROOT_DIR}/scripts/rvk2_forensics_summary.py" --input "${CANDIDATE_FRAME_FORENSICS_OUT}" --active-only > "${CANDIDATE_FRAME_FORENSICS_ACTIVE_SUMMARY_OUT}"; then
+      DEEP_FORENSICS_ACTIVE_SUMMARY_EXIT_CODE="0"
+    else
+      DEEP_FORENSICS_ACTIVE_SUMMARY_EXIT_CODE="$?"
+      echo "WARN: active-only forensics summary failed (exit=${DEEP_FORENSICS_ACTIVE_SUMMARY_EXIT_CODE})." >&2
+    fi
+  else
+    DEEP_FORENSICS_SUMMARY_EXIT_CODE="2"
+    DEEP_FORENSICS_ACTIVE_SUMMARY_EXIT_CODE="2"
+    echo "WARN: frame forensics file missing: ${CANDIDATE_FRAME_FORENSICS_OUT}" >&2
+  fi
+
+  python3 "${ROOT_DIR}/scripts/rvk2_telemetry_bundle.py" \
+    --scenario-id "${SCENARIO_ID}" \
+    --output "${TELEMETRY_BUNDLE_OUT}" \
+    --metrics "${METRICS_OUT}" \
+    --capture-context "${CAPTURE_CONTEXT_OUT}" \
+    --reference-capture "${REFERENCE_CAPTURE}" \
+    --candidate-capture "${CANDIDATE_CAPTURE}" \
+    --reference-png "${REFERENCE_PNG}" \
+    --candidate-png "${CANDIDATE_PNG}" \
+    --diff-image "${DIFF_OUT}" \
+    --trace-file "${CANDIDATE_TRACE_OUT}" \
+    --packet-trace "${CANDIDATE_PACKET_TRACE_OUT}" \
+    --packet-replay "${CANDIDATE_PACKET_REPLAY_OUT}" \
+    --forensics "${CANDIDATE_FRAME_FORENSICS_OUT}" \
+    --forensics-summary "${CANDIDATE_FRAME_FORENSICS_SUMMARY_OUT}" \
+    --forensics-summary-active "${CANDIDATE_FRAME_FORENSICS_ACTIVE_SUMMARY_OUT}" \
+    --depth-summary "${CANDIDATE_DEPTH_SUMMARY_OUT}" \
+    --launch-log "${CANDIDATE_LAUNCH_LOG_OUT}" \
+    --packet-replay-exit "${DEEP_REPLAY_EXIT_CODE}" \
+    --forensics-summary-exit "${DEEP_FORENSICS_SUMMARY_EXIT_CODE}" \
+    --forensics-summary-active-exit "${DEEP_FORENSICS_ACTIVE_SUMMARY_EXIT_CODE}"
+  echo "telemetry bundle: ${TELEMETRY_BUNDLE_OUT}"
+fi
+
+if [[ "${VISUAL_COMPARE_EXIT_CODE}" != "0" ]]; then
+  exit "${VISUAL_COMPARE_EXIT_CODE}"
 fi
