@@ -3580,6 +3580,7 @@ class ExecutorReplaySummary:
     present_height: int
     present_aspect_x: int
     present_aspect_y: int
+    present_hash_variants: dict[str, int] = field(default_factory=dict)
 
 
 def _decode_fill_color(fill_color: int, color_size: int) -> int:
@@ -5065,9 +5066,9 @@ def _hash_presented_surface(
     max_height: int,
     declared_present_width: int = 0,
     declared_present_height: int = 0,
-) -> tuple[int, int, int]:
+) -> tuple[int, int, int, dict[str, int]]:
     if surface.width <= 0 or surface.height <= 0 or len(surface.pixels) == 0:
-        return FNV_OFFSET, 0, 0
+        return FNV_OFFSET, 0, 0, {}
 
     # Replay traces do not include VI register stream; when the trace already
     # declares a present size, treat it as the target blit domain.
@@ -5099,7 +5100,7 @@ def _hash_presented_surface(
     content_x = (output_width - content_width) // 2
     content_y = (output_height - content_height) // 2
 
-    hash_value = FNV_OFFSET
+    output_pixels = [0 for _ in range(output_width * output_height)]
     for y in range(output_height):
         for x in range(output_width):
             pixel = 0
@@ -5114,11 +5115,36 @@ def _hash_presented_surface(
                 source_x = min(surface.width - 1, (content_local_x * surface.width) // content_width)
                 source_y = min(surface.height - 1, (content_local_y * surface.height) // content_height)
                 pixel = surface.pixels[_surface_index(surface.width, source_x, source_y)]
-            hash_value = _fnv_update_int(hash_value, (pixel >> 0) & 0xFF, 1)
-            hash_value = _fnv_update_int(hash_value, (pixel >> 8) & 0xFF, 1)
-            hash_value = _fnv_update_int(hash_value, (pixel >> 16) & 0xFF, 1)
-            hash_value = _fnv_update_int(hash_value, (pixel >> 24) & 0xFF, 1)
-    return hash_value, output_width, output_height
+            output_pixels[_surface_index(output_width, x, y)] = pixel & 0xFFFFFFFF
+
+    def hash_variant(flip_x: bool, flip_y: bool, swap_rb: bool) -> int:
+        h = FNV_OFFSET
+        for y in range(output_height):
+            src_y = output_height - 1 - y if flip_y else y
+            row_base = src_y * output_width
+            for x in range(output_width):
+                src_x = output_width - 1 - x if flip_x else x
+                pixel = output_pixels[row_base + src_x]
+                if swap_rb:
+                    pixel = (
+                        (pixel & 0xFF00FF00)
+                        | ((pixel & 0x00FF0000) >> 16)
+                        | ((pixel & 0x000000FF) << 16)
+                    )
+                h = _fnv_update_int(h, (pixel >> 0) & 0xFF, 1)
+                h = _fnv_update_int(h, (pixel >> 8) & 0xFF, 1)
+                h = _fnv_update_int(h, (pixel >> 16) & 0xFF, 1)
+                h = _fnv_update_int(h, (pixel >> 24) & 0xFF, 1)
+        return h
+
+    base_hash = hash_variant(False, False, False)
+    variants = {
+        "flip_y": hash_variant(False, True, False),
+        "flip_x": hash_variant(True, False, False),
+        "swap_rb": hash_variant(False, False, True),
+        "swap_rb_flip_y": hash_variant(False, True, True),
+    }
+    return base_hash, output_width, output_height, variants
 
 
 def _execute_submission_plan(
@@ -5141,6 +5167,7 @@ def _execute_submission_plan(
         present_height=0,
         present_aspect_x=aspect_x,
         present_aspect_y=aspect_y,
+        present_hash_variants={},
     )
     surfaces: dict[int, _ReplayColorSurface] = {}
     depth_surfaces: dict[int, _ReplayDepthSurface] = {}
@@ -5190,7 +5217,12 @@ def _execute_submission_plan(
 
     summary.surface_count = len(surfaces)
     if last_surface_address in surfaces:
-        summary.present_hash, summary.present_width, summary.present_height = _hash_presented_surface(
+        (
+            summary.present_hash,
+            summary.present_width,
+            summary.present_height,
+            summary.present_hash_variants,
+        ) = _hash_presented_surface(
             surfaces[last_surface_address],
             aspect_x,
             aspect_y,
@@ -5476,6 +5508,24 @@ def replay_frame(
         check.errors.append(
             f"executor_present_hash mismatch: declared={frame.executor_present_hash} computed={executor_summary.present_hash}"
         )
+        variant_match = [
+            name
+            for name, value in executor_summary.present_hash_variants.items()
+            if value == frame.executor_present_hash
+        ]
+        if len(variant_match) > 0:
+            check.errors.append(
+                "executor_present_hash variant-match: "
+                + ",".join(sorted(variant_match))
+            )
+        elif len(executor_summary.present_hash_variants) > 0:
+            check.errors.append(
+                "executor_present_hash variants: "
+                + " ".join(
+                    f"{name}=0x{value:016x}"
+                    for name, value in sorted(executor_summary.present_hash_variants.items())
+                )
+            )
     if frame.executor_present_width >= 0 and frame.executor_present_width != executor_summary.present_width:
         check.errors.append(
             f"executor_present_width mismatch: declared={frame.executor_present_width} computed={executor_summary.present_width}"
