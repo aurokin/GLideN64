@@ -48,6 +48,10 @@
   - `other_modes=0x00000CFF00504340`
   - `tile_line=50`
   - `texture_image_width=200`
+- New ingress/work correlation (deep run `paper_mario_intro.20260303-232934Z.ca92fb7a`):
+  - `ing_tri_calls=0` while `work_tri=53` (triangle work is RVK2 command-ingestion only, not frontend draw-call ingress).
+  - `ing_rect_calls=60`, `ing_rect_texrect_calls=60`, `ing_rect_bounds=[x:-0.975..260.000, y:-0.974..223.000]`.
+  - Focus-frame render-work texrects remain concentrated in `x=60..260` (source width 320), consistent with persistent left-strip missing coverage.
 - Interpretation:
   - primary deficit is carry-forward/handoff composition plus missing left-strip write coverage.
   - texrect state-cluster correctness remains the main pixel-quality lane once coverage is restored.

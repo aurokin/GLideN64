@@ -9,6 +9,7 @@
 2. Left-strip primitive coverage lane
 - Goal: recover missing writes on the left segment where geometry remains absent.
 - Evidence: left-segment missing pixels are predominantly unwritten relative to center.
+- New ingress correlation: frontend rect ingress spans `x≈0..260` with `60` rect calls, but dominant focus-frame texrect work still concentrates inside `x=60..260` and leaves left-strip deficits unresolved.
 - Exit signal: left-segment write coverage approaches center/right segment behavior.
 
 3. Dominant texrect state-cluster correctness lane
@@ -29,7 +30,7 @@
 - Exit signal: no required fix depends on persistent debug-only env toggles.
 
 ## Current Baseline
-- Latest archive run: `paper_mario_intro.20260303-220625Z.7e04a4e6`
+- Latest archive run: `paper_mario_intro.20260303-232934Z.ca92fb7a`
 - Archive index: `build/parity-runs/paper-mario/archive/index.tsv`
 - Key metrics:
   - `rmse=0.367523`
