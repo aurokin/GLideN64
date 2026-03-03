@@ -433,6 +433,20 @@
   - `f3s1`: `0.503326`.
   - `f2s0l`: `0.511441`.
   - Interpretation: bucket ranking holds at texel stage, so current missing-content signal is texture-source/decode lane specific rather than downstream combiner/blender behavior.
+- Trace/replay observability hardening:
+  - `W` trace rows now emit expanded render-work state (138 columns; legacy 109 still accepted by replay parser).
+  - Added replay `--stateful-frames` mode to carry RDP/TMEM state across frames for stricter mismatch classification.
+  - Result: state/hash/row false positives drop in short sequential replay windows; remaining failures are concentrated in executor-present classes.
+- TLUT byte-semantics fix landed in RVK2 executor:
+  - IA16 TLUT decode now treats entries as `A:I` byte order.
+  - RGBA16 TLUT decode now byte-swaps TMEM word before `RGBA5551` channel unpack.
+  - Validation: `rvk2_unit_tests`, `rvk2_conformance_tests`, and `./scripts/local_gate.sh` passed.
+  - `paper_mario_intro` parity deltas (screenshot reference):
+    - final baseline: `rmse=0.375718`, `mae=0.286012`, `candidate_non_black_ratio=0.683657`.
+      - prior baseline: `rmse=0.378566`, `mae=0.290226`, `candidate_non_black_ratio=0.682901`.
+    - `texel_raw` baseline: `rmse=0.389317` (prior `0.413381`).
+    - `f2s0l` isolation: `rmse=0.489039` (prior `0.491245`).
+    - `f3s1` isolation: unchanged (`rmse=0.506866`).
 
 ## Debug Support Matrix (maps steps to findings)
 
