@@ -5063,18 +5063,26 @@ def _hash_presented_surface(
     aspect_y: int,
     max_width: int,
     max_height: int,
+    declared_present_width: int = 0,
+    declared_present_height: int = 0,
 ) -> tuple[int, int, int]:
     if surface.width <= 0 or surface.height <= 0 or len(surface.pixels) == 0:
         return FNV_OFFSET, 0, 0
 
-    output_width = surface.width
-    output_height = surface.height
-    source_scaled = surface.width * aspect_y
-    target_scaled = surface.height * aspect_x
-    if source_scaled > target_scaled:
-        output_height = (surface.width * aspect_y + aspect_x - 1) // aspect_x
-    elif source_scaled < target_scaled:
-        output_width = (surface.height * aspect_x + aspect_y - 1) // aspect_y
+    # Replay traces do not include VI register stream; when the trace already
+    # declares a present size, treat it as the target blit domain.
+    if declared_present_width > 0 and declared_present_height > 0:
+        output_width = declared_present_width
+        output_height = declared_present_height
+    else:
+        output_width = surface.width
+        output_height = surface.height
+        source_scaled = surface.width * aspect_y
+        target_scaled = surface.height * aspect_x
+        if source_scaled > target_scaled:
+            output_height = (surface.width * aspect_y + aspect_x - 1) // aspect_x
+        elif source_scaled < target_scaled:
+            output_width = (surface.height * aspect_x + aspect_y - 1) // aspect_y
 
     output_width = max(1, min(output_width, max_width))
     output_height = max(1, min(output_height, max_height))
@@ -5118,6 +5126,8 @@ def _execute_submission_plan(
     batches: List[SubmissionBatchRecord],
     aspect_x: int,
     aspect_y: int,
+    declared_present_width: int = 0,
+    declared_present_height: int = 0,
     max_width: int = 2048,
     max_height: int = 2048,
 ) -> ExecutorReplaySummary:
@@ -5181,7 +5191,13 @@ def _execute_submission_plan(
     summary.surface_count = len(surfaces)
     if last_surface_address in surfaces:
         summary.present_hash, summary.present_width, summary.present_height = _hash_presented_surface(
-            surfaces[last_surface_address], aspect_x, aspect_y, max_width, max_height
+            surfaces[last_surface_address],
+            aspect_x,
+            aspect_y,
+            max_width,
+            max_height,
+            declared_present_width=declared_present_width,
+            declared_present_height=declared_present_height,
         )
     return summary
 
@@ -5191,6 +5207,80 @@ def _hash_combined_state(rdp_snapshot: RDPStateSnapshot, tmem_snapshot: TMEMSnap
     hash_value = _fnv_update_int(hash_value, _hash_rdp_state(rdp_snapshot), 8)
     hash_value = _fnv_update_int(hash_value, _hash_tmem_state(tmem_snapshot), 8)
     return hash_value
+
+
+def _format_debug_value(value: object) -> str:
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    if isinstance(value, int):
+        if value < 0:
+            return str(value)
+        if value > 9:
+            return f"{value}(0x{value:x})"
+        return str(value)
+    return repr(value)
+
+
+def _first_row_diff_details(
+    declared_rows: List[object],
+    computed_rows: List[object],
+    field_limit: int = 8,
+) -> Optional[str]:
+    if len(declared_rows) == 0 or len(computed_rows) == 0:
+        return None
+
+    stop = min(len(declared_rows), len(computed_rows))
+    for idx in range(stop):
+        declared = declared_rows[idx]
+        computed = computed_rows[idx]
+        if declared == computed:
+            continue
+        declared_fields = getattr(declared, "__dataclass_fields__", None)
+        computed_fields = getattr(computed, "__dataclass_fields__", None)
+        if not isinstance(declared_fields, dict) or not isinstance(computed_fields, dict):
+            return f"row={idx} differs (non-dataclass rows)"
+
+        diffs: List[str] = []
+        for field_name in declared_fields.keys():
+            declared_value = getattr(declared, field_name)
+            computed_value = getattr(computed, field_name)
+            if declared_value == computed_value:
+                continue
+            diffs.append(
+                f"{field_name}:{_format_debug_value(declared_value)}->{_format_debug_value(computed_value)}"
+            )
+            if len(diffs) >= field_limit:
+                break
+
+        if len(diffs) == 0:
+            return f"row={idx} differs (no scalar field diff captured)"
+
+        packet_hint = ""
+        source_packet_decl = getattr(declared, "source_packet_id", None)
+        source_packet_cmp = getattr(computed, "source_packet_id", None)
+        if isinstance(source_packet_decl, int) and isinstance(source_packet_cmp, int):
+            packet_hint = f" source_packet_id={source_packet_decl}/{source_packet_cmp}"
+        return f"row={idx}{packet_hint} fields[{', '.join(diffs)}]"
+    return None
+
+
+def _state_debug_summary(rdp_snapshot: RDPStateSnapshot, tmem_snapshot: TMEMSnapshot) -> str:
+    tile0 = tmem_snapshot.tiles[0]
+    return (
+        "computed_state_components: "
+        f"rdp_hash=0x{_hash_rdp_state(rdp_snapshot):016x} "
+        f"tmem_hash=0x{_hash_tmem_state(tmem_snapshot):016x} "
+        f"cycle={rdp_snapshot.cycle_type} "
+        f"cimg[w={rdp_snapshot.color_image_width} fmt={rdp_snapshot.color_image_format} "
+        f"size={rdp_snapshot.color_image_size} addr=0x{rdp_snapshot.color_image_address:08x}] "
+        f"dimg=0x{rdp_snapshot.depth_image_address:08x} "
+        f"other_modes=0x{rdp_snapshot.other_modes:016x} "
+        f"combine=0x{rdp_snapshot.combine_mux:016x} "
+        f"tile0[f={tile0.format} s={tile0.size} line={tile0.line} tmem={tile0.tmem}] "
+        f"last_load[kind={tmem_snapshot.last_load.kind} tile={tmem_snapshot.last_load.tile} "
+        f"uls={tmem_snapshot.last_load.uls} ult={tmem_snapshot.last_load.ult} "
+        f"lrs={tmem_snapshot.last_load.lrs} lrt={tmem_snapshot.last_load.lrt} dxt={tmem_snapshot.last_load.dxt}]"
+    )
 
 
 def replay_frame(
@@ -5252,6 +5342,8 @@ def replay_frame(
         computed_submission_batches,
         exec_aspect_x,
         exec_aspect_y,
+        declared_present_width=frame.executor_present_width if frame.executor_present_width > 0 else 0,
+        declared_present_height=frame.executor_present_height if frame.executor_present_height > 0 else 0,
     )
     check = FrameCheck(
         frame_id=frame.frame_id,
@@ -5326,6 +5418,7 @@ def replay_frame(
         )
     if frame.state_hash != state_hash:
         check.errors.append(f"state_hash mismatch: declared={frame.state_hash} computed={state_hash}")
+        check.errors.append(_state_debug_summary(rdp_snapshot, tmem_snapshot))
     if frame.draw_semantic_count >= 0:
         if frame.draw_semantic_count != len(computed_semantics):
             check.errors.append(
@@ -5403,18 +5496,30 @@ def replay_frame(
         check.errors.append(
             f"semantic row mismatch: declared_rows={len(frame.semantics)} computed_rows={len(computed_semantics)}"
         )
+        detail = _first_row_diff_details(frame.semantics, computed_semantics)
+        if detail:
+            check.errors.append(f"semantic row first-diff: {detail}")
     if len(frame.raster_ops) > 0 and frame.raster_ops != computed_raster_ops:
         check.errors.append(
             f"raster row mismatch: declared_rows={len(frame.raster_ops)} computed_rows={len(computed_raster_ops)}"
         )
+        detail = _first_row_diff_details(frame.raster_ops, computed_raster_ops)
+        if detail:
+            check.errors.append(f"raster row first-diff: {detail}")
     if len(frame.render_work) > 0 and frame.render_work != computed_render_work:
         check.errors.append(
             f"render-work row mismatch: declared_rows={len(frame.render_work)} computed_rows={len(computed_render_work)}"
         )
+        detail = _first_row_diff_details(frame.render_work, computed_render_work)
+        if detail:
+            check.errors.append(f"render-work row first-diff: {detail}")
     if len(frame.submission_batches) > 0 and frame.submission_batches != computed_submission_batches:
         check.errors.append(
             f"submission-batch row mismatch: declared_rows={len(frame.submission_batches)} computed_rows={len(computed_submission_batches)}"
         )
+        detail = _first_row_diff_details(frame.submission_batches, computed_submission_batches)
+        if detail:
+            check.errors.append(f"submission-batch row first-diff: {detail}")
     if frame.unknown_rdp_opcode_count >= 0:
         if frame.unknown_rdp_opcode_count != unknown_rdp_opcode_count:
             check.errors.append(

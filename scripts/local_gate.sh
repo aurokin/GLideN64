@@ -11,6 +11,8 @@ SMOKE_REQUIRE_DEPTH_BLIT_STATS="${REALITYVK_GATE_SMOKE_REQUIRE_DEPTH_BLIT_STATS:
 SMOKE_CAPTURE_DEPTH_SUMMARY="${REALITYVK_GATE_SMOKE_CAPTURE_DEPTH_SUMMARY:-1}"
 SMOKE_DEEP_TELEMETRY="${REALITYVK_GATE_SMOKE_DEEP_TELEMETRY:-0}"
 SMOKE_DEEP_TELEMETRY_ROOT="${REALITYVK_GATE_SMOKE_DEEP_TELEMETRY_ROOT:-${BUILD_ROOT}/paper-mario-telemetry}"
+SMOKE_DEEP_TELEMETRY_REPLAY_STATEFUL="${REALITYVK_GATE_SMOKE_DEEP_TELEMETRY_REPLAY_STATEFUL:-1}"
+SMOKE_DEEP_TELEMETRY_REUSE_REPLAY_REPORT="${REALITYVK_GATE_SMOKE_DEEP_TELEMETRY_REUSE_REPLAY_REPORT:-1}"
 WITH_RVK2_TRACE_REPLAY="${REALITYVK_GATE_RVK2_TRACE_REPLAY:-1}"
 RVK2_TRACE_REPLAY_STRICT="${REALITYVK_GATE_RVK2_TRACE_REPLAY_STRICT:-1}"
 RVK2_TRACE_REPLAY_JOBS="${REALITYVK_GATE_RVK2_TRACE_REPLAY_JOBS:-0}"
@@ -46,6 +48,16 @@ fi
 
 if [[ "${SMOKE_DEEP_TELEMETRY_REPLAY_STRICT}" != "0" && "${SMOKE_DEEP_TELEMETRY_REPLAY_STRICT}" != "1" ]]; then
   echo "ERROR: REALITYVK_GATE_SMOKE_DEEP_TELEMETRY_REPLAY_STRICT must be 0 or 1." >&2
+  exit 2
+fi
+
+if [[ "${SMOKE_DEEP_TELEMETRY_REPLAY_STATEFUL}" != "0" && "${SMOKE_DEEP_TELEMETRY_REPLAY_STATEFUL}" != "1" ]]; then
+  echo "ERROR: REALITYVK_GATE_SMOKE_DEEP_TELEMETRY_REPLAY_STATEFUL must be 0 or 1." >&2
+  exit 2
+fi
+
+if [[ "${SMOKE_DEEP_TELEMETRY_REUSE_REPLAY_REPORT}" != "0" && "${SMOKE_DEEP_TELEMETRY_REUSE_REPLAY_REPORT}" != "1" ]]; then
+  echo "ERROR: REALITYVK_GATE_SMOKE_DEEP_TELEMETRY_REUSE_REPLAY_REPORT must be 0 or 1." >&2
   exit 2
 fi
 
@@ -232,6 +244,7 @@ if [[ "${WITH_SMOKE}" == "1" ]]; then
       REALITYVK_PM_TELEMETRY_ROOT="${SMOKE_DEEP_TELEMETRY_ROOT}"
       REALITYVK_PM_DEEP_TELEMETRY_REPLAY_STRICT="${SMOKE_DEEP_TELEMETRY_REPLAY_STRICT}"
       REALITYVK_PM_DEEP_TELEMETRY_REPLAY_JOBS="${SMOKE_DEEP_TELEMETRY_REPLAY_JOBS}"
+      REALITYVK_PM_DEEP_TELEMETRY_REPLAY_STATEFUL="${SMOKE_DEEP_TELEMETRY_REPLAY_STATEFUL}"
     )
   fi
   if [[ "${WITH_RVK2_TRACE_REPLAY}" == "1" ]]; then
@@ -263,18 +276,53 @@ if [[ "${WITH_SMOKE}" == "1" ]]; then
       exit 1
     fi
 
-    echo "==> [smoke] Replay-check rvk2 packet trace"
-    replay_args=(
-      "${ROOT_DIR}/scripts/rvk2_packet_trace_replay.py"
-      --input "${RVK2_TRACE_FILE}"
-      --json-out "${RVK2_TRACE_REPORT_FILE}"
-      --jobs "${RVK2_TRACE_REPLAY_JOBS}"
-    )
-    if [[ "${RVK2_TRACE_REPLAY_STRICT}" == "1" ]]; then
-      replay_args+=(--strict)
+    if [[ "${SMOKE_DEEP_TELEMETRY}" == "1" && "${SMOKE_DEEP_TELEMETRY_REUSE_REPLAY_REPORT}" == "1" && -s "${RVK2_TRACE_REPORT_FILE}" ]]; then
+      echo "==> [smoke] Reuse deep telemetry replay report"
+      python3 - "${RVK2_TRACE_REPORT_FILE}" "${RVK2_TRACE_REPLAY_STRICT}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+report_path = Path(sys.argv[1])
+strict = sys.argv[2] == "1"
+report = json.loads(report_path.read_text(encoding="utf-8"))
+
+frame_count = int(report.get("frame_count", 0) or 0)
+failed_count = int(report.get("failed_count", 0) or 0)
+warning_count = int(report.get("warning_count", 0) or 0)
+all_ok = bool(report.get("all_ok", False))
+
+print(
+    f"replay report summary: frames={frame_count} failed={failed_count} warned={warning_count} strict={1 if strict else 0}"
+)
+
+if frame_count <= 0:
+    raise SystemExit("ERROR: replay report contains no frames.")
+
+if failed_count > 0:
+    raise SystemExit("ERROR: replay report indicates frame failures.")
+
+if strict and warning_count > 0:
+    raise SystemExit("ERROR: strict replay mode rejects warnings present in report.")
+
+if not all_ok:
+    raise SystemExit("ERROR: replay report all_ok=false.")
+PY
+      echo "==> [smoke] rvk2 replay report: ${RVK2_TRACE_REPORT_FILE}"
+    else
+      echo "==> [smoke] Replay-check rvk2 packet trace"
+      replay_args=(
+        "${ROOT_DIR}/scripts/rvk2_packet_trace_replay.py"
+        --input "${RVK2_TRACE_FILE}"
+        --json-out "${RVK2_TRACE_REPORT_FILE}"
+        --jobs "${RVK2_TRACE_REPLAY_JOBS}"
+      )
+      if [[ "${RVK2_TRACE_REPLAY_STRICT}" == "1" ]]; then
+        replay_args+=(--strict)
+      fi
+      python3 "${replay_args[@]}"
+      echo "==> [smoke] rvk2 replay report: ${RVK2_TRACE_REPORT_FILE}"
     fi
-    python3 "${replay_args[@]}"
-    echo "==> [smoke] rvk2 replay report: ${RVK2_TRACE_REPORT_FILE}"
   fi
 fi
 

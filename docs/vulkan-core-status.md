@@ -88,6 +88,38 @@
 - Why sixth: removes submission-path drift and improves confidence that fixes are truly RDP-faithful.
 - Done when: HLE-heavy failures no longer require synthetic-path-specific exceptions.
 
+## Active Attack Plan (2026-03-03)
+
+1. Keep one canonical repro and one telemetry bundle.
+- Command: `REALITYVK_PM_DEEP_TELEMETRY=1 ./scripts/paper_mario_parity.sh`
+- Bundle anchor: `build/parity-runs/paper-mario/telemetry/paper_mario_intro.telemetry.bundle.json`
+- Rule: no multi-variant emulator reruns for the same hypothesis unless a single-run artifact is missing.
+
+2. Collapse replay noise before touching executor behavior.
+- Reconciled replay present dimensions to declared trace size (reduces VI-model false positives).
+- Added row-level first-diff diagnostics (semantic/raster/render-work/submission).
+- Added computed state component summaries (`rdp_hash`, `tmem_hash`, key color/tmem state) on `state_hash` mismatch.
+
+3. Prioritize earliest deterministic divergence.
+- Work from first mismatching frame forward (currently frame 2).
+- Use first-diff fields to target state carry/sync/tile/load provenance before broad shader/pipeline edits.
+
+4. Keep geometry vs texture diagnosis explicit in bundle output.
+- Geometry visibility gate: `coverage_ratio_vs_reference`.
+- Texture/detail gate: `luma_ratio_vs_reference`.
+- Replay-classifier gate: `error_kind_counts` from replay JSON.
+
+5. Tighten gate behavior for deep telemetry mode.
+- Deep mode now supports stateful replay (`REALITYVK_PM_DEEP_TELEMETRY_REPLAY_STATEFUL=1`).
+- Gate can reuse parity-generated replay JSON to avoid duplicate replay passes in deep mode.
+
+### Immediate Signals (latest deep bundle)
+
+- `coverage_ratio_vs_reference=0.7229095423` (geometry/visibility deficit persists).
+- `luma_ratio_vs_reference=0.5881004580` (texture/detail deficit persists).
+- Replay failure family remains dominated by hash drift, but present-size mismatch class is removed after replay sizing reconciliation.
+- Stateful replay on early frames (`1..30`) reduced failures to executor present-hash drift (18/30), indicating most prior row/state mismatches were frame-state carry artifacts.
+
 ## Progress Log
 
 ### 2026-03-03

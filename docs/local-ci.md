@@ -43,6 +43,10 @@ Deep telemetry artifacts (Paper Mario intro) are emitted under:
   - `paper_mario_intro.candidate.launch.log`
   - `paper_mario_intro.telemetry.bundle.json`
 
+Deep telemetry replay defaults:
+- `REALITYVK_GATE_SMOKE_DEEP_TELEMETRY_REPLAY_STATEFUL=1` (carry state across frames for lower-noise mismatch classification)
+- `REALITYVK_GATE_SMOKE_DEEP_TELEMETRY_REUSE_REPLAY_REPORT=1` (reuse parity-generated replay report in gate smoke check)
+
 ## Core Validation Commands
 
 ```bash
