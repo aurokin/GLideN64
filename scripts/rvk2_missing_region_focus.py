@@ -11,6 +11,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+try:
+    from PIL import Image
+except Exception:  # pragma: no cover - optional runtime dependency guard
+    Image = None
+
 
 @dataclass
 class Box:
@@ -227,6 +232,137 @@ def _count_mask_and_segment(
     return total
 
 
+def _build_missing_image_mask(
+    summary: Dict[str, Any],
+    image_width: int,
+    image_height: int,
+) -> Optional[Tuple[bytearray, Dict[str, Any]]]:
+    if Image is None:
+        return None
+
+    ref_path_raw = summary.get("reference_image")
+    test_path_raw = summary.get("candidate_image")
+    if not isinstance(ref_path_raw, str) or not ref_path_raw:
+        return None
+    if not isinstance(test_path_raw, str) or not test_path_raw:
+        return None
+
+    ref_path = Path(ref_path_raw)
+    test_path = Path(test_path_raw)
+    if not ref_path.is_file() or not test_path.is_file():
+        return None
+
+    try:
+        ref_img = Image.open(ref_path).convert("RGB")
+        test_img = Image.open(test_path).convert("RGB")
+    except Exception:
+        return None
+
+    if ref_img.size != test_img.size:
+        return None
+    if ref_img.size != (image_width, image_height):
+        return None
+
+    ref_non_black_threshold = int(summary.get("ref_non_black_threshold", 8) or 8)
+    test_non_black_threshold = int(summary.get("test_non_black_threshold", 8) or 8)
+    ref_non_black_threshold = max(0, min(255, ref_non_black_threshold))
+    test_non_black_threshold = max(0, min(255, test_non_black_threshold))
+
+    ignore_mask = bytearray(image_width * image_height)
+    ignore_boxes = summary.get("ignore_boxes", [])
+    if isinstance(ignore_boxes, list):
+        for raw_box in ignore_boxes:
+            if not isinstance(raw_box, dict):
+                continue
+            try:
+                x0 = int(raw_box.get("x0", 0))
+                y0 = int(raw_box.get("y0", 0))
+                x1 = int(raw_box.get("x1", 0))
+                y1 = int(raw_box.get("y1", 0))
+            except Exception:
+                continue
+            x0 = max(0, min(image_width - 1, x0))
+            y0 = max(0, min(image_height - 1, y0))
+            x1 = max(0, min(image_width - 1, x1))
+            y1 = max(0, min(image_height - 1, y1))
+            if x1 < x0 or y1 < y0:
+                continue
+            for y in range(y0, y1 + 1):
+                row = y * image_width
+                for x in range(x0, x1 + 1):
+                    ignore_mask[row + x] = 1
+
+    ref_bytes = ref_img.tobytes()
+    test_bytes = test_img.tobytes()
+    missing_mask = bytearray(image_width * image_height)
+    for idx in range(image_width * image_height):
+        if ignore_mask[idx] != 0:
+            continue
+        base = idx * 3
+        rr = ref_bytes[base + 0]
+        rg = ref_bytes[base + 1]
+        rb = ref_bytes[base + 2]
+        tr = test_bytes[base + 0]
+        tg = test_bytes[base + 1]
+        tb = test_bytes[base + 2]
+        ref_non_black = (
+            rr > ref_non_black_threshold
+            or rg > ref_non_black_threshold
+            or rb > ref_non_black_threshold
+        )
+        test_non_black = (
+            tr > test_non_black_threshold
+            or tg > test_non_black_threshold
+            or tb > test_non_black_threshold
+        )
+        if ref_non_black and not test_non_black:
+            missing_mask[idx] = 1
+
+    meta = {
+        "reference_image": str(ref_path),
+        "candidate_image": str(test_path),
+        "ref_non_black_threshold": ref_non_black_threshold,
+        "test_non_black_threshold": test_non_black_threshold,
+        "ignore_box_count": len(ignore_boxes) if isinstance(ignore_boxes, list) else 0,
+    }
+    return missing_mask, meta
+
+
+def _map_image_mask_to_source_mask(
+    image_mask: bytearray,
+    image_width: int,
+    image_height: int,
+    source_width: int,
+    source_height: int,
+) -> bytearray:
+    source_mask = bytearray(source_width * source_height)
+    if image_width <= 0 or image_height <= 0 or source_width <= 0 or source_height <= 0:
+        return source_mask
+
+    for sy in range(source_height):
+        y0 = int(math.floor(float(sy) * float(image_height) / float(source_height)))
+        y1 = int(math.ceil(float(sy + 1) * float(image_height) / float(source_height)))
+        y0 = max(0, min(image_height - 1, y0))
+        y1 = max(y0 + 1, min(image_height, y1))
+        for sx in range(source_width):
+            x0 = int(math.floor(float(sx) * float(image_width) / float(source_width)))
+            x1 = int(math.ceil(float(sx + 1) * float(image_width) / float(source_width)))
+            x0 = max(0, min(image_width - 1, x0))
+            x1 = max(x0 + 1, min(image_width, x1))
+            found = False
+            for py in range(y0, y1):
+                row = py * image_width
+                for px in range(x0, x1):
+                    if image_mask[row + px] != 0:
+                        found = True
+                        break
+                if found:
+                    break
+            if found:
+                source_mask[sy * source_width + sx] = 1
+    return source_mask
+
+
 def _op_kind_name(op_kind: int) -> str:
     if op_kind == 0:
         return "fill"
@@ -398,7 +534,7 @@ def main() -> int:
     boxes = _load_boxes(summary, diff_summary_path)
     if not boxes:
         payload = {
-            "schema": "rvk2_missing_region_focus_v1",
+            "schema": "rvk2_missing_region_focus_v2",
             "packet_trace": str(packet_trace_path),
             "diff_summary": str(diff_summary_path),
             "frame_id": None,
@@ -417,6 +553,7 @@ def main() -> int:
             "forensics_last_active": {},
             "address_write_stats": [],
             "work_hit_samples": [],
+            "missing_write_attribution": {},
             "notes": ["no diff boxes available"],
         }
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -483,6 +620,7 @@ def main() -> int:
     write_union_mask = bytearray(total_pixels)
     address_write_masks: Dict[int, bytearray] = {}
     address_op_masks: Dict[int, Dict[str, bytearray]] = defaultdict(dict)
+    op_union_masks: Dict[str, bytearray] = {}
     address_stats: Dict[int, Counter[str]] = defaultdict(Counter)
     hit_samples: List[Dict[str, Any]] = []
 
@@ -546,6 +684,11 @@ def main() -> int:
                 op_mask = bytearray(total_pixels)
                 address_op_masks[color_image_address][op_name] = op_mask
             _mark_mask_bounds(op_mask, write_bounds, source_width, source_height)
+            union_mask = op_union_masks.get(op_name)
+            if union_mask is None:
+                union_mask = bytearray(total_pixels)
+                op_union_masks[op_name] = union_mask
+            _mark_mask_bounds(union_mask, write_bounds, source_width, source_height)
 
         if not bbox_hit and not write_hit:
             continue
@@ -670,6 +813,76 @@ def main() -> int:
             "write_ratio": _ratio(segment_write_pixels, segment_pixels),
             "write_source_box_pixels": segment_write_box_pixels,
             "write_source_box_ratio": _ratio(segment_write_box_pixels, segment_source_box_pixels),
+        }
+
+    missing_write_attribution: Dict[str, Any] = {}
+    missing_image_payload = _build_missing_image_mask(summary, image_width, image_height)
+    if missing_image_payload is not None and total_pixels > 0:
+        missing_image_mask, missing_image_meta = missing_image_payload
+        missing_source_mask = _map_image_mask_to_source_mask(
+            missing_image_mask,
+            image_width,
+            image_height,
+            source_width,
+            source_height,
+        )
+        missing_source_pixels = int(sum(missing_source_mask))
+        missing_with_write_pixels = _count_mask_and(missing_source_mask, write_union_mask)
+        missing_without_write_pixels = max(0, missing_source_pixels - missing_with_write_pixels)
+
+        op_cover_pixels: Dict[str, int] = {}
+        op_cover_ratios: Dict[str, Optional[float]] = {}
+        for op_name in ("fill", "triangle", "texrect"):
+            op_mask = op_union_masks.get(op_name, bytearray(total_pixels))
+            op_pixels = _count_mask_and(missing_source_mask, op_mask)
+            op_cover_pixels[op_name] = op_pixels
+            op_cover_ratios[op_name] = _ratio(op_pixels, missing_source_pixels)
+
+        segment_missing: Dict[str, Dict[str, Any]] = {}
+        for segment_name, (x0, x1) in segment_ranges.items():
+            segment_missing_pixels = _count_mask_segment(
+                missing_source_mask, source_width, source_height, x0, x1
+            )
+            segment_missing_with_write = _count_mask_and_segment(
+                missing_source_mask,
+                write_union_mask,
+                source_width,
+                source_height,
+                x0,
+                x1,
+            )
+            segment_missing_without_write = max(
+                0, segment_missing_pixels - segment_missing_with_write
+            )
+            segment_missing[segment_name] = {
+                "x0": x0,
+                "x1_exclusive": x1,
+                "missing_pixels": segment_missing_pixels,
+                "missing_with_write_pixels": segment_missing_with_write,
+                "missing_without_write_pixels": segment_missing_without_write,
+                "missing_with_write_ratio": _ratio(
+                    segment_missing_with_write, segment_missing_pixels
+                ),
+                "missing_without_write_ratio": _ratio(
+                    segment_missing_without_write, segment_missing_pixels
+                ),
+            }
+
+        missing_write_attribution = {
+            "image": missing_image_meta,
+            "source_missing_pixels": missing_source_pixels,
+            "source_missing_ratio": _ratio(missing_source_pixels, total_pixels),
+            "missing_with_write_pixels": missing_with_write_pixels,
+            "missing_with_write_ratio": _ratio(
+                missing_with_write_pixels, missing_source_pixels
+            ),
+            "missing_without_write_pixels": missing_without_write_pixels,
+            "missing_without_write_ratio": _ratio(
+                missing_without_write_pixels, missing_source_pixels
+            ),
+            "missing_cover_pixels_by_op": op_cover_pixels,
+            "missing_cover_ratio_by_op": op_cover_ratios,
+            "segments": segment_missing,
         }
 
     address_write_stats: List[Dict[str, Any]] = []
@@ -803,7 +1016,7 @@ def main() -> int:
         )
 
     payload = {
-        "schema": "rvk2_missing_region_focus_v1",
+        "schema": "rvk2_missing_region_focus_v2",
         "packet_trace": str(packet_trace_path),
         "diff_summary": str(diff_summary_path),
         "frame_id": int(selected_frame.frame_id),
@@ -864,6 +1077,7 @@ def main() -> int:
         },
         "address_write_stats": address_write_stats,
         "work_hit_samples": hit_samples,
+        "missing_write_attribution": missing_write_attribution,
     }
 
     output_path.parent.mkdir(parents=True, exist_ok=True)

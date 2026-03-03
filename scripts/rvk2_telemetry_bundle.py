@@ -528,6 +528,7 @@ def _build_signals(
         bucket_write_hits = missing_region_focus.get("texture_bucket_write_hits", {})
         write_state_hits = missing_region_focus.get("write_state_hits", {})
         write_coverage = missing_region_focus.get("write_coverage", {})
+        missing_write_attribution = missing_region_focus.get("missing_write_attribution", {})
         color_image_sequence = missing_region_focus.get("color_image_sequence", {})
         history_window = missing_region_focus.get("history_window", {})
         address_write_stats_raw = missing_region_focus.get("address_write_stats", [])
@@ -598,6 +599,9 @@ def _build_signals(
             "write_state_hits": write_state_hits if isinstance(write_state_hits, dict) else {},
             "source_boxes": missing_region_focus.get("source_boxes", []),
             "write_coverage": write_coverage if isinstance(write_coverage, dict) else {},
+            "missing_write_attribution": (
+                missing_write_attribution if isinstance(missing_write_attribution, dict) else {}
+            ),
             "color_image_sequence": color_image_sequence if isinstance(color_image_sequence, dict) else {},
             "history_window": history_window if isinstance(history_window, dict) else {},
             "present_surface_focus": present_surface_focus,
@@ -699,6 +703,33 @@ def _build_signals(
                 ):
                     suspected_gaps.append(
                         "missing-region write coverage is asymmetric with weak left-strip occupancy (check viewport/scissor/triangle edge stepping)"
+                    )
+
+        if isinstance(missing_write_attribution, dict):
+            missing_without_write_ratio = missing_write_attribution.get("missing_without_write_ratio")
+            missing_with_write_ratio = missing_write_attribution.get("missing_with_write_ratio")
+            if isinstance(missing_without_write_ratio, (int, float)) and missing_without_write_ratio > 0.60:
+                suspected_gaps.append(
+                    "most missing non-black pixels are not covered by any write bounds in the focus frame (upstream draw/work coverage gap likely)"
+                )
+            if isinstance(missing_with_write_ratio, (int, float)) and missing_with_write_ratio > 0.40:
+                suspected_gaps.append(
+                    "a substantial fraction of missing pixels are inside write bounds (texel/combiner lane still contributes to divergence)"
+                )
+            segments = missing_write_attribution.get("segments", {})
+            if isinstance(segments, dict):
+                left_seg = segments.get("left", {}) if isinstance(segments.get("left"), dict) else {}
+                center_seg = segments.get("center", {}) if isinstance(segments.get("center"), dict) else {}
+                left_unwritten = left_seg.get("missing_without_write_ratio")
+                center_unwritten = center_seg.get("missing_without_write_ratio")
+                if (
+                    isinstance(left_unwritten, (int, float))
+                    and isinstance(center_unwritten, (int, float))
+                    and left_unwritten > 0.85
+                    and center_unwritten + 0.20 < left_unwritten
+                ):
+                    suspected_gaps.append(
+                        "left-side missing pixels are predominantly unwritten versus center (missing geometry/primitive coverage on left strip)"
                     )
 
         if address_write_stats:

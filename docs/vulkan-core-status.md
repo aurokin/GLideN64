@@ -566,7 +566,8 @@
   - `scripts/rvk2_missing_region_focus.py` now emits:
     - frame-local write coverage (`left/center/right` segment ratios),
     - per-color-image-address coverage stats,
-    - short history-window (`N=3` frames by default) address rotation and per-address missing-box coverage.
+    - short history-window (`N=3` frames by default) address rotation and per-address missing-box coverage,
+    - missing-pixel write attribution (`missing_with_write` vs `missing_without_write`) mapped to source-space.
   - `scripts/rvk2_telemetry_bundle.py` now consumes these fields and emits direct leads for:
     - rotating target buffers across adjacent frames,
     - non-present target dominance in missing-region coverage,
@@ -578,6 +579,11 @@
     - segment source-box write ratios: `left=0.3129`, `center=0.8183`, `right=0.8228`.
   - Dominant missing-region texrect lane is still `f0s3` (`56/57` texrect write-hit samples), with dominant texrect state:
     - `tile_line=50`, `tile_tmem=0`, `cycle_type=1-cycle`.
+  - Missing-pixel attribution (new):
+    - source missing pixels: `17189`
+    - covered by any write bounds: `2620` (`15.24%`)
+    - not covered by any write bounds: `14569` (`84.76%`)
+    - left segment unwritten ratio: `95.14%` (center `63.98%`)
   - Interpretation: center/right mismatches are more likely texrect texture/color correctness (writes occur but still diverge), while left-side deficit still has a write-coverage gap.
 - TMEM32 decode sanity probes (quick smoke, bootstrap + cross-surface):
   - `REALITYVK_RVK2_DEBUG_TMEM32_DIRECT_LINEAR=1`: `rmse=0.378957` (worse).
