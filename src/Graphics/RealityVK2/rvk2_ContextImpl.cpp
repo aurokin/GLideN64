@@ -48,13 +48,52 @@ struct ForensicsIngressSnapshot {
 	u64 stateCallCount = 0ULL;
 	u64 triangleCallCount = 0ULL;
 	u64 triangleVertexCount = 0ULL;
+	bool triangleBoundsValid = false;
+	f32 triangleMinX = 0.0f;
+	f32 triangleMinY = 0.0f;
+	f32 triangleMaxX = 0.0f;
+	f32 triangleMaxY = 0.0f;
 	u64 rectCallCount = 0ULL;
+	u64 rectTexrectCallCount = 0ULL;
 	u64 rectVertexCount = 0ULL;
+	bool rectBoundsValid = false;
+	f32 rectMinX = 0.0f;
+	f32 rectMinY = 0.0f;
+	f32 rectMaxX = 0.0f;
+	f32 rectMaxY = 0.0f;
 	u64 lineCallCount = 0ULL;
 	u64 lineVertexCount = 0ULL;
+	bool lineBoundsValid = false;
+	f32 lineMinX = 0.0f;
+	f32 lineMinY = 0.0f;
+	f32 lineMaxX = 0.0f;
+	f32 lineMaxY = 0.0f;
 	bool shadowDrawForwarding = false;
 	bool shadowPresent = false;
 };
+
+inline void expandBounds(
+	bool & _valid,
+	f32 & _minX,
+	f32 & _minY,
+	f32 & _maxX,
+	f32 & _maxY,
+	f32 _x,
+	f32 _y)
+{
+	if (!_valid) {
+		_valid = true;
+		_minX = _x;
+		_minY = _y;
+		_maxX = _x;
+		_maxY = _y;
+		return;
+	}
+	_minX = std::min(_minX, _x);
+	_minY = std::min(_minY, _y);
+	_maxX = std::max(_maxX, _x);
+	_maxY = std::max(_maxY, _y);
+}
 
 void buildFullscreenRect(RectVertex (&_vertices)[4], bool _flipY)
 {
@@ -415,19 +454,35 @@ void appendFrameForensicsRecord(
 		- static_cast<long long>(_ingress.rectCallCount);
 	std::fprintf(
 		file,
-		"\ting_frame=%llu\ting_state_calls=%llu\ting_tri_calls=%llu\ting_tri_verts=%llu\ting_rect_calls=%llu\ting_rect_verts=%llu\ting_line_calls=%llu\ting_line_verts=%llu\ting_shadow_draw=%u\ting_shadow_present=%u\ting_gap_tri_work=%lld\ting_gap_texrect_work=%lld",
+		"\ting_frame=%llu\ting_state_calls=%llu\ting_tri_calls=%llu\ting_tri_verts=%llu\ting_rect_calls=%llu\ting_rect_texrect_calls=%llu\ting_rect_verts=%llu\ting_line_calls=%llu\ting_line_verts=%llu\ting_shadow_draw=%u\ting_shadow_present=%u\ting_gap_tri_work=%lld\ting_gap_texrect_work=%lld\ting_tri_bounds_valid=%u\ting_tri_min_x=%.3f\ting_tri_min_y=%.3f\ting_tri_max_x=%.3f\ting_tri_max_y=%.3f\ting_rect_bounds_valid=%u\ting_rect_min_x=%.3f\ting_rect_min_y=%.3f\ting_rect_max_x=%.3f\ting_rect_max_y=%.3f\ting_line_bounds_valid=%u\ting_line_min_x=%.3f\ting_line_min_y=%.3f\ting_line_max_x=%.3f\ting_line_max_y=%.3f",
 		static_cast<unsigned long long>(_ingress.frameId),
 		static_cast<unsigned long long>(_ingress.stateCallCount),
 		static_cast<unsigned long long>(_ingress.triangleCallCount),
 		static_cast<unsigned long long>(_ingress.triangleVertexCount),
 		static_cast<unsigned long long>(_ingress.rectCallCount),
+		static_cast<unsigned long long>(_ingress.rectTexrectCallCount),
 		static_cast<unsigned long long>(_ingress.rectVertexCount),
 		static_cast<unsigned long long>(_ingress.lineCallCount),
 		static_cast<unsigned long long>(_ingress.lineVertexCount),
 		static_cast<unsigned int>(_ingress.shadowDrawForwarding),
 		static_cast<unsigned int>(_ingress.shadowPresent),
 		triWorkGap,
-		texrectWorkGap);
+		texrectWorkGap,
+		static_cast<unsigned int>(_ingress.triangleBoundsValid),
+		static_cast<double>(_ingress.triangleMinX),
+		static_cast<double>(_ingress.triangleMinY),
+		static_cast<double>(_ingress.triangleMaxX),
+		static_cast<double>(_ingress.triangleMaxY),
+		static_cast<unsigned int>(_ingress.rectBoundsValid),
+		static_cast<double>(_ingress.rectMinX),
+		static_cast<double>(_ingress.rectMinY),
+		static_cast<double>(_ingress.rectMaxX),
+		static_cast<double>(_ingress.rectMaxY),
+		static_cast<unsigned int>(_ingress.lineBoundsValid),
+		static_cast<double>(_ingress.lineMinX),
+		static_cast<double>(_ingress.lineMinY),
+		static_cast<double>(_ingress.lineMaxX),
+		static_cast<double>(_ingress.lineMaxY));
 	std::fprintf(file, "\n");
 	std::fclose(file);
 }
@@ -597,6 +652,19 @@ void ContextImpl::drawTriangles(const graphics::Context::DrawTriangleParameters 
 	syncIngressFrame();
 	++m_ingressCounters.triangleCallCount;
 	m_ingressCounters.triangleVertexCount += static_cast<u64>(_params.verticesCount);
+	if (_params.vertices != nullptr) {
+		for (u32 i = 0U; i < _params.verticesCount; ++i) {
+			const SPVertex & vertex = _params.vertices[i];
+			expandBounds(
+				m_ingressCounters.triangleBoundsValid,
+				m_ingressCounters.triangleMinX,
+				m_ingressCounters.triangleMinY,
+				m_ingressCounters.triangleMaxX,
+				m_ingressCounters.triangleMaxY,
+				vertex.x,
+				vertex.y);
+		}
+	}
 	if (shadowDrawForwardingEnabled())
 		vulkan::ContextImpl::drawTriangles(_params);
 }
@@ -605,7 +673,22 @@ void ContextImpl::drawRects(const graphics::Context::DrawRectParameters & _param
 {
 	syncIngressFrame();
 	++m_ingressCounters.rectCallCount;
+	if (_params.texrect)
+		++m_ingressCounters.rectTexrectCallCount;
 	m_ingressCounters.rectVertexCount += static_cast<u64>(_params.verticesCount);
+	if (_params.vertices != nullptr) {
+		for (u32 i = 0U; i < _params.verticesCount; ++i) {
+			const RectVertex & vertex = _params.vertices[i];
+			expandBounds(
+				m_ingressCounters.rectBoundsValid,
+				m_ingressCounters.rectMinX,
+				m_ingressCounters.rectMinY,
+				m_ingressCounters.rectMaxX,
+				m_ingressCounters.rectMaxY,
+				vertex.x,
+				vertex.y);
+		}
+	}
 	if (shadowDrawForwardingEnabled())
 		vulkan::ContextImpl::drawRects(_params);
 }
@@ -615,6 +698,24 @@ void ContextImpl::drawLine(f32 _width, SPVertex * _vertices)
 	syncIngressFrame();
 	++m_ingressCounters.lineCallCount;
 	m_ingressCounters.lineVertexCount += 2ULL;
+	if (_vertices != nullptr) {
+		expandBounds(
+			m_ingressCounters.lineBoundsValid,
+			m_ingressCounters.lineMinX,
+			m_ingressCounters.lineMinY,
+			m_ingressCounters.lineMaxX,
+			m_ingressCounters.lineMaxY,
+			_vertices[0].x,
+			_vertices[0].y);
+		expandBounds(
+			m_ingressCounters.lineBoundsValid,
+			m_ingressCounters.lineMinX,
+			m_ingressCounters.lineMinY,
+			m_ingressCounters.lineMaxX,
+			m_ingressCounters.lineMaxY,
+			_vertices[1].x,
+			_vertices[1].y);
+	}
 	if (shadowDrawForwardingEnabled())
 		vulkan::ContextImpl::drawLine(_width, _vertices);
 }
@@ -748,10 +849,26 @@ bool ContextImpl::present()
 	ingress.stateCallCount = m_ingressCounters.stateCallCount;
 	ingress.triangleCallCount = m_ingressCounters.triangleCallCount;
 	ingress.triangleVertexCount = m_ingressCounters.triangleVertexCount;
+	ingress.triangleBoundsValid = m_ingressCounters.triangleBoundsValid;
+	ingress.triangleMinX = m_ingressCounters.triangleMinX;
+	ingress.triangleMinY = m_ingressCounters.triangleMinY;
+	ingress.triangleMaxX = m_ingressCounters.triangleMaxX;
+	ingress.triangleMaxY = m_ingressCounters.triangleMaxY;
 	ingress.rectCallCount = m_ingressCounters.rectCallCount;
+	ingress.rectTexrectCallCount = m_ingressCounters.rectTexrectCallCount;
 	ingress.rectVertexCount = m_ingressCounters.rectVertexCount;
+	ingress.rectBoundsValid = m_ingressCounters.rectBoundsValid;
+	ingress.rectMinX = m_ingressCounters.rectMinX;
+	ingress.rectMinY = m_ingressCounters.rectMinY;
+	ingress.rectMaxX = m_ingressCounters.rectMaxX;
+	ingress.rectMaxY = m_ingressCounters.rectMaxY;
 	ingress.lineCallCount = m_ingressCounters.lineCallCount;
 	ingress.lineVertexCount = m_ingressCounters.lineVertexCount;
+	ingress.lineBoundsValid = m_ingressCounters.lineBoundsValid;
+	ingress.lineMinX = m_ingressCounters.lineMinX;
+	ingress.lineMinY = m_ingressCounters.lineMinY;
+	ingress.lineMaxX = m_ingressCounters.lineMaxX;
+	ingress.lineMaxY = m_ingressCounters.lineMaxY;
 	ingress.shadowDrawForwarding = shadowDrawForwardingEnabled();
 	const bool shadowPresentRequested = shadowPresentEnabled();
 	ingress.shadowPresent = ingress.shadowDrawForwarding && shadowPresentRequested;

@@ -44,10 +44,26 @@ private:
 		u64 stateCallCount = 0ULL;
 		u64 triangleCallCount = 0ULL;
 		u64 triangleVertexCount = 0ULL;
+		bool triangleBoundsValid = false;
+		f32 triangleMinX = 0.0f;
+		f32 triangleMinY = 0.0f;
+		f32 triangleMaxX = 0.0f;
+		f32 triangleMaxY = 0.0f;
 		u64 rectCallCount = 0ULL;
+		u64 rectTexrectCallCount = 0ULL;
 		u64 rectVertexCount = 0ULL;
+		bool rectBoundsValid = false;
+		f32 rectMinX = 0.0f;
+		f32 rectMinY = 0.0f;
+		f32 rectMaxX = 0.0f;
+		f32 rectMaxY = 0.0f;
 		u64 lineCallCount = 0ULL;
 		u64 lineVertexCount = 0ULL;
+		bool lineBoundsValid = false;
+		f32 lineMinX = 0.0f;
+		f32 lineMinY = 0.0f;
+		f32 lineMaxX = 0.0f;
+		f32 lineMaxY = 0.0f;
 	};
 
 	void syncIngressFrame();
