@@ -1159,6 +1159,57 @@ void testColorOnCvgOverflowWriteEnableConformance()
 		"color_on_cvg overflow path should keep draw write coverage unchanged");
 }
 
+void testColorOnCvgWritesBlenderMInputConformance()
+{
+	rvk2::Executor executor;
+	rvk2::RenderWorkPacket base = makeTexRectWork(false);
+	base.sourcePacketId = 118ULL;
+	base.colorImageAddress = 0x00B33000U;
+	base.colorImageWidth = 8U;
+	base.rectULX = 0U;
+	base.rectULY = 0U;
+	base.rectLRX = 3U;
+	base.rectLRY = 3U;
+	base.phase = static_cast<u8>(rvk2::RenderPhase::kCycle1);
+	base.cycleType = 0U;
+	base.otherModes = (1ULL << 6U) | (1ULL << 14U); // imageRead + forceBlender
+	base.colorOnCvg = true;
+	base.cvgDest = 0U;
+	base.blendColor = 0xE04070FFU;
+
+	rvk2::RenderWorkPacket memoryM = base;
+	memoryM.sourcePacketId = 119ULL;
+	memoryM.otherModes |= (1ULL << 20U); // cycle2 M selector = memory
+
+	rvk2::RenderWorkPacket blendM = base;
+	blendM.sourcePacketId = 120ULL;
+	blendM.otherModes |= (2ULL << 20U); // cycle2 M selector = blend color
+
+	const std::vector<rvk2::SubmissionBatchPacket> oneWorkBatch{makeBatchForWorkCount(1U)};
+	const rvk2::ExecutorOutput memoryOut =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{memoryM}, oneWorkBatch);
+	const rvk2::ExecutorOutput blendOut =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{blendM}, oneWorkBatch);
+
+	expectEq(
+		memoryOut.summary.blendCoverageOverflowCount,
+		0ULL,
+		"color_on_cvg M-input conformance should run non-overflow path (memory selector)");
+	expectEq(
+		blendOut.summary.blendCoverageOverflowCount,
+		0ULL,
+		"color_on_cvg M-input conformance should run non-overflow path (blend selector)");
+	expectTrue(
+		memoryOut.summary.colorWriteCount > 0ULL && blendOut.summary.colorWriteCount > 0ULL,
+		"color_on_cvg M-input conformance should write pixels");
+	expectTrue(
+		blendOut.summary.presentHash != memoryOut.summary.presentHash,
+		"color_on_cvg non-overflow path should follow blender M selector");
+	expectTrue(
+		blendOut.summary.outputLumaSum > memoryOut.summary.outputLumaSum,
+		"color_on_cvg blend-color M selector should increase output luma versus memory M selector");
+}
+
 void testCycle2CoverageDestinationConformance()
 {
 	rvk2::Executor executor;
@@ -3775,6 +3826,7 @@ int main()
 	testCoverageBlendFlagConformance();
 	testCoverageModeFlagConformance();
 	testColorOnCvgOverflowWriteEnableConformance();
+	testColorOnCvgWritesBlenderMInputConformance();
 	testCycle2CoverageDestinationConformance();
 	testAlphaCompareConformance();
 	testMixedStateBatchSegmentationConformance();

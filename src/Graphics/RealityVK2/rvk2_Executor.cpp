@@ -2735,10 +2735,10 @@ inline u32 applySyntheticBlender(
 	if (_summary != nullptr && blendEnabled)
 		++_summary->blenderEnabledOpCount;
 	if (colorOnCvgInhibitColorWrite) {
-		// color_on_cvg inhibits color writes unless coverage wraps.
-		out.r = memory.r;
-		out.g = memory.g;
-		out.b = memory.b;
+		// color_on_cvg inhibit path writes blender M input (2B path) verbatim.
+		out.r = m.r;
+		out.g = m.g;
+		out.b = m.b;
 	}
 	else if (blendEnabled) {
 		const u32 a5 = static_cast<u32>(alphaA >> 3U);

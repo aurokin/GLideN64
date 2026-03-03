@@ -33,7 +33,7 @@ Accuracy-first. RVK2-only path. No legacy renderer fallback.
 
 ## Remaining Work Map (3.0%)
 
-1. `P5` cycle semantics closure (combiner/blender/coverage/depth): **0.6%**
+1. `P5` cycle semantics closure (combiner/blender/coverage/depth): **0.5%**
 2. `P3` authoritative TMEM path closure (especially 32b): **1.4%**
 3. `P4` raster/coefficient edge behavior: **0.2%**
 4. `P2` present-source determinism polish: **0.5%**
@@ -49,6 +49,9 @@ Accuracy-first. RVK2-only path. No legacy renderer fallback.
    - stage sweep now shows materially non-black `texel_raw/combiner_out/blender_out/final` outputs, confirming texture data is flowing through the pipe.
 3. Local validation:
    - `./scripts/local_gate.sh` PASS (release+debug unit+conformance).
+4. Closed blender `color_on_cvg` non-overflow write target:
+   - non-overflow `color_on_cvg` path now writes blender `M` input (2B path) instead of hardcoded framebuffer memory color.
+   - added conformance lock `testColorOnCvgWritesBlenderMInputConformance`.
 
 ## Previous Batch (2026-03-03)
 
