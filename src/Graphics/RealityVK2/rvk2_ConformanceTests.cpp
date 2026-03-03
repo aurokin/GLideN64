@@ -1179,11 +1179,11 @@ void testColorOnCvgWritesBlenderMInputConformance()
 
 	rvk2::RenderWorkPacket memoryM = base;
 	memoryM.sourcePacketId = 119ULL;
-	memoryM.otherModes |= (1ULL << 20U); // cycle2 M selector = memory
+	memoryM.otherModes |= (1ULL << 22U); // cycle1 M selector = memory
 
 	rvk2::RenderWorkPacket blendM = base;
 	blendM.sourcePacketId = 120ULL;
-	blendM.otherModes |= (2ULL << 20U); // cycle2 M selector = blend color
+	blendM.otherModes |= (2ULL << 22U); // cycle1 M selector = blend color
 
 	const std::vector<rvk2::SubmissionBatchPacket> oneWorkBatch{makeBatchForWorkCount(1U)};
 	const rvk2::ExecutorOutput memoryOut =
@@ -1737,6 +1737,81 @@ void testCopyModeIgnoresTileClampConformance()
 		clampOnOut.summary.textureRdramSampleCount,
 		clampOffOut.summary.textureRdramSampleCount,
 		"copy-mode tile clamp toggle should preserve RDRAM sample count");
+
+	for (size_t i = 0; i < savedTMEM.size(); ++i)
+		TMEM[i] = savedTMEM[i];
+}
+
+void testTileBaseOffsetInvariantConformance()
+{
+	std::array<u64, 512> savedTMEM{};
+	for (size_t i = 0; i < savedTMEM.size(); ++i)
+		savedTMEM[i] = TMEM[i];
+
+	u8 * tmem8 = reinterpret_cast<u8 *>(TMEM);
+	for (u32 i = 0U; i < 128U; ++i)
+		tmem8[i] = static_cast<u8>((i * 37U) & 0xFFU);
+
+	rvk2::Executor executor;
+	rvk2::RenderWorkPacket base = makeTexRectWork(false);
+	base.sourcePacketId = 420ULL;
+	base.colorImageAddress = 0x00B5A000U;
+	base.colorImageWidth = 8U;
+	base.rectULX = 0U;
+	base.rectULY = 0U;
+	base.rectLRX = 3U;
+	base.rectLRY = 3U;
+	base.textured = true;
+	base.phase = static_cast<u8>(rvk2::RenderPhase::kCycle1);
+	base.cycleType = 0U;
+	base.textureImageFormat = 4U; // I
+	base.textureImageSize = 1U;   // 8b
+	base.tileFormat = 4U;         // I
+	base.tileSize = 1U;           // 8b
+	base.tileTmem = 0U;
+	base.tileLine = 1U;
+	base.tileULS = 0U;
+	base.tileULT = 0U;
+	base.tileLRS = 0x000CU;
+	base.tileLRT = 0x000CU;
+	base.tileMasks = 0U;
+	base.tileMaskt = 0U;
+	base.tileCms = 0U;
+	base.tileCmt = 0U;
+	base.texS = 0;
+	base.texT = 0;
+	base.texDSDX = 32;
+	base.texDTDY = 32;
+
+	rvk2::RenderWorkPacket offsetVariant = base;
+	offsetVariant.sourcePacketId = 421ULL;
+	offsetVariant.tileULS = 0x0020U;
+	offsetVariant.tileULT = 0x0020U;
+	offsetVariant.tileLRS = static_cast<u16>(offsetVariant.tileULS + 0x000CU);
+	offsetVariant.tileLRT = static_cast<u16>(offsetVariant.tileULT + 0x000CU);
+	offsetVariant.texS = static_cast<s16>(0x0020);
+	offsetVariant.texT = static_cast<s16>(0x0020);
+
+	const std::vector<rvk2::SubmissionBatchPacket> oneBatch{makeSingleBatch()};
+	const rvk2::ExecutorOutput baseOut =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{base}, oneBatch);
+	const rvk2::ExecutorOutput offsetOut =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{offsetVariant}, oneBatch);
+
+	expectTrue(
+		baseOut.summary.colorWriteCount > 0ULL,
+		"tile-base offset baseline should write pixels");
+	expectEq(
+		offsetOut.summary.colorWriteCount,
+		baseOut.summary.colorWriteCount,
+		"tile-base offset transition should preserve write coverage");
+	expectEq(
+		offsetOut.summary.presentHash,
+		baseOut.summary.presentHash,
+		"tile-base offset with matching texture origin should preserve presented output");
+	expectTrue(
+		presentFramesEqual(offsetOut, baseOut),
+		"tile-base offset with matching texture origin should preserve presented pixels");
 
 	for (size_t i = 0; i < savedTMEM.size(); ++i)
 		TMEM[i] = savedTMEM[i];
@@ -2577,14 +2652,14 @@ void testFillSeedsCoverageForImageReadBlendConformance()
 	blend.otherModes |= (1ULL << 6U);  // image_read_en
 	blend.otherModes |= (1ULL << 14U); // force_blend
 	blend.otherModes &= ~(
-		(0x3ULL << 28U)
-		| (0x3ULL << 24U)
-		| (0x3ULL << 20U)
-		| (0x3ULL << 16U));
-	blend.otherModes |= (2ULL << 28U); // P = blend color
-	blend.otherModes |= (2ULL << 24U); // A = 1.0 (shade alpha)
-	blend.otherModes |= (1ULL << 20U); // M = memory color
-	blend.otherModes |= (1ULL << 16U); // B = memory coverage
+		(0x3ULL << 30U)
+		| (0x3ULL << 26U)
+		| (0x3ULL << 22U)
+		| (0x3ULL << 18U));
+	blend.otherModes |= (2ULL << 30U); // P = blend color
+	blend.otherModes |= (2ULL << 26U); // A = 1.0 (shade alpha)
+	blend.otherModes |= (1ULL << 22U); // M = memory color
+	blend.otherModes |= (1ULL << 18U); // B = memory coverage
 	blend.blendColor = 0x000000FFU;
 	blend.primColor = 0xFFFFFFFFU;
 
@@ -3233,8 +3308,20 @@ void testBlendMuxSelectorConformance()
 	base.keyState = 0x0102030405060708ULL;
 	base.convertState = 0x1112131415161718ULL;
 
+	rvk2::RenderWorkPacket cycle2SelectorVariant = base;
+	cycle2SelectorVariant.sourcePacketId = 192ULL;
+	cycle2SelectorVariant.otherModes &= ~(
+		(0x3ULL << 28U)
+		| (0x3ULL << 24U)
+		| (0x3ULL << 20U)
+		| (0x3ULL << 16U));
+	cycle2SelectorVariant.otherModes |= (1ULL << 28U);
+	cycle2SelectorVariant.otherModes |= (2ULL << 24U);
+	cycle2SelectorVariant.otherModes |= (3ULL << 20U);
+	cycle2SelectorVariant.otherModes |= (1ULL << 16U);
+
 	rvk2::RenderWorkPacket selectorVariant = base;
-	selectorVariant.sourcePacketId = 192ULL;
+	selectorVariant.sourcePacketId = 193ULL;
 	selectorVariant.otherModes &= ~(
 		(0x3ULL << 30U)
 		| (0x3ULL << 26U)
@@ -3249,6 +3336,9 @@ void testBlendMuxSelectorConformance()
 	const rvk2::ExecutorOutput baseOut = executor.executeWithOutput(
 		std::vector<rvk2::RenderWorkPacket>{background, base},
 		twoWorkBatches);
+	const rvk2::ExecutorOutput cycle2SelectorOut = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, cycle2SelectorVariant},
+		twoWorkBatches);
 	const rvk2::ExecutorOutput selectorOut = executor.executeWithOutput(
 		std::vector<rvk2::RenderWorkPacket>{background, selectorVariant},
 		twoWorkBatches);
@@ -3256,6 +3346,17 @@ void testBlendMuxSelectorConformance()
 	expectTrue(
 		baseOut.summary.colorWriteCount > 0ULL,
 		"blend mux selector baseline should write pixels");
+	expectEq(
+		cycle2SelectorOut.summary.colorWriteCount,
+		baseOut.summary.colorWriteCount,
+		"cycle2 blender selector transition should preserve cycle1 write coverage");
+	expectEq(
+		cycle2SelectorOut.summary.presentHash,
+		baseOut.summary.presentHash,
+		"cycle2 blender selector transition should not alter cycle1 present hash");
+	expectTrue(
+		presentFramesEqual(cycle2SelectorOut, baseOut),
+		"cycle2 blender selector transition should not alter cycle1 presented pixels");
 	expectEq(
 		selectorOut.summary.colorWriteCount,
 		baseOut.summary.colorWriteCount,
@@ -3268,7 +3369,7 @@ void testBlendMuxSelectorConformance()
 		"blend mux selector transition should alter presented pixels");
 
 	rvk2::RenderWorkPacket cycle2Base = base;
-	cycle2Base.sourcePacketId = 193ULL;
+	cycle2Base.sourcePacketId = 194ULL;
 	cycle2Base.phase = static_cast<u8>(rvk2::RenderPhase::kCycle2);
 	cycle2Base.otherModes &= ~(
 		(0x3ULL << 28U)
@@ -3279,7 +3380,7 @@ void testBlendMuxSelectorConformance()
 	cycle2Base.otherModes |= (1ULL << 20U);
 
 	rvk2::RenderWorkPacket cycle2Variant = cycle2Base;
-	cycle2Variant.sourcePacketId = 194ULL;
+	cycle2Variant.sourcePacketId = 195ULL;
 	cycle2Variant.otherModes &= ~(
 		(0x3ULL << 28U)
 		| (0x3ULL << 24U)
@@ -3836,6 +3937,7 @@ int main()
 	testScissorDitherIndexConformance();
 	testCopyPhaseDestinationBypassConformance();
 	testCopyModeIgnoresTileClampConformance();
+	testTileBaseOffsetInvariantConformance();
 	testCycle2PhaseDistinctConformance();
 	testCycle2CombinerSelectorIsolationConformance();
 	testCycle2TexelNextPixelHazardConformance();

@@ -18,7 +18,7 @@ Accuracy-first. RVK2-only path. No legacy renderer fallback.
 3. Paper Mario parity metric is stable but still visually incorrect.
 4. Deep-dive corpus is integrated under `docs/references/n64/deep-dive-pack/`.
 5. Cycle hazard modeling now includes:
-   - 1-cycle selector-bank behavior: combiner/blender now source second-cycle selector fields.
+   - 1-cycle selector-bank behavior: combiner sources second-cycle selectors; blender sources cycle-1 selectors.
    - RH#001: 1-cycle `TEX1 -> next-pixel TEX0`.
    - RH#002: cycle2 second-cycle `TEX0 -> current TEX1`, `TEX1 -> next-pixel TEX0`.
    - cycle2 alpha-compare next-pixel combiner lookahead.
@@ -31,30 +31,29 @@ Accuracy-first. RVK2-only path. No legacy renderer fallback.
 12. Triangle Y edge values are now consumed as signed 14-bit s10.2 values in both render-plan bound derivation and executor rasterization.
 13. Executor TMEM sampling is now bound to per-draw historical TMEM snapshots (instead of end-of-frame global TMEM state).
 
-## Remaining Work Map (2.9%)
+## Remaining Work Map (2.3%)
 
-1. `P5` cycle semantics closure (combiner/blender/coverage/depth): **0.5%**
-2. `P3` authoritative TMEM path closure (especially 32b): **1.4%**
+1. `P5` cycle semantics closure (combiner/blender/coverage/depth): **0.4%**
+2. `P3` authoritative TMEM path closure (especially 32b): **1.0%**
 3. `P4` raster/coefficient edge behavior: **0.2%**
 4. `P2` present-source determinism polish: **0.5%**
 5. `P6` VI finishing polish: **0.2%**
 
 ## Latest Batch (2026-03-03)
 
-1. Closed major TMEM temporal-coherency gap:
-   - runtime now captures deduplicated TMEM snapshots and binds them per draw packet.
-   - executor now selects TMEM words per work item instead of sampling end-of-frame `TMEM`.
-2. Validation signal jump:
-   - Paper Mario candidate moved from near-black/noise to a high-energy textured frame (`rmse=0.284339`, `mae=0.138428` vs black-reference cache).
-   - stage sweep now shows materially non-black `texel_raw/combiner_out/blender_out/final` outputs, confirming texture data is flowing through the pipe.
-3. Local validation:
+1. Corrected 1-cycle blender selector-bank behavior:
+   - 1-cycle now uses cycle-1 blender selector fields.
+   - 2-cycle keeps cycle-1 selectors in pass 1 and cycle-2 selectors in pass 2.
+   - added conformance lock in `testBlendMuxSelectorConformance` for cycle2-only selector no-op in 1-cycle.
+2. Closed texture coordinate mixed-space path in TMEM/RDRAM sampling:
+   - texture modes (perspective/LOD) are now applied once before tile transform.
+   - TMEM/RDRAM sampling now consumes tile-relative coordinates consistently (no second tile-base subtraction).
+   - filtered neighbor texels are derived from post-mode coordinates (`s/t + 1 texel`) instead of re-running perspective on `raw+1`.
+3. Added regression lock:
+   - `testTileBaseOffsetInvariantConformance` ensures matching tile-base and texture-origin offsets preserve output.
+4. Validation:
    - `./scripts/local_gate.sh` PASS (release+debug unit+conformance).
-4. Closed blender `color_on_cvg` non-overflow write target:
-   - non-overflow `color_on_cvg` path now writes blender `M` input (2B path) instead of hardcoded framebuffer memory color.
-   - added conformance lock `testColorOnCvgWritesBlenderMInputConformance`.
-5. Closed VI content-window over-letterboxing path:
-   - removed second-pass content fit inside already aspect-resolved output, so VI now fills resolved output instead of reintroducing heavy center-band letterbox.
-   - updated VI aspect unit expectations to lock fill behavior.
+   - Paper Mario parity improved from `rmse=0.404715`, `mae=0.280558` to `rmse=0.318331`, `mae=0.188571`.
 
 ## Previous Batch (2026-03-03)
 
