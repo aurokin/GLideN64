@@ -542,9 +542,13 @@
     - dominant intersecting bucket: `texrect:f0s3` (`56` hits), with minor `texrect:f3s1` (`1` hit).
   - Interpretation: highest-priority forward fix lane is texrect-side `f0s3` texture decode/addressing/presentation behavior inside the missing top-left region.
 - Executor surface bootstrap telemetry/fix lane (new):
-  - Added optional per-address surface history bootstrap in RVK2 executor:
+  - Per-address surface history bootstrap remains opt-in in RVK2 executor:
     - `REALITYVK_RVK2_DEBUG_ENABLE_SURFACE_HISTORY_BOOTSTRAP=1`
     - Behavior: when a color-image address reappears, initialize the working surface from cached prior-frame contents (format/size/width compatible) instead of hard-zero.
+  - Paper Mario parity smoke now enables this bootstrap by default for the candidate path:
+    - `REALITYVK_PM_RVK2_ENABLE_SURFACE_HISTORY_BOOTSTRAP=1` (default)
+    - `REALITYVK_PM_RVK2_ENABLE_CROSS_SURFACE_BOOTSTRAP=1` (default)
+    - Both can be set to `0` to disable during A/B probes.
   - Added optional cross-surface bootstrap/merge hook (kept opt-in):
     - `REALITYVK_RVK2_DEBUG_ENABLE_CROSS_SURFACE_BOOTSTRAP=1`
     - Behavior: allow fallback/merge from previously selected present surface for multi-buffer partial redraw experiments.
