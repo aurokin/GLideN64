@@ -1143,6 +1143,87 @@ void testSyntheticTrianglePacking()
 	expectEq(semantic.triangleDxMDY, static_cast<s32>(0x00004000U), "Synthetic triangle semantic DxMDY mismatch");
 }
 
+void testSyntheticTrianglePerspectivePacking()
+{
+	SPVertex v0{};
+	SPVertex v1{};
+	SPVertex v2{};
+	v0.x = 0.0f;
+	v0.y = 0.0f;
+	v1.x = 1.0f;
+	v1.y = 0.0f;
+	v2.x = 0.0f;
+	v2.y = 1.0f;
+	v0.s = 10.0f;
+	v1.s = 14.0f;
+	v2.s = 10.0f;
+	v0.t = 20.0f;
+	v1.t = 20.0f;
+	v2.t = 24.0f;
+	v0.w = 2.0f;
+	v1.w = 2.0f;
+	v2.w = 2.0f;
+
+	rvk2::synthetic_triangle::TriangleCommand persp{};
+	rvk2::synthetic_triangle::TriangleCommand affine{};
+	const bool builtPersp =
+		rvk2::synthetic_triangle::buildCommand(v0, v1, v2, 0x0AU, true, 0U, 0U, persp);
+	const bool builtAffine =
+		rvk2::synthetic_triangle::buildCommand(v0, v1, v2, 0x0AU, false, 0U, 0U, affine);
+	expectTrue(builtPersp, "Synthetic triangle perspective command should build");
+	expectTrue(builtAffine, "Synthetic triangle affine command should build");
+	expectEq(persp.payloadWordCount, static_cast<u8>(22U), "Synthetic triangle perspective payload count mismatch");
+	expectEq(affine.payloadWordCount, static_cast<u8>(22U), "Synthetic triangle affine payload count mismatch");
+
+	auto decodePrimary = [](u32 _a, u32 _b) -> s32 {
+		return static_cast<s32>((_a & 0xFFFF0000U) | ((_b >> 16U) & 0xFFFFU));
+	};
+	auto decodeSecondary = [](u32 _a, u32 _b) -> s32 {
+		return static_cast<s32>(((_a << 16U) & 0xFFFF0000U) | (_b & 0xFFFFU));
+	};
+
+	const s32 perspSBase = decodePrimary(persp.payloadWords[6], persp.payloadWords[10]);
+	const s32 perspTBase = decodeSecondary(persp.payloadWords[6], persp.payloadWords[10]);
+	const s32 perspWBase = decodePrimary(persp.payloadWords[7], persp.payloadWords[11]);
+	const s32 perspSDX = decodePrimary(persp.payloadWords[8], persp.payloadWords[12]);
+	const s32 perspTDX = decodeSecondary(persp.payloadWords[8], persp.payloadWords[12]);
+	const s32 perspWDX = decodePrimary(persp.payloadWords[9], persp.payloadWords[13]);
+	const s32 perspSDY = decodePrimary(persp.payloadWords[16], persp.payloadWords[20]);
+	const s32 perspTDY = decodeSecondary(persp.payloadWords[16], persp.payloadWords[20]);
+	const s32 perspWDY = decodePrimary(persp.payloadWords[17], persp.payloadWords[21]);
+
+	const s32 affineSBase = decodePrimary(affine.payloadWords[6], affine.payloadWords[10]);
+	const s32 affineTBase = decodeSecondary(affine.payloadWords[6], affine.payloadWords[10]);
+	const s32 affineWBase = decodePrimary(affine.payloadWords[7], affine.payloadWords[11]);
+	const s32 affineSDX = decodePrimary(affine.payloadWords[8], affine.payloadWords[12]);
+	const s32 affineTDX = decodeSecondary(affine.payloadWords[8], affine.payloadWords[12]);
+	const s32 affineWDX = decodePrimary(affine.payloadWords[9], affine.payloadWords[13]);
+	const s32 affineSDY = decodePrimary(affine.payloadWords[16], affine.payloadWords[20]);
+	const s32 affineTDY = decodeSecondary(affine.payloadWords[16], affine.payloadWords[20]);
+	const s32 affineWDY = decodePrimary(affine.payloadWords[17], affine.payloadWords[21]);
+
+	expectEq(affineSBase, 320, "Synthetic triangle affine S base mismatch");
+	expectEq(affineTBase, 640, "Synthetic triangle affine T base mismatch");
+	expectEq(affineSDX, 128, "Synthetic triangle affine S dx mismatch");
+	expectEq(affineTDX, 0, "Synthetic triangle affine T dx mismatch");
+	expectEq(affineSDY, 0, "Synthetic triangle affine S dy mismatch");
+	expectEq(affineTDY, 128, "Synthetic triangle affine T dy mismatch");
+
+	expectEq(perspSBase, 160, "Synthetic triangle perspective S base mismatch");
+	expectEq(perspTBase, 320, "Synthetic triangle perspective T base mismatch");
+	expectEq(perspSDX, 64, "Synthetic triangle perspective S dx mismatch");
+	expectEq(perspTDX, 0, "Synthetic triangle perspective T dx mismatch");
+	expectEq(perspSDY, 0, "Synthetic triangle perspective S dy mismatch");
+	expectEq(perspTDY, 64, "Synthetic triangle perspective T dy mismatch");
+
+	expectEq(affineWBase, 32768, "Synthetic triangle affine W base mismatch");
+	expectEq(affineWDX, 0, "Synthetic triangle affine W dx mismatch");
+	expectEq(affineWDY, 0, "Synthetic triangle affine W dy mismatch");
+	expectEq(perspWBase, 32768, "Synthetic triangle perspective W base mismatch");
+	expectEq(perspWDX, 0, "Synthetic triangle perspective W dx mismatch");
+	expectEq(perspWDY, 0, "Synthetic triangle perspective W dy mismatch");
+}
+
 void testTexRectSemanticExtraction()
 {
 	rvk2::Runtime runtime;
@@ -3473,6 +3554,7 @@ int main()
 	testRuntimeDrawSemanticCapture();
 	testTriangleSignedYBounds();
 	testSyntheticTrianglePacking();
+	testSyntheticTrianglePerspectivePacking();
 	testTexRectSemanticExtraction();
 	testVIRendererAspectScaling();
 	testExecutorVIOriginPresentationSelection();

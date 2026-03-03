@@ -14,6 +14,38 @@ namespace {
 
 int g_failures = 0;
 
+struct ScopedRdramBuffer
+{
+	explicit ScopedRdramBuffer(size_t _bytes)
+		: previousRdram(RDRAM)
+		, previousRdramMask(RDRAMSize)
+		, storage(_bytes, 0U)
+	{
+		if (!storage.empty()) {
+			RDRAM = storage.data();
+			RDRAMSize = static_cast<u32>(storage.size() - 1U);
+		}
+	}
+
+	~ScopedRdramBuffer()
+	{
+		RDRAM = previousRdram;
+		RDRAMSize = previousRdramMask;
+	}
+
+	void writeByte(u32 _address, u8 _value)
+	{
+		if (storage.empty() || RDRAM == nullptr)
+			return;
+		storage[(_address & RDRAMSize) ^ 3U] = _value;
+	}
+
+private:
+	u8 * previousRdram = nullptr;
+	u32 previousRdramMask = 0U;
+	std::vector<u8> storage{};
+};
+
 bool envStringIsTrue(const char * _value)
 {
 	if (_value == nullptr || _value[0] == '\0')
@@ -2561,6 +2593,68 @@ void testUnsupportedTMEMDecodeUsesSyntheticConformance()
 		"unsupported TMEM decode path should resolve through synthetic diagnostic source");
 }
 
+void testUnsupportedTMEMDecodeUsesRdramFallbackWhenAvailableConformance()
+{
+	ScopedRdramBuffer rdram(1U << 22U); // 4 MiB, power-of-two mask.
+
+	rvk2::Executor executor;
+	rvk2::RenderWorkPacket work = makeTexRectWork(false);
+	work.sourcePacketId = 209ULL;
+	work.colorImageAddress = 0x00A0E800U;
+	work.colorImageWidth = 8U;
+	work.rectULX = 0U;
+	work.rectULY = 0U;
+	work.rectLRX = 3U;
+	work.rectLRY = 3U;
+	work.textureImageAddress = 0x00100000U;
+	work.textureImageFormat = 1U; // YUV
+	work.textureImageSize = 2U;   // 16b
+	work.textureImageWidth = 8U;
+	work.tileFormat = 1U; // YUV decode is unsupported in TMEM path today.
+	work.tileSize = 2U;
+	work.tileLine = 1U;
+	work.tileTmem = 0U;
+	work.texS = 0;
+	work.texT = 0;
+	work.texDSDX = 0x20;
+	work.texDTDY = 0x20;
+
+	// Encode U Y0 V Y1 for texel pairs in row-major layout.
+	for (u32 y = 0U; y < 8U; ++y) {
+		for (u32 xPair = 0U; xPair < 4U; ++xPair) {
+			const u32 texelIndex = y * 8U + (xPair * 2U);
+			const u32 addr = work.textureImageAddress + texelIndex * 2U;
+			const u8 u = static_cast<u8>(32U + xPair * 17U);
+			const u8 y0 = static_cast<u8>(48U + y * 9U + xPair * 5U);
+			const u8 v = static_cast<u8>(96U + y * 7U);
+			const u8 y1 = static_cast<u8>(64U + y * 11U + xPair * 3U);
+			rdram.writeByte(addr + 0U, u);
+			rdram.writeByte(addr + 1U, y0);
+			rdram.writeByte(addr + 2U, v);
+			rdram.writeByte(addr + 3U, y1);
+		}
+	}
+
+	const std::vector<rvk2::SubmissionBatchPacket> oneBatch{makeSingleBatch()};
+	const rvk2::ExecutorOutput out =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{work}, oneBatch);
+
+	expectTrue(
+		out.summary.colorWriteCount > 0ULL,
+		"unsupported TMEM decode + RDRAM fallback conformance scene should write pixels");
+	expectEq(
+		out.summary.stageTexelSourceRdramWriteCount,
+		out.summary.colorWriteCount,
+		"unsupported TMEM decode should route through RDRAM fallback when RDRAM is available");
+	expectEq(
+		out.summary.stageTexelSourceSyntheticWriteCount,
+		0ULL,
+		"unsupported TMEM decode should avoid synthetic fallback when RDRAM fallback succeeds");
+	expectTrue(
+		out.summary.textureRdramSampleCount > 0ULL,
+		"RDRAM fallback conformance scene should sample RDRAM texels");
+}
+
 void testFillPhaseIgnoresBlendCombinerConformance()
 {
 	rvk2::Executor executor;
@@ -3324,6 +3418,46 @@ void testTextureExtendedModeConformance()
 		"texture lut transition should alter present hash");
 }
 
+void testTextureDetailColorTransformConformance()
+{
+	rvk2::Executor executor;
+	rvk2::RenderWorkPacket base = makeTexRectWork(false);
+	base.sourcePacketId = 188ULL;
+	base.colorImageAddress = 0x00B43000U;
+	base.colorImageWidth = 8U;
+	base.rectULX = 0U;
+	base.rectULY = 0U;
+	base.rectLRX = 6U;
+	base.rectLRY = 4U;
+	base.textured = true;
+	base.tileFormat = 6U;
+	base.textureImageFormat = 6U;
+	base.otherModes = 0ULL;
+
+	rvk2::RenderWorkPacket detailVariant = base;
+	detailVariant.otherModes = (2ULL << (32U + 17U));
+
+	const std::vector<rvk2::SubmissionBatchPacket> batches{makeSingleBatch()};
+	const rvk2::ExecutorOutput baseOut =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{base}, batches);
+	const rvk2::ExecutorOutput detailOut =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{detailVariant}, batches);
+
+	expectTrue(
+		baseOut.summary.colorWriteCount > 0ULL,
+		"texture detail color conformance baseline should write pixels");
+	expectEq(
+		detailOut.summary.colorWriteCount,
+		baseOut.summary.colorWriteCount,
+		"texture detail color transition should preserve write coverage");
+	expectTrue(
+		detailOut.summary.presentHash != baseOut.summary.presentHash,
+		"texture detail color transition should alter present hash");
+	expectTrue(
+		!presentFramesEqual(detailOut, baseOut),
+		"texture detail color transition should alter presented pixels");
+}
+
 void testBlendMuxSelectorConformance()
 {
 	rvk2::Executor executor;
@@ -3988,6 +4122,7 @@ int main()
 	testCycle1Texel1SecondaryTileConformance();
 	testTMEM32AuthoritativePathConformance();
 	testUnsupportedTMEMDecodeUsesSyntheticConformance();
+	testUnsupportedTMEMDecodeUsesRdramFallbackWhenAvailableConformance();
 	testFillPhaseIgnoresBlendCombinerConformance();
 	testCopyFillBypassAlphaCoverageConformance();
 	testFillSeedsCoverageForImageReadBlendConformance();
@@ -4001,6 +4136,7 @@ int main()
 	testTextureFilterConformance();
 	testCombinerKeyConvertConformance();
 	testTextureExtendedModeConformance();
+	testTextureDetailColorTransformConformance();
 	testBlendMuxSelectorConformance();
 	testBlendShadeAlphaSelectorConformance();
 	testCycle2BlenderMemorySelectorConformance();

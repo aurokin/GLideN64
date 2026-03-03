@@ -217,6 +217,282 @@ bool debugAltTmem8OddXor()
 	return enabled;
 }
 
+bool debugDisableTexturePerspCoord()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_DISABLE_TEXTURE_PERSP_COORD");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugDisableTextureLodCoord()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_DISABLE_TEXTURE_LOD_COORD");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugDisableCoverageControls()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_DISABLE_COVERAGE_CONTROLS");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugDisableColorOnCvgInhibit()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_DISABLE_COLOR_ON_CVG_INHIBIT");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugBypassBlender()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_BYPASS_BLENDER");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugDisableBlenderDither()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_DISABLE_BLENDER_DITHER");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugDisableBlendMemoryColorSource()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_DISABLE_BLEND_MEMORY_COLOR_SOURCE");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugDisableImageRead()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_DISABLE_IMAGE_READ");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugForceTexelAlphaOpaque()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_FORCE_TEXEL_ALPHA_OPAQUE");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugCycle2SecondPassMemoryFromCycle1()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_CYCLE2_SECOND_PASS_MEMORY_FROM_CYCLE1");
+		if (raw == nullptr || raw[0] == '\0')
+			return true;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : true;
+	}();
+	return enabled;
+}
+
+bool debugDisableTextureLUTApply()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_DISABLE_TEXTURE_LUT_APPLY");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugCycle1CombinerUseCycle1Selectors()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_CYCLE1_COMBINER_USE_CYCLE1_SELECTORS");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugTmem32UseDirectLinearFetch()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TMEM32_DIRECT_LINEAR");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugTmem32UseXor02()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TMEM32_XOR02");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugTmem32PackHighToLowRGBA()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TMEM32_PACK_HIGH_TO_LOW");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugTextureFilterStrictPrimary()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TEXTURE_FILTER_STRICT_PRIMARY");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugTextureFilterMode3UsesBilerp()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TEXTURE_FILTER_MODE3_BILERP");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugTextureFilterMode2UsesAverage()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TEXTURE_FILTER_MODE2_AVERAGE");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugPseudoTriangleUsePrimColor()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_PSEUDO_TRIANGLE_USE_PRIM_COLOR");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugForceAllTexelAlphaOpaque()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_FORCE_ALL_TEXEL_ALPHA_OPAQUE");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugForceTexel1UsesTile0()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_FORCE_TEXEL1_TILE0");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugForcePipelineModeOn()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_FORCE_PIPELINE_MODE_ON");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugForcePipelineModeOff()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_FORCE_PIPELINE_MODE_OFF");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
 inline bool parseUnsignedToken(const std::string & _token, u64 & _out)
 {
 	const std::string token = trimAsciiWhitespace(_token);
@@ -229,6 +505,134 @@ inline bool parseUnsignedToken(const std::string & _token, u64 & _out)
 		return false;
 	_out = static_cast<u64>(value);
 	return true;
+}
+
+enum : u8
+{
+	kTextureBucketMaskDisabled = 0U,
+	kTextureBucketMaskAny = 1U,
+	kTextureBucketMaskLUTOnly = 2U,
+	kTextureBucketMaskNoLUT = 3U,
+};
+
+struct DebugTextureBucketMaskConfig
+{
+	bool enabled = false;
+	std::array<u8, rvk2::kExecutorTextureFormatSizeBuckets> mode{};
+};
+
+inline u8 mergeTextureBucketMaskMode(u8 _current, u8 _incoming)
+{
+	if (_current == kTextureBucketMaskDisabled)
+		return _incoming;
+	if (_incoming == kTextureBucketMaskDisabled || _current == _incoming)
+		return _current;
+	if (_current == kTextureBucketMaskAny || _incoming == kTextureBucketMaskAny)
+		return kTextureBucketMaskAny;
+	return kTextureBucketMaskAny;
+}
+
+inline bool parseTextureBucketMaskToken(
+	const std::string & _token,
+	u8 & _format,
+	u8 & _size,
+	u8 & _mode)
+{
+	const std::string token = toLowerAscii(trimAsciiWhitespace(_token));
+	if (token.empty() || token[0] != 'f')
+		return false;
+
+	size_t pos = 1U;
+	while (pos < token.size() && token[pos] >= '0' && token[pos] <= '9')
+		++pos;
+	if (pos == 1U || pos >= token.size() || token[pos] != 's')
+		return false;
+
+	const std::string formatToken = token.substr(1U, pos - 1U);
+	++pos;
+	const size_t sizeBegin = pos;
+	while (pos < token.size() && token[pos] >= '0' && token[pos] <= '9')
+		++pos;
+	if (pos == sizeBegin)
+		return false;
+
+	const std::string sizeToken = token.substr(sizeBegin, pos - sizeBegin);
+	u64 formatValue = 0ULL;
+	u64 sizeValue = 0ULL;
+	if (!parseUnsignedToken(formatToken, formatValue)
+		|| !parseUnsignedToken(sizeToken, sizeValue))
+		return false;
+	if (formatValue >= rvk2::kExecutorTextureFormatBuckets
+		|| sizeValue >= rvk2::kExecutorTextureSizeBuckets)
+		return false;
+
+	u8 mode = kTextureBucketMaskAny;
+	if (pos < token.size()) {
+		const std::string suffix = token.substr(pos);
+		if (suffix == "l" || suffix == "lut")
+			mode = kTextureBucketMaskLUTOnly;
+		else if (suffix == "n" || suffix == "nolut")
+			mode = kTextureBucketMaskNoLUT;
+		else
+			return false;
+	}
+
+	_format = static_cast<u8>(formatValue);
+	_size = static_cast<u8>(sizeValue);
+	_mode = mode;
+	return true;
+}
+
+DebugTextureBucketMaskConfig debugTextureBucketMaskConfig()
+{
+	static const DebugTextureBucketMaskConfig config = []() -> DebugTextureBucketMaskConfig {
+		DebugTextureBucketMaskConfig parsed{};
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TEXTURE_BUCKET_MASK");
+		if (raw == nullptr || raw[0] == '\0')
+			return parsed;
+
+		const std::string value(raw);
+		size_t begin = 0U;
+		while (begin <= value.size()) {
+			const size_t comma = value.find(',', begin);
+			const std::string token = trimAsciiWhitespace(
+				comma == std::string::npos
+					? value.substr(begin)
+					: value.substr(begin, comma - begin));
+			if (!token.empty()) {
+				const std::string lower = toLowerAscii(token);
+				if (lower == "off" || lower == "none")
+					return DebugTextureBucketMaskConfig{};
+				if (lower == "*" || lower == "all") {
+					parsed.enabled = true;
+					std::fill(
+						parsed.mode.begin(),
+						parsed.mode.end(),
+						static_cast<u8>(kTextureBucketMaskAny));
+				}
+				else {
+					u8 format = 0U;
+					u8 size = 0U;
+					u8 mode = kTextureBucketMaskDisabled;
+					if (parseTextureBucketMaskToken(lower, format, size, mode)) {
+						parsed.enabled = true;
+						const u32 index =
+							static_cast<u32>(format) * rvk2::kExecutorTextureSizeBuckets
+							+ static_cast<u32>(size);
+						parsed.mode[index] =
+							mergeTextureBucketMaskMode(parsed.mode[index], mode);
+					}
+				}
+			}
+
+			if (comma == std::string::npos)
+				break;
+			begin = comma + 1U;
+		}
+
+		return parsed;
+	}();
+	return config;
 }
 
 void applyTextureReplacementControlFile(
@@ -378,6 +782,8 @@ inline u32 mode1Word(const rvk2::RenderWorkPacket & _work)
 
 inline bool isImageReadEnabled(const rvk2::RenderWorkPacket & _work)
 {
+	if (debugDisableImageRead())
+		return false;
 	return (mode1Word(_work) & (1U << 6U)) != 0U;
 }
 
@@ -388,6 +794,10 @@ inline bool isAAEnabled(const rvk2::RenderWorkPacket & _work)
 
 inline bool isPipelineModeEnabled(const rvk2::RenderWorkPacket & _work)
 {
+	if (debugForcePipelineModeOn())
+		return true;
+	if (debugForcePipelineModeOff())
+		return false;
 	return (mode0Word(_work) & (1U << 23U)) != 0U;
 }
 
@@ -400,6 +810,8 @@ inline u8 decodeTextureFilterMode(const rvk2::RenderWorkPacket & _work)
 {
 	const u32 mode0 = mode0Word(_work);
 	const u8 filterModePrimary = static_cast<u8>((mode0 >> 12U) & 0x3U);
+	if (debugTextureFilterStrictPrimary())
+		return filterModePrimary;
 	if (filterModePrimary != 0U)
 		return filterModePrimary;
 	return static_cast<u8>((mode0 >> 10U) & 0x3U);
@@ -500,6 +912,26 @@ inline s32 clampS32FromS64(s64 _value)
 	if (_value > static_cast<s64>(std::numeric_limits<s32>::max()))
 		return std::numeric_limits<s32>::max();
 	return static_cast<s32>(_value);
+}
+
+inline s32 perspectiveDivideFixed16(s32 _coord, s32 _w)
+{
+	if (_w == 0)
+		return _coord;
+
+	const __int128 den = static_cast<__int128>(_w);
+	__int128 num = static_cast<__int128>(_coord) << 16U;
+	const __int128 absDen = den < 0 ? -den : den;
+	const __int128 round = absDen >> 1U;
+	const bool sameSign = (num >= 0) == (den >= 0);
+	num += sameSign ? round : -round;
+
+	const __int128 value = num / den;
+	if (value < static_cast<__int128>(std::numeric_limits<s32>::min()))
+		return std::numeric_limits<s32>::min();
+	if (value > static_cast<__int128>(std::numeric_limits<s32>::max()))
+		return std::numeric_limits<s32>::max();
+	return static_cast<s32>(value);
 }
 
 inline s32 wrapCoordPositive(s32 _value, s32 _period)
@@ -696,23 +1128,20 @@ inline u32 applyTextureFilterMode(
 	u32 _fracS,
 	u32 _fracT)
 {
-	if ((_filterMode & 0x3U) == 1U)
+	// N64 filter mode mapping:
+	// 0: point, 2: bilerp, 3: average (1 is reserved/invalid).
+	const u8 mode = static_cast<u8>(_filterMode & 0x3U);
+	if (mode == 2U) {
+		if (debugTextureFilterMode2UsesAverage())
+			return averageColorRGBA(_c00, _c10, _c01, _c11);
 		return bilerpColorRGBA(_c00, _c10, _c01, _c11, _fracS, _fracT);
-	if ((_filterMode & 0x3U) == 2U)
-		return averageColorRGBA(_c00, _c10, _c01, _c11);
-	if ((_filterMode & 0x3U) == 3U) {
-		const u32 bilerp = bilerpColorRGBA(_c00, _c10, _c01, _c11, _fracS, _fracT);
-		const auto sharpenChannel = [&](u32 _shift) -> u32 {
-			const u32 base = (bilerp >> _shift) & 0xFFU;
-			const u32 point = (_c00 >> _shift) & 0xFFU;
-			return (base * 3U + point + 2U) >> 2U;
-		};
-		const u32 r = sharpenChannel(24U);
-		const u32 g = sharpenChannel(16U);
-		const u32 b = sharpenChannel(8U);
-		const u32 a = sharpenChannel(0U);
-		return (r << 24U) | (g << 16U) | (b << 8U) | a;
 	}
+	if (mode == 1U)
+		return bilerpColorRGBA(_c00, _c10, _c01, _c11, _fracS, _fracT);
+	if (mode == 3U)
+		return debugTextureFilterMode3UsesBilerp()
+			? bilerpColorRGBA(_c00, _c10, _c01, _c11, _fracS, _fracT)
+			: averageColorRGBA(_c00, _c10, _c01, _c11);
 	return _c00;
 }
 
@@ -726,13 +1155,15 @@ inline void applyTextureCoordinateModes(
 	s64 s = static_cast<s64>(_s);
 	s64 t = static_cast<s64>(_t);
 	const s64 wAbs = absS64(static_cast<s64>(_w));
-	if (_includeW && isTexturePerspEnabled(_work) && wAbs > 0) {
-		const s64 denom = (wAbs >> 8U) + 1;
-		s = (s * 256 + (denom / 2)) / denom;
-		t = (t * 256 + (denom / 2)) / denom;
+	if (_includeW
+		&& isTexturePerspEnabled(_work)
+		&& !debugDisableTexturePerspCoord()
+		&& _w != 0) {
+		s = perspectiveDivideFixed16(static_cast<s32>(s), _w);
+		t = perspectiveDivideFixed16(static_cast<s32>(t), _w);
 	}
 
-	if (isTextureLodEnabled(_work)) {
+	if (isTextureLodEnabled(_work) && !debugDisableTextureLodCoord()) {
 		const s64 lod = _includeW
 			? std::min<s64>(255, wAbs >> 12U)
 			: std::min<s64>(255, (absS64(s) + absS64(t)) >> 8U);
@@ -752,6 +1183,8 @@ inline u32 applyTextureLUTModeColor(
 	u32 _rgba)
 {
 	(void)_seed;
+	if (debugDisableTextureLUTApply())
+		return _rgba;
 	const u8 lutMode = decodeTextureLUTMode(_work);
 	if (lutMode == 0U)
 		return _rgba;
@@ -795,9 +1228,38 @@ inline u32 applyTextureDetailModeColor(
 	u64 _seed,
 	u32 _rgba)
 {
-	(void)_work;
-	(void)_seed;
-	return _rgba;
+	const u8 mode = decodeTextureDetailMode(_work);
+	if (mode == 0U)
+		return _rgba;
+
+	s32 r = static_cast<s32>((_rgba >> 24U) & 0xFFU);
+	s32 g = static_cast<s32>((_rgba >> 16U) & 0xFFU);
+	s32 b = static_cast<s32>((_rgba >> 8U) & 0xFFU);
+	const u8 a = static_cast<u8>(_rgba & 0xFFU);
+	const s32 n0 = static_cast<s32>((_seed >> 8U) & 0xFFULL);
+	const s32 n1 = static_cast<s32>((_seed >> 24U) & 0xFFULL);
+	const s32 n2 = static_cast<s32>((_seed >> 40U) & 0xFFULL);
+
+	if (mode == 1U) {
+		r = 128 + ((r - 128) * 3) / 2;
+		g = 128 + ((g - 128) * 3) / 2;
+		b = 128 + ((b - 128) * 3) / 2;
+	}
+	else if (mode == 2U) {
+		r = (r * 3 + n0 + 2) / 4;
+		g = (g * 3 + n1 + 2) / 4;
+		b = (b * 3 + n2 + 2) / 4;
+	}
+	else {
+		r = (r + n0 + 1) / 2;
+		g = (g + n1 + 1) / 2;
+		b = (b + n2 + 1) / 2;
+	}
+
+	return (static_cast<u32>(clampChannelS32(r)) << 24U)
+		| (static_cast<u32>(clampChannelS32(g)) << 16U)
+		| (static_cast<u32>(clampChannelS32(b)) << 8U)
+		| static_cast<u32>(a);
 }
 
 inline u8 expand5To8(u8 _value)
@@ -838,6 +1300,192 @@ inline u16 readRdramU16Wrapped(u32 _address)
 	const u8 hi = readRdramByteWrapped(_address);
 	const u8 lo = readRdramByteWrapped(_address + 1U);
 	return static_cast<u16>((static_cast<u16>(hi) << 8U) | static_cast<u16>(lo));
+}
+
+inline u32 readRdramU32Wrapped(u32 _address)
+{
+	const u8 b0 = readRdramByteWrapped(_address + 0U);
+	const u8 b1 = readRdramByteWrapped(_address + 1U);
+	const u8 b2 = readRdramByteWrapped(_address + 2U);
+	const u8 b3 = readRdramByteWrapped(_address + 3U);
+	return (static_cast<u32>(b0) << 24U)
+		| (static_cast<u32>(b1) << 16U)
+		| (static_cast<u32>(b2) << 8U)
+		| static_cast<u32>(b3);
+}
+
+inline u8 readRdramPacked4(u32 _baseAddress, u64 _texelIndex)
+{
+	const u32 byteAddress = _baseAddress + static_cast<u32>(_texelIndex >> 1U);
+	const u8 packed = readRdramByteWrapped(byteAddress);
+	const bool lowNibble = (_texelIndex & 1ULL) != 0ULL;
+	return lowNibble
+		? static_cast<u8>(packed & 0x0FU)
+		: static_cast<u8>((packed >> 4U) & 0x0FU);
+}
+
+inline u8 readRdramTexel8(u32 _baseAddress, u64 _texelIndex)
+{
+	return readRdramByteWrapped(_baseAddress + static_cast<u32>(_texelIndex));
+}
+
+inline u16 readRdramTexel16(u32 _baseAddress, u64 _texelIndex)
+{
+	return readRdramU16Wrapped(_baseAddress + static_cast<u32>(_texelIndex << 1U));
+}
+
+inline u32 readRdramTexel32(u32 _baseAddress, u64 _texelIndex)
+{
+	return readRdramU32Wrapped(_baseAddress + static_cast<u32>(_texelIndex << 2U));
+}
+
+inline u32 decodeYUVSampleToPseudoRGBA(u8 _y, u8 _u, u8 _v)
+{
+	// Keep YUV sample unpack deterministic in RVK2 by encoding Y/V/U into RGB lanes.
+	return packRgba8(_y, _v, _u, 255U);
+}
+
+inline bool sampleTextureFromRDRAM(
+	const rvk2::RenderWorkPacket & _work,
+	s32 _s,
+	s32 _t,
+	u32 & _outRgba,
+	bool & _outNeedsLUT,
+	u8 & _outRejectReason)
+{
+	_outRejectReason = 0U;
+	if (!rdramReadable()) {
+		_outRejectReason = 3U;
+		return false;
+	}
+
+	const u8 format = (_work.tileFormat & 0x7U) <= 4U
+		? (_work.tileFormat & 0x7U)
+		: (_work.textureImageFormat & 0x7U);
+	const u8 size = _work.tileSize & 0x3U;
+	const u16 imageWidth = _work.textureImageWidth != 0U ? _work.textureImageWidth : 1U;
+	const u32 baseAddress = _work.textureImageAddress & 0x00FFFFFFU;
+	const u32 s = static_cast<u32>(_s & 0xFFFF);
+	const u32 t = static_cast<u32>(_t & 0xFFFF);
+	const u64 texelIndex = static_cast<u64>(t) * static_cast<u64>(imageWidth) + static_cast<u64>(s);
+	const u8 lutMode = decodeTextureLUTMode(_work);
+
+	_outNeedsLUT = false;
+	switch (size) {
+	case 0U: { // 4b
+		const u8 value4 = readRdramPacked4(baseAddress, texelIndex);
+		switch (format) {
+		case 2U: { // CI4
+			u8 index = value4;
+			if (lutMode != 0U) {
+				index = static_cast<u8>((_work.tilePalette << 4U) | index);
+				_outNeedsLUT = true;
+			}
+			_outRgba = packRgba8(index, index, index, 255U);
+			return true;
+		}
+		case 3U: { // IA3/1
+			const u8 intensity = expand3To8(static_cast<u8>((value4 >> 1U) & 0x07U));
+			const u8 alpha = (value4 & 0x1U) != 0U ? 255U : 0U;
+			_outRgba = packRgba8(intensity, intensity, intensity, alpha);
+			return true;
+		}
+		case 4U: { // I4
+			const u8 intensity = expand4To8(value4);
+			_outRgba = packRgba8(intensity, intensity, intensity, 255U);
+			return true;
+		}
+		default:
+			_outRejectReason = 1U;
+			return false;
+		}
+	}
+
+	case 1U: { // 8b
+		const u8 value8 = readRdramTexel8(baseAddress, texelIndex);
+		switch (format) {
+		case 2U: { // CI8
+			u8 index = value8;
+			if (lutMode != 0U)
+				_outNeedsLUT = true;
+			_outRgba = packRgba8(index, index, index, 255U);
+			return true;
+		}
+		case 3U: { // IA4/4
+			const u8 intensity = expand4To8(static_cast<u8>((value8 >> 4U) & 0x0FU));
+			const u8 alpha = expand4To8(static_cast<u8>(value8 & 0x0FU));
+			_outRgba = packRgba8(intensity, intensity, intensity, alpha);
+			return true;
+		}
+		case 4U: { // I8
+			_outRgba = packRgba8(value8, value8, value8, 255U);
+			return true;
+		}
+		default:
+			_outRejectReason = 1U;
+			return false;
+		}
+	}
+
+	case 2U: { // 16b
+		const u16 value16 = readRdramTexel16(baseAddress, texelIndex);
+		switch (format) {
+		case 0U: { // RGBA16
+			const u8 r5 = static_cast<u8>((value16 >> 11U) & 0x1FU);
+			const u8 g5 = static_cast<u8>((value16 >> 6U) & 0x1FU);
+			const u8 b5 = static_cast<u8>((value16 >> 1U) & 0x1FU);
+			const u8 a = (value16 & 0x1U) != 0U ? 255U : 0U;
+			_outRgba = packRgba8(expand5To8(r5), expand5To8(g5), expand5To8(b5), a);
+			return true;
+		}
+		case 1U: { // YUV16 (4:2:2 packed as U Y0 V Y1 per texel pair)
+			const u64 pairBaseTexel = texelIndex & ~1ULL;
+			const u32 pairAddress = baseAddress + static_cast<u32>(pairBaseTexel << 1U);
+			const u8 u = readRdramByteWrapped(pairAddress + 0U);
+			const u8 y0 = readRdramByteWrapped(pairAddress + 1U);
+			const u8 v = readRdramByteWrapped(pairAddress + 2U);
+			const u8 y1 = readRdramByteWrapped(pairAddress + 3U);
+			const u8 y = (texelIndex & 1ULL) != 0ULL ? y1 : y0;
+			_outRgba = decodeYUVSampleToPseudoRGBA(y, u, v);
+			return true;
+		}
+		case 2U: { // CI16 (low 8-bit index)
+			const u8 index = static_cast<u8>(value16 & 0xFFU);
+			if (lutMode != 0U)
+				_outNeedsLUT = true;
+			_outRgba = packRgba8(index, index, index, 255U);
+			return true;
+		}
+		case 3U: { // IA8/8
+			const u8 intensity = static_cast<u8>((value16 >> 8U) & 0xFFU);
+			const u8 alpha = static_cast<u8>(value16 & 0xFFU);
+			_outRgba = packRgba8(intensity, intensity, intensity, alpha);
+			return true;
+		}
+		default:
+			_outRejectReason = 1U;
+			return false;
+		}
+	}
+
+	case 3U: { // 32b
+		if (format != 0U) {
+			_outRejectReason = 1U;
+			return false;
+		}
+		const u32 value32 = readRdramTexel32(baseAddress, texelIndex);
+		const u8 r = static_cast<u8>((value32 >> 24U) & 0xFFU);
+		const u8 g = static_cast<u8>((value32 >> 16U) & 0xFFU);
+		const u8 b = static_cast<u8>((value32 >> 8U) & 0xFFU);
+		const u8 a = static_cast<u8>(value32 & 0xFFU);
+		_outRgba = packRgba8(r, g, b, a);
+		return true;
+	}
+
+	default:
+		_outRejectReason = 2U;
+		return false;
+	}
 }
 
 inline u8 readTmem4BitPaletteColor(u16 _offset, u16 _x, u16 _i)
@@ -887,6 +1535,13 @@ inline u32 bitsPerTexelFromSize(u8 _size)
 inline u32 xor13ForT(u16 _t)
 {
 	return (_t & 1U) != 0U ? 3U : 1U;
+}
+
+inline u32 xorForTmem32T(u16 _t)
+{
+	if (debugTmem32UseXor02())
+		return (_t & 1U) != 0U ? 2U : 0U;
+	return xor13ForT(_t);
 }
 
 inline s32 computeLegacySplit32LineStride(const rvk2::RenderWorkPacket & _work)
@@ -944,12 +1599,25 @@ inline u32 decodeAuthoritativeTMEM32Color(
 	u16 _s,
 	u16 _t)
 {
+	const bool highToLowRGBA = debugTmem32PackHighToLowRGBA();
+	if (debugTmem32UseDirectLinearFetch()) {
+		const u32 * tmem32 = reinterpret_cast<const u32 *>(activeTMEMWords());
+		const u16 i = static_cast<u16>((_t & 1U) << 1U);
+		const u16 tmemOffset = static_cast<u16>(
+			(_work.tileTmem + static_cast<u16>(_work.tileLine * _t)) & 0x1FFU);
+		const u32 packed = tmem32[
+			((static_cast<u32>(tmemOffset) << 1U)
+				+ (static_cast<u32>(_s) ^ static_cast<u32>(i)))
+			& 0x3FFU];
+		return packSplit32ToRGBA(packed, highToLowRGBA);
+	}
+
 	// Authoritative 32b TMEM path follows legacy loader addressing:
 	// split GR/AB words, odd/even row XOR, and line32 stride derived from tile span.
 	const s32 lineStride = computeLegacySplit32LineStride(_work);
 	return packSplit32ToRGBA(
-		readTmem32SplitPacked(_work, _s, _t, lineStride, xor13ForT(_t)),
-		false);
+		readTmem32SplitPacked(_work, _s, _t, lineStride, xorForTmem32T(_t)),
+		highToLowRGBA);
 }
 
 inline void applyTileDescriptorToWork(
@@ -994,6 +1662,8 @@ inline const rvk2::RenderWorkPacket & selectTexelSlotWork(
 	bool _texel1Slot,
 	rvk2::RenderWorkPacket & _scratch)
 {
+	if (_texel1Slot && debugForceTexel1UsesTile0())
+		return _work;
 	if (!_texel1Slot || !_work.tile1Valid)
 		return _work;
 	_scratch = _work;
@@ -1193,6 +1863,83 @@ enum : u32
 	kTexelSourceSyntheticBit = 1U << 3U,
 };
 
+inline u8 effectiveTextureFormat(const rvk2::RenderWorkPacket & _work)
+{
+	const u8 tileFormat = static_cast<u8>(_work.tileFormat & 0x7U);
+	if (tileFormat <= 4U)
+		return tileFormat;
+	return static_cast<u8>(_work.textureImageFormat & 0x7U);
+}
+
+inline u8 effectiveTextureSize(const rvk2::RenderWorkPacket & _work)
+{
+	return static_cast<u8>(_work.tileSize & 0x3U);
+}
+
+inline bool debugTextureBucketMaskAllowsSample(
+	const rvk2::RenderWorkPacket & _work,
+	bool _needsLUT)
+{
+	const DebugTextureBucketMaskConfig config = debugTextureBucketMaskConfig();
+	if (!config.enabled)
+		return true;
+
+	const u8 format = effectiveTextureFormat(_work);
+	const u8 size = effectiveTextureSize(_work);
+	bool allowed = false;
+	if (format < rvk2::kExecutorTextureFormatBuckets
+		&& size < rvk2::kExecutorTextureSizeBuckets) {
+		const u32 index =
+			static_cast<u32>(format) * rvk2::kExecutorTextureSizeBuckets
+			+ static_cast<u32>(size);
+		const u8 mode = config.mode[index];
+		if (mode == kTextureBucketMaskAny)
+			allowed = true;
+		else if (mode == kTextureBucketMaskLUTOnly)
+			allowed = _needsLUT;
+		else if (mode == kTextureBucketMaskNoLUT)
+			allowed = !_needsLUT;
+	}
+
+	if (gActiveExecutorSummary != nullptr) {
+		if (allowed)
+			++gActiveExecutorSummary->textureBucketMaskAllowCount;
+		else
+			++gActiveExecutorSummary->textureBucketMaskRejectCount;
+	}
+
+	return allowed;
+}
+
+inline void recordTextureSampleMode(
+	const rvk2::RenderWorkPacket & _work,
+	bool _needsLUT)
+{
+	if (gActiveExecutorSummary == nullptr)
+		return;
+
+	const u8 filterMode = static_cast<u8>(decodeTextureFilterMode(_work) & 0x3U);
+	const u8 lutMode = static_cast<u8>(decodeTextureLUTMode(_work) & 0x3U);
+	++gActiveExecutorSummary->textureFilterModeSampleCount[filterMode];
+	++gActiveExecutorSummary->textureLUTModeSampleCount[lutMode];
+
+	const u8 format = effectiveTextureFormat(_work);
+	const u8 size = effectiveTextureSize(_work);
+	if (format < rvk2::kExecutorTextureFormatBuckets)
+		++gActiveExecutorSummary->textureFormatSampleCount[format];
+	if (size < rvk2::kExecutorTextureSizeBuckets)
+		++gActiveExecutorSummary->textureSizeSampleCount[size];
+	if (format < rvk2::kExecutorTextureFormatBuckets
+		&& size < rvk2::kExecutorTextureSizeBuckets) {
+		const u32 index =
+			static_cast<u32>(format) * rvk2::kExecutorTextureSizeBuckets
+			+ static_cast<u32>(size);
+		++gActiveExecutorSummary->textureFormatSizeSampleCount[index];
+		if (_needsLUT)
+			++gActiveExecutorSummary->textureFormatSizeLUTSampleCount[index];
+	}
+}
+
 inline u32 samplePseudoTexelColor(
 	const rvk2::RenderWorkPacket & _work,
 	s32 _s,
@@ -1205,11 +1952,16 @@ inline u32 samplePseudoTexelColor(
 {
 	if (gActiveExecutorSummary != nullptr)
 		++gActiveExecutorSummary->textureSampleCount;
+	const bool lutModeEnabled = decodeTextureLUTMode(_work) != 0U;
 	if (const rvk2::TextureReplacementImage * replacement =
 			findTextureReplacementImage(_work, _s, _t, _w, _includeW)) {
 		if (_sourceBits != nullptr)
 			*_sourceBits |= kTexelSourceReplacementBit;
-		return rvk2::sampleTextureReplacementImage(*replacement, _s, _t);
+		const u32 replacementColor =
+			rvk2::sampleTextureReplacementImage(*replacement, _s, _t);
+		if (!debugTextureBucketMaskAllowsSample(_work, lutModeEnabled))
+			return 0x000000FFU;
+		return replacementColor;
 	}
 
 	u64 seed = buildTextureSeedBase(_work);
@@ -1234,6 +1986,7 @@ inline u32 samplePseudoTexelColor(
 			sampledColor,
 			needsLUT,
 			tmemReject)) {
+		recordTextureSampleMode(_work, needsLUT);
 		if (gActiveExecutorSummary != nullptr) {
 			++gActiveExecutorSummary->textureTmemSampleCount;
 			if (needsLUT)
@@ -1243,7 +1996,12 @@ inline u32 samplePseudoTexelColor(
 			*_sourceBits |= kTexelSourceTMEMBit;
 		if (needsLUT)
 			sampledColor = applyTextureLUTModeColor(_work, seed, sampledColor);
-		return applyTextureDetailModeColor(_work, seed, sampledColor);
+		if (debugForceAllTexelAlphaOpaque())
+			sampledColor = (sampledColor & 0xFFFFFF00U) | 0x000000FFU;
+		sampledColor = applyTextureDetailModeColor(_work, seed, sampledColor);
+		if (!debugTextureBucketMaskAllowsSample(_work, needsLUT))
+			return 0x000000FFU;
+		return sampledColor;
 	}
 	if (gActiveExecutorSummary != nullptr) {
 		if (tmemReject == 1U)
@@ -1253,8 +2011,35 @@ inline u32 samplePseudoTexelColor(
 		else if (tmemReject == 3U)
 			++gActiveExecutorSummary->textureTmemRejectCoordCount;
 	}
-	// Keep textured sampling TMEM-authoritative in RVK2: unsupported/rejected
-	// TMEM decodes fall through to synthetic diagnostics instead of RDRAM.
+	needsLUT = false;
+	u8 rdramReject = 0U;
+	if (sampleTextureFromRDRAM(
+			_work,
+			_s,
+			_t,
+			sampledColor,
+			needsLUT,
+			rdramReject)) {
+		(void)rdramReject;
+		recordTextureSampleMode(_work, needsLUT);
+		if (gActiveExecutorSummary != nullptr)
+			++gActiveExecutorSummary->textureRdramSampleCount;
+		if (_sourceBits != nullptr)
+			*_sourceBits |= kTexelSourceRdramBit;
+		if (needsLUT) {
+			if (gActiveExecutorSummary != nullptr)
+				++gActiveExecutorSummary->textureLUTSampleCount;
+			sampledColor = applyTextureLUTModeColor(_work, seed, sampledColor);
+		}
+		if (debugForceAllTexelAlphaOpaque())
+			sampledColor = (sampledColor & 0xFFFFFF00U) | 0x000000FFU;
+		sampledColor = applyTextureDetailModeColor(_work, seed, sampledColor);
+		if (!debugTextureBucketMaskAllowsSample(_work, needsLUT))
+			return 0x000000FFU;
+		return sampledColor;
+	}
+	// Keep TMEM as the primary path. If TMEM decode rejects, attempt direct
+	// RDRAM decode as a best-effort fallback before synthetic diagnostics.
 	if (gActiveExecutorSummary != nullptr)
 		++gActiveExecutorSummary->textureSyntheticSampleCount;
 	if (_sourceBits != nullptr)
@@ -1289,12 +2074,17 @@ inline u32 samplePseudoTexelColor(
 		| (static_cast<u32>(g) << 16)
 		| (static_cast<u32>(b) << 8)
 		| static_cast<u32>(a);
-	if (decodeTextureLUTMode(_work) != 0U) {
+	recordTextureSampleMode(_work, lutModeEnabled);
+	if (lutModeEnabled) {
 		if (gActiveExecutorSummary != nullptr)
 			++gActiveExecutorSummary->textureLUTSampleCount;
 		rgba = applyTextureLUTModeColor(_work, seed, rgba);
 	}
+	if (debugForceAllTexelAlphaOpaque())
+		rgba = (rgba & 0xFFFFFF00U) | 0x000000FFU;
 	rgba = applyTextureDetailModeColor(_work, seed, rgba);
+	if (!debugTextureBucketMaskAllowsSample(_work, lutModeEnabled))
+		return 0x000000FFU;
 	return rgba;
 }
 
@@ -1846,6 +2636,8 @@ inline u32 pseudoTriangleColor(
 	u32 _x,
 	u32 _y)
 {
+	if (debugPseudoTriangleUsePrimColor())
+		return _work.primColor;
 	u64 seed = static_cast<u64>(_work.combineMux);
 	seed ^= static_cast<u64>(_work.blendParams) << 29U;
 	seed ^= static_cast<u64>(_work.sourcePacketId) << 7U;
@@ -2140,7 +2932,9 @@ inline u32 applySyntheticCombiner(
 {
 	(void)_dstColor;
 	const bool useCycle2Selectors =
-		_cycle2Selectors || _work.phase == static_cast<u8>(rvk2::RenderPhase::kCycle1);
+		_cycle2Selectors
+		|| (_work.phase == static_cast<u8>(rvk2::RenderPhase::kCycle1)
+			&& !debugCycle1CombinerUseCycle1Selectors());
 	if (_summary != nullptr) {
 		++_summary->combinerOpCount;
 		if (useCycle2Selectors)
@@ -2497,15 +3291,22 @@ inline u32 applySyntheticBlender(
 		selectColorSource(selectors.m2a, selector0.b, memory.b, blendState.b, fogState.b),
 		memory.a
 	};
+	ColorRGBA mResolved = m;
+	if (debugDisableBlendMemoryColorSource() && (selectors.m2a & 0x3U) == 1U) {
+		mResolved.r = p.r;
+		mResolved.g = p.g;
+		mResolved.b = p.b;
+	}
 	const bool needsCoverageAsAlphaB = (selectors.m2b & 0x3U) == 1U;
 
 	const bool useCoverageControls =
+		!debugDisableCoverageControls() && (
 		_work.colorOnCvg
 		|| _work.cvgXAlpha
 		|| _work.alphaCvgSel
 		|| _work.cvgDest != 0U
 		|| _work.blendMask != 0U
-		|| needsCoverageAsAlphaB;
+		|| needsCoverageAsAlphaB);
 	SyntheticCoverageSample coverage{};
 	coverage.destination = static_cast<u8>(std::min<u32>(7U, static_cast<u32>(_memoryCoverage & 0x7U)));
 	coverage.resolved = coverage.destination;
@@ -2551,14 +3352,17 @@ inline u32 applySyntheticBlender(
 	}
 	ColorRGBA out = p;
 	const bool blendEnabled = _work.forceBlender || aaEnable;
-	const bool colorOnCvgInhibitColorWrite = _work.colorOnCvg && !coverage.overflow;
+	const bool colorOnCvgInhibitColorWrite =
+		_work.colorOnCvg
+		&& !coverage.overflow
+		&& !debugDisableColorOnCvgInhibit();
 	if (_summary != nullptr && blendEnabled)
 		++_summary->blenderEnabledOpCount;
 	if (colorOnCvgInhibitColorWrite) {
 		// color_on_cvg inhibit path writes blender M input (2B path) verbatim.
-		out.r = m.r;
-		out.g = m.g;
-		out.b = m.b;
+		out.r = mResolved.r;
+		out.g = mResolved.g;
+		out.b = mResolved.b;
 	}
 	else if (blendEnabled) {
 		const u32 a5 = static_cast<u32>(alphaA >> 3U);
@@ -2582,9 +3386,9 @@ inline u32 applySyntheticBlender(
 			}
 			return static_cast<u8>((numer + 16U) >> 5U);
 		};
-		out.r = blendChannelResolved(p.r, m.r);
-		out.g = blendChannelResolved(p.g, m.g);
-		out.b = blendChannelResolved(p.b, m.b);
+		out.r = blendChannelResolved(p.r, mResolved.r);
+		out.g = blendChannelResolved(p.g, mResolved.g);
+		out.b = blendChannelResolved(p.b, mResolved.b);
 	}
 	out.a = src.a;
 
@@ -2595,8 +3399,9 @@ inline u32 applySyntheticBlender(
 			(static_cast<u32>(out.a) * static_cast<u32>(inputCoverageAlpha) + 127U) / 255U);
 	}
 
-	const u8 colorDitherMode = decodeColorDitherMode(_work);
-	const u8 alphaDitherMode = decodeAlphaDitherMode(_work);
+	const bool disableDither = debugDisableBlenderDither();
+	const u8 colorDitherMode = disableDither ? 0U : decodeColorDitherMode(_work);
+	const u8 alphaDitherMode = disableDither ? 0U : decodeAlphaDitherMode(_work);
 	if (colorDitherMode != 0U || alphaDitherMode != 0U) {
 		// Under active scissoring, the Y dither index uses bits [2:1].
 		const u32 ditherY = hasExplicitScissor(_work) ? (_y >> 1U) : _y;
@@ -2642,6 +3447,11 @@ inline u32 applySyntheticBlender(
 		out.a = 255U;
 	}
 	return packRGBA(out);
+}
+
+inline u32 forceOpaqueAlpha(u32 _rgba)
+{
+	return (_rgba & 0xFFFFFF00U) | 0x000000FFU;
 }
 
 inline u32 applySyntheticBlender(
@@ -3039,19 +3849,22 @@ inline u32 runSyntheticPhasePipeline(
 			false,
 			_summary);
 		combinerColor = cycle1CombinedColor;
-		blenderColor = applySyntheticBlender(
-			_work,
-			combinerColor,
-			combinerColor,
-			_dstColor,
-			coverageDestination,
-			_dstHiddenCoverage,
-			_x,
-			_y,
-			false,
-			shadeAlpha,
-			_summary,
-			shadeAlphaNext);
+		blenderColor =
+			debugBypassBlender()
+				? combinerColor
+				: applySyntheticBlender(
+					_work,
+					combinerColor,
+					combinerColor,
+					_dstColor,
+					coverageDestination,
+					_dstHiddenCoverage,
+					_x,
+					_y,
+					false,
+					shadeAlpha,
+					_summary,
+					shadeAlphaNext);
 		finalColor = blenderColor;
 	}
 	else {
@@ -3067,19 +3880,22 @@ inline u32 runSyntheticPhasePipeline(
 			_y,
 			false,
 			_summary);
-		const u32 cycle1Color = applySyntheticBlender(
-			_work,
-			cycle1CombinedColor,
-			cycle1CombinedColor,
-			_cycle2Cycle1DstColor,
-			_cycle2Cycle1DstCoverage,
-			_cycle2Cycle1DstHiddenCoverage,
-			_x,
-			_y,
-			false,
-			shadeAlpha,
-			_summary,
-			shadeAlphaNext);
+		const u32 cycle1Color =
+			debugBypassBlender()
+				? cycle1CombinedColor
+				: applySyntheticBlender(
+					_work,
+					cycle1CombinedColor,
+					cycle1CombinedColor,
+					_cycle2Cycle1DstColor,
+					_cycle2Cycle1DstCoverage,
+					_cycle2Cycle1DstHiddenCoverage,
+					_x,
+					_y,
+					false,
+					shadeAlpha,
+					_summary,
+					shadeAlphaNext);
 		combinerColor = applySyntheticCombiner(
 			_work,
 			_texel0Color,
@@ -3092,19 +3908,22 @@ inline u32 runSyntheticPhasePipeline(
 			_y,
 			true,
 			_summary);
-		blenderColor = applySyntheticBlender(
-			_work,
-			combinerColor,
-			cycle1Color,
-			_dstColor,
-			_dstCoverage,
-			_dstHiddenCoverage,
-			_x,
-			_y,
-			true,
-			shadeAlpha,
-			_summary,
-			shadeAlphaNext);
+		blenderColor =
+			debugBypassBlender()
+				? combinerColor
+				: applySyntheticBlender(
+					_work,
+					combinerColor,
+					cycle1Color,
+					debugCycle2SecondPassMemoryFromCycle1() ? cycle1Color : _dstColor,
+					_dstCoverage,
+					_dstHiddenCoverage,
+					_x,
+					_y,
+					true,
+					shadeAlpha,
+					_summary,
+					shadeAlphaNext);
 		finalColor = blenderColor;
 	}
 
@@ -3254,6 +4073,11 @@ void writeRect(
 					y,
 					false,
 					&textureSourceBits);
+				if (debugForceTexelAlphaOpaque() && _work.textured) {
+					textureColor = forceOpaqueAlpha(textureColor);
+					texel1Color = forceOpaqueAlpha(texel1Color);
+					texel0NextColor = forceOpaqueAlpha(texel0NextColor);
+				}
 				finalColor = runSyntheticPhasePipeline(
 					_work,
 					textureColor,

@@ -65,6 +65,7 @@ inline void submitRvk2SyntheticTriangle(
 		gDP.otherMode.depthCompare != 0U
 		&& (((gSP.geometryMode & G_ZBUFFER) != 0U) || gDP.otherMode.depthSource == G_ZS_PRIM);
 	const bool shade = (gSP.geometryMode & G_SHADE) != 0U;
+	const bool texturePersp = gDP.otherMode.texturePersp != 0U;
 	const u8 tile = static_cast<u8>(gSP.texture.tile & 0x7U);
 	const u8 level = static_cast<u8>(gSP.texture.level & 0x7U);
 	rvk2::synthetic_triangle::submit(
@@ -74,6 +75,7 @@ inline void submitRvk2SyntheticTriangle(
 		shade,
 		textured,
 		depthTest,
+		texturePersp,
 		tile,
 		level,
 		currentRvk2SyntheticTriangleAddress(),

@@ -67,6 +67,15 @@ inline s32 clampS32FromDouble(double _value)
 	return static_cast<s32>(std::llround(_value));
 }
 
+inline s32 clampS32FromS64(s64 _value)
+{
+	if (_value < static_cast<s64>(std::numeric_limits<s32>::min()))
+		return std::numeric_limits<s32>::min();
+	if (_value > static_cast<s64>(std::numeric_limits<s32>::max()))
+		return std::numeric_limits<s32>::max();
+	return static_cast<s32>(_value);
+}
+
 inline AttributePlane fitPlane(
 	const SPVertex & _v0,
 	const SPVertex & _v1,
@@ -129,6 +138,15 @@ inline s32 textureWToFixed16(f32 _value)
 {
 	const double absW = std::max(1.0e-6, std::fabs(static_cast<double>(_value)));
 	return clampS32FromDouble(65536.0 / absW);
+}
+
+inline s32 perspectivePredivideCoord5(s32 _coord5, s32 _wFixed16)
+{
+	if (_wFixed16 == 0)
+		return _coord5;
+	const s64 scaled = static_cast<s64>(_coord5) * static_cast<s64>(_wFixed16);
+	const s64 round = scaled >= 0 ? static_cast<s64>(1ULL << 15U) : -static_cast<s64>(1ULL << 15U);
+	return clampS32FromS64((scaled + round) >> 16U);
 }
 
 inline s32 depthToFixed16(f32 _value)
@@ -275,6 +293,7 @@ inline bool buildCommand(
 	const SPVertex & _v1,
 	const SPVertex & _v2,
 	u8 _opcode,
+	bool _texturePersp,
 	u8 _tile,
 	u8 _level,
 	TriangleCommand & _command)
@@ -327,21 +346,37 @@ inline bool buildCommand(
 	}
 
 	if (isTextureOpcode(_opcode)) {
+		const s32 w0 = detail::textureWToFixed16(_v0.w);
+		const s32 w1 = detail::textureWToFixed16(_v1.w);
+		const s32 w2 = detail::textureWToFixed16(_v2.w);
+		const s32 s0 = detail::texCoordToCoord5(_v0.s);
+		const s32 s1 = detail::texCoordToCoord5(_v1.s);
+		const s32 s2 = detail::texCoordToCoord5(_v2.s);
+		const s32 t0 = detail::texCoordToCoord5(_v0.t);
+		const s32 t1 = detail::texCoordToCoord5(_v1.t);
+		const s32 t2 = detail::texCoordToCoord5(_v2.t);
+		const s32 s0Packed = _texturePersp ? detail::perspectivePredivideCoord5(s0, w0) : s0;
+		const s32 s1Packed = _texturePersp ? detail::perspectivePredivideCoord5(s1, w1) : s1;
+		const s32 s2Packed = _texturePersp ? detail::perspectivePredivideCoord5(s2, w2) : s2;
+		const s32 t0Packed = _texturePersp ? detail::perspectivePredivideCoord5(t0, w0) : t0;
+		const s32 t1Packed = _texturePersp ? detail::perspectivePredivideCoord5(t1, w1) : t1;
+		const s32 t2Packed = _texturePersp ? detail::perspectivePredivideCoord5(t2, w2) : t2;
+
 		const detail::AttributePlane sPlane = detail::fitPlane(
 			_v0, _v1, _v2,
-			static_cast<double>(detail::texCoordToCoord5(_v0.s)),
-			static_cast<double>(detail::texCoordToCoord5(_v1.s)),
-			static_cast<double>(detail::texCoordToCoord5(_v2.s)));
+			static_cast<double>(s0Packed),
+			static_cast<double>(s1Packed),
+			static_cast<double>(s2Packed));
 		const detail::AttributePlane tPlane = detail::fitPlane(
 			_v0, _v1, _v2,
-			static_cast<double>(detail::texCoordToCoord5(_v0.t)),
-			static_cast<double>(detail::texCoordToCoord5(_v1.t)),
-			static_cast<double>(detail::texCoordToCoord5(_v2.t)));
+			static_cast<double>(t0Packed),
+			static_cast<double>(t1Packed),
+			static_cast<double>(t2Packed));
 		const detail::AttributePlane wPlane = detail::fitPlane(
 			_v0, _v1, _v2,
-			static_cast<double>(detail::textureWToFixed16(_v0.w)),
-			static_cast<double>(detail::textureWToFixed16(_v1.w)),
-			static_cast<double>(detail::textureWToFixed16(_v2.w)));
+			static_cast<double>(w0),
+			static_cast<double>(w1),
+			static_cast<double>(w2));
 
 		std::array<u32, 16> textureWords{};
 		appendPairWords(sPlane.base, tPlane.base, 0U, 4U, textureWords);
@@ -382,6 +417,7 @@ inline bool submit(
 	bool _shade,
 	bool _textured,
 	bool _depthTest,
+	bool _texturePersp,
 	u8 _tile,
 	u8 _level,
 	u32 _dlistAddress,
@@ -389,7 +425,7 @@ inline bool submit(
 {
 	const u8 opcode = selectOpcode(_shade, _textured, _depthTest);
 	TriangleCommand command{};
-	if (!buildCommand(_v0, _v1, _v2, opcode, _tile, _level, command))
+	if (!buildCommand(_v0, _v1, _v2, opcode, _texturePersp, _tile, _level, command))
 		return false;
 
 	const u8 inlineWordCount = static_cast<u8>(std::min<u32>(command.payloadWordCount, 6U));

@@ -14,6 +14,10 @@ using ExecutorTMEMSnapshot = std::array<u64, 512>;
 
 constexpr u32 kExecutorDebugSurfaceSlots = 4U;
 constexpr u32 kExecutorStageDeltaClassBuckets = 32U;
+constexpr u32 kExecutorTextureFormatBuckets = 5U;
+constexpr u32 kExecutorTextureSizeBuckets = 4U;
+constexpr u32 kExecutorTextureFormatSizeBuckets =
+	kExecutorTextureFormatBuckets * kExecutorTextureSizeBuckets;
 
 enum ExecutorPresentSelectionReason : u8
 {
@@ -113,6 +117,14 @@ struct ExecutorSummary {
 	u64 textureRdramSampleCount = 0ULL;
 	u64 textureSyntheticSampleCount = 0ULL;
 	u64 textureLUTSampleCount = 0ULL;
+	std::array<u64, 4> textureFilterModeSampleCount{};
+	std::array<u64, 4> textureLUTModeSampleCount{};
+	std::array<u64, kExecutorTextureFormatBuckets> textureFormatSampleCount{};
+	std::array<u64, kExecutorTextureSizeBuckets> textureSizeSampleCount{};
+	std::array<u64, kExecutorTextureFormatSizeBuckets> textureFormatSizeSampleCount{};
+	std::array<u64, kExecutorTextureFormatSizeBuckets> textureFormatSizeLUTSampleCount{};
+	u64 textureBucketMaskAllowCount = 0ULL;
+	u64 textureBucketMaskRejectCount = 0ULL;
 	u64 combinerOpCount = 0ULL;
 	u64 combinerCycle2SelectorOpCount = 0ULL;
 	u64 blenderOpCount = 0ULL;

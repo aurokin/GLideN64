@@ -21,6 +21,7 @@ CAPTURE_DEPTH_SUMMARY="${REALITYVK_PM_CAPTURE_DEPTH_SUMMARY:-1}"
 REQUIRE_NO_DEPTH_BLIT_FAIL="${REALITYVK_PM_REQUIRE_NO_DEPTH_BLIT_FAIL:-0}"
 REQUIRE_DEPTH_BLIT_STATS="${REALITYVK_PM_REQUIRE_DEPTH_BLIT_STATS:-0}"
 REQUIRE_NON_BLACK_CAPTURE="${REALITYVK_PM_REQUIRE_NON_BLACK_CAPTURE:-1}"
+VALIDATE_CACHED_REFERENCE_CAPTURE="${REALITYVK_PM_VALIDATE_CACHED_REFERENCE_CAPTURE:-0}"
 CAPTURE_RETRY_COUNT="${REALITYVK_PM_CAPTURE_RETRY_COUNT:-6}"
 CAPTURE_RETRY_STEP_FRAMES="${REALITYVK_PM_CAPTURE_RETRY_STEP_FRAMES:-20}"
 CAPTURE_RETRY_RESUME_MS="${REALITYVK_PM_CAPTURE_RETRY_RESUME_MS:-250}"
@@ -29,6 +30,13 @@ CAPTURE_MIN_MEAN_LUMA="${REALITYVK_PM_CAPTURE_MIN_MEAN_LUMA:-0.002}"
 # Paper Mario parity defaults to explicit agent-side flip so captures match live window orientation.
 # Override with REALITYVK_PM_DUMPFB_FLIP_Y=0 when raw dump orientation is needed.
 DUMPFB_FLIP_Y="${REALITYVK_PM_DUMPFB_FLIP_Y:-1}"
+RVK2_PRESENT_FLIP_Y="${REALITYVK_PM_RVK2_PRESENT_FLIP_Y:-1}"
+REFERENCE_CAPTURE_METHOD="${REALITYVK_PM_REFERENCE_CAPTURE_METHOD:-screenshot}"
+CANDIDATE_CAPTURE_METHOD="${REALITYVK_PM_CANDIDATE_CAPTURE_METHOD:-dumpfb-preset}"
+SCREENSHOT_DIR="${REALITYVK_PM_SCREENSHOT_DIR:-${HOME}/.local/share/mupen64plus/screenshot}"
+SCREENSHOT_FLIP_Y="${REALITYVK_PM_SCREENSHOT_FLIP_Y:-auto}"
+SCREENSHOT_FLIP_Y_EFFECTIVE=""
+CAPTURE_SCALE_DIV="${REALITYVK_PM_CAPTURE_SCALE_DIV:-1}"
 LAUNCH_WITH_PTY="${REALITYVK_PM_LAUNCH_WITH_PTY:-1}"
 
 if [[ ! -f "${MANIFEST}" ]]; then
@@ -66,6 +74,11 @@ if [[ "${REQUIRE_NON_BLACK_CAPTURE}" != "0" && "${REQUIRE_NON_BLACK_CAPTURE}" !=
   exit 2
 fi
 
+if [[ "${VALIDATE_CACHED_REFERENCE_CAPTURE}" != "0" && "${VALIDATE_CACHED_REFERENCE_CAPTURE}" != "1" ]]; then
+  echo "ERROR: REALITYVK_PM_VALIDATE_CACHED_REFERENCE_CAPTURE must be 0 or 1." >&2
+  exit 2
+fi
+
 if ! [[ "${CAPTURE_RETRY_COUNT}" =~ ^[0-9]+$ ]]; then
   echo "ERROR: REALITYVK_PM_CAPTURE_RETRY_COUNT must be an integer >= 0." >&2
   exit 2
@@ -93,6 +106,37 @@ fi
 
 if [[ "${DUMPFB_FLIP_Y}" != "0" && "${DUMPFB_FLIP_Y}" != "1" ]]; then
   echo "ERROR: REALITYVK_PM_DUMPFB_FLIP_Y must be 0 or 1." >&2
+  exit 2
+fi
+
+if [[ "${RVK2_PRESENT_FLIP_Y}" != "0" && "${RVK2_PRESENT_FLIP_Y}" != "1" ]]; then
+  echo "ERROR: REALITYVK_PM_RVK2_PRESENT_FLIP_Y must be 0 or 1." >&2
+  exit 2
+fi
+
+if [[ "${SCREENSHOT_FLIP_Y}" != "0" && "${SCREENSHOT_FLIP_Y}" != "1" && "${SCREENSHOT_FLIP_Y}" != "auto" ]]; then
+  echo "ERROR: REALITYVK_PM_SCREENSHOT_FLIP_Y must be 0, 1, or auto." >&2
+  exit 2
+fi
+
+if [[ "${SCREENSHOT_FLIP_Y}" == "auto" ]]; then
+  # Match screenshot orientation to dumpfb by default.
+  if [[ "${DUMPFB_FLIP_Y}" == "1" ]]; then
+    SCREENSHOT_FLIP_Y_EFFECTIVE="0"
+  else
+    SCREENSHOT_FLIP_Y_EFFECTIVE="1"
+  fi
+else
+  SCREENSHOT_FLIP_Y_EFFECTIVE="${SCREENSHOT_FLIP_Y}"
+fi
+
+if [[ "${REFERENCE_CAPTURE_METHOD}" != "dumpfb-preset" && "${REFERENCE_CAPTURE_METHOD}" != "screenshot" ]]; then
+  echo "ERROR: REALITYVK_PM_REFERENCE_CAPTURE_METHOD must be 'dumpfb-preset' or 'screenshot'." >&2
+  exit 2
+fi
+
+if [[ "${CANDIDATE_CAPTURE_METHOD}" != "dumpfb-preset" && "${CANDIDATE_CAPTURE_METHOD}" != "screenshot" ]]; then
+  echo "ERROR: REALITYVK_PM_CANDIDATE_CAPTURE_METHOD must be 'dumpfb-preset' or 'screenshot'." >&2
   exit 2
 fi
 
@@ -144,8 +188,17 @@ fi
 
 mkdir -p "${CACHE_ROOT}" "${RUN_ROOT}"
 
-REFERENCE_CAPTURE_METHOD_TAG="dumpfb_flip${DUMPFB_FLIP_Y}"
-REFERENCE_CAPTURE="${CACHE_ROOT}/${SCENARIO_ID}.${REFERENCE_CAPTURE_METHOD_TAG}.reference.ppm"
+capture_method_tag() {
+  local method="$1"
+  if [[ "${method}" == "screenshot" ]]; then
+    echo "screenshot_scale${CAPTURE_SCALE_DIV}_flip${SCREENSHOT_FLIP_Y_EFFECTIVE}"
+    return
+  fi
+  echo "dumpfb_flip${DUMPFB_FLIP_Y}"
+}
+
+REFERENCE_CAPTURE_METHOD_TAG=""
+REFERENCE_CAPTURE=""
 CANDIDATE_CAPTURE="${RUN_ROOT}/${SCENARIO_ID}.candidate.ppm"
 DIFF_OUT="${RUN_ROOT}/${SCENARIO_ID}.diff.png"
 METRICS_OUT="${RUN_ROOT}/${SCENARIO_ID}.metrics.json"
@@ -153,7 +206,7 @@ CAPTURE_CONTEXT_OUT="${RUN_ROOT}/${SCENARIO_ID}.capture-context.json"
 REFERENCE_PNG="${RUN_ROOT}/${SCENARIO_ID}.reference.png"
 CANDIDATE_PNG="${RUN_ROOT}/${SCENARIO_ID}.candidate.png"
 
-CANDIDATE_CAPTURE_METHOD_TAG="dumpfb_flip${DUMPFB_FLIP_Y}"
+CANDIDATE_CAPTURE_METHOD_TAG=""
 
 SCENARIO_ARGS_ARRAY=()
 if [[ -n "${SCENARIO_ARGS// }" ]]; then
@@ -161,13 +214,45 @@ if [[ -n "${SCENARIO_ARGS// }" ]]; then
   SCENARIO_ARGS_ARRAY=(${SCENARIO_ARGS})
 fi
 
+if ! [[ "${CAPTURE_SCALE_DIV}" =~ ^[0-9]+$ ]] || [[ "${CAPTURE_SCALE_DIV}" == "0" ]]; then
+  echo "ERROR: REALITYVK_PM_CAPTURE_SCALE_DIV must be an integer >= 1." >&2
+  exit 2
+fi
+
+if ((${#SCENARIO_ARGS_ARRAY[@]})); then
+  for ((arg_i = 0; arg_i < ${#SCENARIO_ARGS_ARRAY[@]}; ++arg_i)); do
+    token="${SCENARIO_ARGS_ARRAY[arg_i]}"
+    if [[ "${token}" == "--scale-div" ]]; then
+      if ((arg_i + 1 < ${#SCENARIO_ARGS_ARRAY[@]})); then
+        CAPTURE_SCALE_DIV="${SCENARIO_ARGS_ARRAY[arg_i + 1]}"
+      fi
+      continue
+    fi
+    if [[ "${token}" == --scale-div=* ]]; then
+      CAPTURE_SCALE_DIV="${token#--scale-div=}"
+      continue
+    fi
+  done
+fi
+
+if ! [[ "${CAPTURE_SCALE_DIV}" =~ ^[0-9]+$ ]] || [[ "${CAPTURE_SCALE_DIV}" == "0" ]]; then
+  echo "ERROR: capture scale-div must resolve to an integer >= 1." >&2
+  exit 2
+fi
+
+REFERENCE_CAPTURE_METHOD_TAG="$(capture_method_tag "${REFERENCE_CAPTURE_METHOD}")"
+REFERENCE_CAPTURE="${CACHE_ROOT}/${SCENARIO_ID}.${REFERENCE_CAPTURE_METHOD_TAG}.reference.ppm"
+CANDIDATE_CAPTURE_METHOD_TAG="$(capture_method_tag "${CANDIDATE_CAPTURE_METHOD}")"
+
 capture_plugin() {
   local label="$1"
   local plugin_path="$2"
   local out_path="$3"
+  local capture_method="$4"
   local corelib_path="${CANDIDATE_CORELIB}"
   local require_no_depth_fail="0"
   local require_depth_stats="0"
+  local rvk2_present_flip_y=""
   local depth_summary_out=""
   if [[ "${label}" == "reference" ]]; then
     corelib_path="${REFERENCE_CORELIB}"
@@ -175,6 +260,7 @@ capture_plugin() {
   if [[ "${label}" == "candidate" ]]; then
     require_no_depth_fail="${REQUIRE_NO_DEPTH_BLIT_FAIL}"
     require_depth_stats="${REQUIRE_DEPTH_BLIT_STATS}"
+    rvk2_present_flip_y="${RVK2_PRESENT_FLIP_Y}"
   fi
   if [[ "${CAPTURE_DEPTH_SUMMARY}" == "1" ]]; then
     depth_summary_out="${RUN_ROOT}/${SCENARIO_ID}.${label}.depth-blit-summary.json"
@@ -202,9 +288,43 @@ capture_plugin() {
   REALITYVK_SMOKE_CAPTURE_RETRY_RESUME_MS="${CAPTURE_RETRY_RESUME_MS}" \
   REALITYVK_SMOKE_CAPTURE_MIN_NONBLACK_RATIO="${CAPTURE_MIN_NONBLACK_RATIO}" \
   REALITYVK_SMOKE_CAPTURE_MIN_MEAN_LUMA="${CAPTURE_MIN_MEAN_LUMA}" \
+  REALITYVK_SMOKE_CAPTURE_METHOD="${capture_method}" \
+  REALITYVK_SMOKE_SCREENSHOT_DIR="${SCREENSHOT_DIR}" \
+  REALITYVK_SMOKE_SCREENSHOT_FLIP_Y="${SCREENSHOT_FLIP_Y_EFFECTIVE}" \
   REALITYVK_SMOKE_DUMPFB_FLIP_Y="${DUMPFB_FLIP_Y}" \
+  REALITYVK_RVK2_PRESENT_FLIP_Y="${rvk2_present_flip_y}" \
   REALITYVK_SMOKE_LAUNCH_WITH_PTY="${LAUNCH_WITH_PTY}" \
   "${cmd[@]}"
+}
+
+capture_has_content() {
+  local capture_path="$1"
+  python3 - "${capture_path}" "${CAPTURE_MIN_NONBLACK_RATIO}" "${CAPTURE_MIN_MEAN_LUMA}" <<'PY'
+import sys
+from pathlib import Path
+
+import numpy as np
+from PIL import Image
+
+capture_path = Path(sys.argv[1])
+min_nonblack_ratio = float(sys.argv[2])
+min_mean_luma = float(sys.argv[3])
+
+if not capture_path.is_file():
+    raise SystemExit(1)
+
+arr = np.asarray(Image.open(capture_path).convert("RGB"), dtype=np.float32) / 255.0
+if arr.size == 0:
+    raise SystemExit(1)
+
+non_black_ratio = float(np.any(arr > 0.0, axis=2).mean())
+luma = 0.2126 * arr[..., 0] + 0.7152 * arr[..., 1] + 0.0722 * arr[..., 2]
+mean_luma = float(luma.mean())
+
+if non_black_ratio >= min_nonblack_ratio and mean_luma >= min_mean_luma:
+    raise SystemExit(0)
+raise SystemExit(1)
+PY
 }
 
 if [[ "${REFRESH_REFERENCE}" == "1" || ! -s "${REFERENCE_CAPTURE}" ]]; then
@@ -215,17 +335,27 @@ if [[ "${REFRESH_REFERENCE}" == "1" || ! -s "${REFERENCE_CAPTURE}" ]]; then
   echo "==> [compare] capturing reference (${SCENARIO_ID})"
   echo "    plugin: ${REFERENCE_PLUGIN}"
   echo "    core:   ${REFERENCE_CORELIB}"
-  echo "    capture:${REFERENCE_CAPTURE_METHOD_TAG}"
-  capture_plugin "reference" "${REFERENCE_PLUGIN}" "${REFERENCE_CAPTURE}"
+  echo "    capture:${REFERENCE_CAPTURE_METHOD_TAG} (${REFERENCE_CAPTURE_METHOD})"
+  capture_plugin "reference" "${REFERENCE_PLUGIN}" "${REFERENCE_CAPTURE}" "${REFERENCE_CAPTURE_METHOD}"
 else
   echo "==> [compare] using cached reference capture: ${REFERENCE_CAPTURE}"
+  if [[ "${REQUIRE_NON_BLACK_CAPTURE}" == "1" && "${VALIDATE_CACHED_REFERENCE_CAPTURE}" == "1" ]]; then
+    if ! capture_has_content "${REFERENCE_CAPTURE}"; then
+      if [[ ! -f "${REFERENCE_PLUGIN}" ]]; then
+        echo "ERROR: cached reference capture is mostly black and reference plugin is unavailable for recapture: ${REFERENCE_PLUGIN}" >&2
+        exit 2
+      fi
+      echo "WARN: cached reference capture appears mostly black; recapturing reference." >&2
+      capture_plugin "reference" "${REFERENCE_PLUGIN}" "${REFERENCE_CAPTURE}" "${REFERENCE_CAPTURE_METHOD}"
+    fi
+  fi
 fi
 
 echo "==> [compare] capturing candidate (${SCENARIO_ID})"
 echo "    plugin: ${CANDIDATE_PLUGIN}"
 echo "    core:   ${CANDIDATE_CORELIB}"
-echo "    capture:${CANDIDATE_CAPTURE_METHOD_TAG}"
-capture_plugin "candidate" "${CANDIDATE_PLUGIN}" "${CANDIDATE_CAPTURE}"
+echo "    capture:${CANDIDATE_CAPTURE_METHOD_TAG} (${CANDIDATE_CAPTURE_METHOD})"
+capture_plugin "candidate" "${CANDIDATE_PLUGIN}" "${CANDIDATE_CAPTURE}" "${CANDIDATE_CAPTURE_METHOD}"
 
 python3 - "${CAPTURE_CONTEXT_OUT}" \
   "${SCENARIO_ID}" \
@@ -293,6 +423,13 @@ max_diff = float(np.max(abs_diff))
 diff_u8 = np.clip(abs_diff * 255.0, 0.0, 255.0).astype(np.uint8)
 Image.fromarray(diff_u8, mode="RGB").save(diff_path)
 
+reference_non_black_ratio = float(np.any(ref > 0.0, axis=2).mean())
+candidate_non_black_ratio = float(np.any(test > 0.0, axis=2).mean())
+ref_luma = 0.2126 * ref[..., 0] + 0.7152 * ref[..., 1] + 0.0722 * ref[..., 2]
+candidate_luma = 0.2126 * test[..., 0] + 0.7152 * test[..., 1] + 0.0722 * test[..., 2]
+reference_mean_luma = float(ref_luma.mean())
+candidate_mean_luma = float(candidate_luma.mean())
+
 metrics = {
     "reference_capture": str(ref_path),
     "candidate_capture": str(test_path),
@@ -300,6 +437,10 @@ metrics = {
     "rmse": rmse,
     "mae": mae,
     "max_abs_diff": max_diff,
+    "reference_non_black_ratio": reference_non_black_ratio,
+    "candidate_non_black_ratio": candidate_non_black_ratio,
+    "reference_mean_luma": reference_mean_luma,
+    "candidate_mean_luma": candidate_mean_luma,
     "rmse_limit": rmse_limit,
     "mae_limit": mae_limit,
     "gate_enabled": gate_enabled,
@@ -317,6 +458,13 @@ metrics["violations"] = violations
 metrics_path.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
 
 print(f"visual compare metrics: rmse={rmse:.6f} mae={mae:.6f} max_abs_diff={max_diff:.6f}")
+print(
+    "capture content metrics: "
+    f"reference_non_black_ratio={reference_non_black_ratio:.6f} "
+    f"candidate_non_black_ratio={candidate_non_black_ratio:.6f} "
+    f"reference_mean_luma={reference_mean_luma:.6f} "
+    f"candidate_mean_luma={candidate_mean_luma:.6f}"
+)
 print(f"metrics json: {metrics_path}")
 print(f"diff image: {diff_path}")
 

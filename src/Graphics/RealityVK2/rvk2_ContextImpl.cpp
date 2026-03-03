@@ -1,6 +1,7 @@
 #include "rvk2_ContextImpl.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 
@@ -12,12 +13,32 @@
 
 namespace {
 
-void buildFullscreenRect(RectVertex (&_vertices)[4])
+bool envFlagEnabled(const char * _key, bool _defaultValue)
 {
-	_vertices[0] = RectVertex{-1.0f, -1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 1.0f, 1.0f};
-	_vertices[1] = RectVertex{1.0f, -1.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
-	_vertices[2] = RectVertex{-1.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f};
-	_vertices[3] = RectVertex{1.0f, 1.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 1.0f};
+	const char * value = std::getenv(_key);
+	if (value == nullptr || value[0] == '\0')
+		return _defaultValue;
+
+	char first = static_cast<char>(std::tolower(static_cast<unsigned char>(value[0])));
+	if (first == '0' || first == 'f' || first == 'n')
+		return false;
+	return true;
+}
+
+bool shouldFlipPresentedFrameY()
+{
+	// Default to dumpfb-aligned orientation for emulator output.
+	return envFlagEnabled("REALITYVK_RVK2_PRESENT_FLIP_Y", true);
+}
+
+void buildFullscreenRect(RectVertex (&_vertices)[4], bool _flipY)
+{
+	const f32 bottomT = _flipY ? 0.0f : 1.0f;
+	const f32 topT = _flipY ? 1.0f : 0.0f;
+	_vertices[0] = RectVertex{-1.0f, -1.0f, 0.0f, 1.0f, 0.0f, bottomT, 0.0f, bottomT, 1.0f, 1.0f};
+	_vertices[1] = RectVertex{1.0f, -1.0f, 0.0f, 1.0f, 1.0f, bottomT, 1.0f, bottomT, 1.0f, 1.0f};
+	_vertices[2] = RectVertex{-1.0f, 1.0f, 0.0f, 1.0f, 0.0f, topT, 0.0f, topT, 1.0f, 1.0f};
+	_vertices[3] = RectVertex{1.0f, 1.0f, 0.0f, 1.0f, 1.0f, topT, 1.0f, topT, 1.0f, 1.0f};
 }
 
 u32 readRegValue(const u32 * _reg)
@@ -99,7 +120,7 @@ void appendFrameForensicsRecord(const rvk2::ExecutorOutput & _output)
 		: 0ULL;
 	std::fprintf(
 		file,
-		"frame=%llu\twork=%llu\tbatches=%llu\twrites=%llu\tsurfaces=%llu\tpresent_surface=0x%08X\tpresent_select=%u\tpresent_hash=0x%016llX\tpresent_w=%u\tpresent_h=%u\tvi_valid=%u\tvi_origin=0x%08X\tvi_origin_match=%u\tvi_reject=%u\tvi_type=%u\tvi_use_regs=%u\tvi_src_w=%u\tvi_src_h=%u\tvi_out_w=%u\tvi_out_h=%u\tvi_stride=%u\tselected_surface_writes=%llu\tselected_surface_works=%llu\tselected_surface_size=%u\tselected_surface_w=%u\tselected_surface_h=%u\ttx_samples=%llu\ttx_tmem=%llu\ttx_tmem_try=%llu\ttx_tmem_reject_fmt=%llu\ttx_tmem_reject_size=%llu\ttx_tmem_reject_coord=%llu\ttx_tmem32_cmp=%llu\ttx_tmem32_mismatch=%llu\ttx_tmem32_alt_noxor_mismatch=%llu\ttx_tmem32_alt_abs_mismatch=%llu\ttx_tmem32_alt_direct_mismatch=%llu\ttx_tmem32_alt_direct_swap_mismatch=%llu\ttx_tmem32_alt_tileline_xor_mismatch=%llu\ttx_tmem32_alt_tileline_evenodd_mismatch=%llu\ttx_tmem32_alt_direct_evenodd_mismatch=%llu\ttx_tmem32_alt_loadkind_mismatch=%llu\ttx_rdram=%llu\ttx_synth=%llu\ttx_lut=%llu\tcomb_ops=%llu\tcomb_cycle2_ops=%llu\tblend_ops=%llu\tblend_enabled_ops=%llu\tblend_force_ops=%llu\tblend_aa_ops=%llu\tblend_p_mem_ops=%llu\tblend_m_mem_ops=%llu\tblend_divide_ops=%llu\tblend_nodivide_ops=%llu\talpha_tests=%llu\talpha_rejects=%llu\tcvg_tests=%llu\tcvg_rejects=%llu\tblend_cvg_eval=%llu\tblend_cvg_zero=%llu\tblend_cvg_overflow=%llu\tcvg_write_eval=%llu\tcvg_write_zero=%llu\tcvg_write_overflow=%llu\tdepth_eval=%llu\tdepth_reject=%llu\tdepth_update=%llu\tdither_color=%llu\tdither_alpha=%llu\ttexedge_promote=%llu\tconvert_one_force=%llu\tblend_a_sel0=%llu\tblend_a_sel1=%llu\tblend_a_sel2=%llu\tblend_a_sel3=%llu\tblend_b_sel0=%llu\tblend_b_sel1=%llu\tblend_b_sel2=%llu\tblend_b_sel3=%llu\tblend_p_sel0=%llu\tblend_p_sel1=%llu\tblend_p_sel2=%llu\tblend_p_sel3=%llu\tblend_m_sel0=%llu\tblend_m_sel1=%llu\tblend_m_sel2=%llu\tblend_m_sel3=%llu\tstage_t2c_delta=%llu\tstage_c2b_delta=%llu\tstage_b2f_delta=%llu\tstage_t2f_delta=%llu\tstage_textured_writes=%llu\tstage_textured_rect=%llu\tstage_textured_tri=%llu\tstage_imread=%llu\tstage_tx_repl=%llu\tstage_tx_tmem=%llu\tstage_tx_rdram=%llu\tstage_tx_synth=%llu\twork_fill=%llu\twork_texrect=%llu\twork_tri=%llu\twork_textured=%llu\twrite_fill=%llu\twrite_texrect=%llu\twrite_tri=%llu\tout_luma_sum=%llu\tout_luma_avg_x1000=%llu\tvi_src_samples=%llu\tvi_src_invalid=%llu\tvi_src_luma_avg_x1000=%llu\tvi_out_luma_avg_x1000=%llu\tvi_out_nonblack=%llu",
+		"frame=%llu\twork=%llu\tbatches=%llu\twrites=%llu\tsurfaces=%llu\tpresent_surface=0x%08X\tpresent_select=%u\tpresent_hash=0x%016llX\tpresent_w=%u\tpresent_h=%u\tvi_valid=%u\tvi_origin=0x%08X\tvi_origin_match=%u\tvi_reject=%u\tvi_type=%u\tvi_use_regs=%u\tvi_src_w=%u\tvi_src_h=%u\tvi_out_w=%u\tvi_out_h=%u\tvi_stride=%u\tselected_surface_writes=%llu\tselected_surface_works=%llu\tselected_surface_size=%u\tselected_surface_w=%u\tselected_surface_h=%u\ttx_samples=%llu\ttx_tmem=%llu\ttx_tmem_try=%llu\ttx_tmem_reject_fmt=%llu\ttx_tmem_reject_size=%llu\ttx_tmem_reject_coord=%llu\ttx_tmem32_cmp=%llu\ttx_tmem32_mismatch=%llu\ttx_tmem32_alt_noxor_mismatch=%llu\ttx_tmem32_alt_abs_mismatch=%llu\ttx_tmem32_alt_direct_mismatch=%llu\ttx_tmem32_alt_direct_swap_mismatch=%llu\ttx_tmem32_alt_tileline_xor_mismatch=%llu\ttx_tmem32_alt_tileline_evenodd_mismatch=%llu\ttx_tmem32_alt_direct_evenodd_mismatch=%llu\ttx_tmem32_alt_loadkind_mismatch=%llu\ttx_rdram=%llu\ttx_synth=%llu\ttx_lut=%llu\ttx_mask_allow=%llu\ttx_mask_reject=%llu\tcomb_ops=%llu\tcomb_cycle2_ops=%llu\tblend_ops=%llu\tblend_enabled_ops=%llu\tblend_force_ops=%llu\tblend_aa_ops=%llu\tblend_p_mem_ops=%llu\tblend_m_mem_ops=%llu\tblend_divide_ops=%llu\tblend_nodivide_ops=%llu\talpha_tests=%llu\talpha_rejects=%llu\tcvg_tests=%llu\tcvg_rejects=%llu\tblend_cvg_eval=%llu\tblend_cvg_zero=%llu\tblend_cvg_overflow=%llu\tcvg_write_eval=%llu\tcvg_write_zero=%llu\tcvg_write_overflow=%llu\tdepth_eval=%llu\tdepth_reject=%llu\tdepth_update=%llu\tdither_color=%llu\tdither_alpha=%llu\ttexedge_promote=%llu\tconvert_one_force=%llu\tblend_a_sel0=%llu\tblend_a_sel1=%llu\tblend_a_sel2=%llu\tblend_a_sel3=%llu\tblend_b_sel0=%llu\tblend_b_sel1=%llu\tblend_b_sel2=%llu\tblend_b_sel3=%llu\tblend_p_sel0=%llu\tblend_p_sel1=%llu\tblend_p_sel2=%llu\tblend_p_sel3=%llu\tblend_m_sel0=%llu\tblend_m_sel1=%llu\tblend_m_sel2=%llu\tblend_m_sel3=%llu\tstage_t2c_delta=%llu\tstage_c2b_delta=%llu\tstage_b2f_delta=%llu\tstage_t2f_delta=%llu\tstage_textured_writes=%llu\tstage_textured_rect=%llu\tstage_textured_tri=%llu\tstage_imread=%llu\tstage_tx_repl=%llu\tstage_tx_tmem=%llu\tstage_tx_rdram=%llu\tstage_tx_synth=%llu\twork_fill=%llu\twork_texrect=%llu\twork_tri=%llu\twork_textured=%llu\twrite_fill=%llu\twrite_texrect=%llu\twrite_tri=%llu\tout_luma_sum=%llu\tout_luma_avg_x1000=%llu\tvi_src_samples=%llu\tvi_src_invalid=%llu\tvi_src_luma_avg_x1000=%llu\tvi_out_luma_avg_x1000=%llu\tvi_out_nonblack=%llu",
 		static_cast<unsigned long long>(rvk2::runtime().commandStream().frameId()),
 		static_cast<unsigned long long>(summary.executedWorkCount),
 		static_cast<unsigned long long>(summary.executedBatchCount),
@@ -145,6 +166,8 @@ void appendFrameForensicsRecord(const rvk2::ExecutorOutput & _output)
 		static_cast<unsigned long long>(summary.textureRdramSampleCount),
 		static_cast<unsigned long long>(summary.textureSyntheticSampleCount),
 		static_cast<unsigned long long>(summary.textureLUTSampleCount),
+		static_cast<unsigned long long>(summary.textureBucketMaskAllowCount),
+		static_cast<unsigned long long>(summary.textureBucketMaskRejectCount),
 		static_cast<unsigned long long>(summary.combinerOpCount),
 		static_cast<unsigned long long>(summary.combinerCycle2SelectorOpCount),
 		static_cast<unsigned long long>(summary.blenderOpCount),
@@ -214,6 +237,48 @@ void appendFrameForensicsRecord(const rvk2::ExecutorOutput & _output)
 		static_cast<unsigned long long>(viSourceLumaAvgX1000),
 		static_cast<unsigned long long>(viOutputLumaAvgX1000),
 		static_cast<unsigned long long>(summary.viOutputNonBlackCount));
+	for (u32 i = 0U; i < summary.textureFilterModeSampleCount.size(); ++i) {
+		std::fprintf(
+			file,
+			"\ttx_filter_mode%u=%llu",
+			i,
+			static_cast<unsigned long long>(summary.textureFilterModeSampleCount[i]));
+	}
+	for (u32 i = 0U; i < summary.textureLUTModeSampleCount.size(); ++i) {
+		std::fprintf(
+			file,
+			"\ttx_lut_mode%u=%llu",
+			i,
+			static_cast<unsigned long long>(summary.textureLUTModeSampleCount[i]));
+	}
+	for (u32 i = 0U; i < summary.textureFormatSampleCount.size(); ++i) {
+		std::fprintf(
+			file,
+			"\ttx_fmt%u_samples=%llu",
+			i,
+			static_cast<unsigned long long>(summary.textureFormatSampleCount[i]));
+	}
+	for (u32 i = 0U; i < summary.textureSizeSampleCount.size(); ++i) {
+		std::fprintf(
+			file,
+			"\ttx_size%u_samples=%llu",
+			i,
+			static_cast<unsigned long long>(summary.textureSizeSampleCount[i]));
+	}
+	for (u32 fmt = 0U; fmt < rvk2::kExecutorTextureFormatBuckets; ++fmt) {
+		for (u32 size = 0U; size < rvk2::kExecutorTextureSizeBuckets; ++size) {
+			const u32 index = fmt * rvk2::kExecutorTextureSizeBuckets + size;
+			std::fprintf(
+				file,
+				"\ttx_fs_f%u_s%u=%llu\ttx_fs_lut_f%u_s%u=%llu",
+				fmt,
+				size,
+				static_cast<unsigned long long>(summary.textureFormatSizeSampleCount[index]),
+				fmt,
+				size,
+				static_cast<unsigned long long>(summary.textureFormatSizeLUTSampleCount[index]));
+		}
+	}
 	for (u32 i = 0U; i < rvk2::kExecutorStageDeltaClassBuckets; ++i) {
 		std::fprintf(
 			file,
@@ -495,7 +560,7 @@ void ContextImpl::renderPresentedFrame(const ExecutorOutput & _output)
 	vulkan::ContextImpl::setDepthCompare(graphics::compare::ALWAYS);
 
 	RectVertex vertices[4]{};
-	buildFullscreenRect(vertices);
+	buildFullscreenRect(vertices, shouldFlipPresentedFrameY());
 
 	graphics::Context::DrawRectParameters drawParams{};
 	drawParams.mode = graphics::drawmode::TRIANGLE_STRIP;
