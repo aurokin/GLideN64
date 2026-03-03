@@ -1018,197 +1018,6 @@ inline const rvk2::RenderWorkPacket & selectTexelSlotWork(
 	return _scratch;
 }
 
-inline bool computeTextureSourceCoord(
-	const rvk2::RenderWorkPacket & _work,
-	s32 _s,
-	s32 _t,
-	s32 & _outSourceS,
-	s32 & _outSourceT)
-{
-	// Texture sampling paths provide tile-relative texel coordinates.
-	s32 sourceS = _s;
-	s32 sourceT = _t;
-	if ((_work.tmemLoadKind == static_cast<u8>(rvk2::TmemLoadKind::kTile)
-			|| _work.tmemLoadKind == static_cast<u8>(rvk2::TmemLoadKind::kBlock))
-		&& _work.tmemLoadTile == (_work.tile & 0x7U)) {
-		sourceS += static_cast<s32>(_work.tmemLoadULS >> 2U);
-		sourceT += static_cast<s32>(_work.tmemLoadULT >> 2U);
-	}
-
-	_outSourceS = sourceS;
-	_outSourceT = sourceT;
-	return true;
-}
-
-inline bool readTextureBitsAt(
-	const rvk2::RenderWorkPacket & _work,
-	s32 _s,
-	s32 _t,
-	u8 _size,
-	u32 & _outBits,
-	u32 & _outBitWidth)
-{
-	if (!rdramReadable())
-		return false;
-
-	const u32 texelBits = bitsPerTexelFromSize(_size);
-	const u32 rowBitsFromWidth = _work.textureImageWidth != 0U
-		? static_cast<u32>(_work.textureImageWidth) * texelBits
-		: 0U;
-	const u32 rowBitsFromTileLine = _work.tileLine != 0U
-		? static_cast<u32>(_work.tileLine) * 64U
-		: 0U;
-	const bool preferTileLineStride =
-		rowBitsFromTileLine != 0U
-		&& (_work.tmemLoadKind == static_cast<u8>(rvk2::TmemLoadKind::kTile)
-			|| _work.tmemLoadKind == static_cast<u8>(rvk2::TmemLoadKind::kBlock)
-			|| _work.tmemLoadKind == static_cast<u8>(rvk2::TmemLoadKind::kTLUT));
-	const u32 rowBits = preferTileLineStride
-		? rowBitsFromTileLine
-		: (rowBitsFromWidth != 0U ? rowBitsFromWidth : rowBitsFromTileLine);
-	if (rowBits == 0U)
-		return false;
-
-	s32 sourceS = 0;
-	s32 sourceT = 0;
-	if (!computeTextureSourceCoord(_work, _s, _t, sourceS, sourceT))
-		return false;
-
-	const s64 bitAddress =
-		static_cast<s64>(_work.textureImageAddress & 0x00FFFFFFU)
-		+ static_cast<s64>(sourceT) * static_cast<s64>(rowBits)
-		+ static_cast<s64>(sourceS) * static_cast<s64>(texelBits);
-
-	const u32 byteAddress = static_cast<u32>(bitAddress >> 3U);
-	const u32 bitShift = static_cast<u32>(bitAddress & 0x7LL);
-
-	switch (texelBits) {
-	case 4U: {
-		const u8 packed = readRdramByteWrapped(byteAddress);
-		const bool lowNibble = bitShift >= 4U;
-		_outBits = static_cast<u32>(lowNibble ? (packed & 0x0FU) : ((packed >> 4U) & 0x0FU));
-		_outBitWidth = 4U;
-		return true;
-	}
-	case 8U:
-		_outBits = static_cast<u32>(readRdramByteWrapped(byteAddress));
-		_outBitWidth = 8U;
-		return true;
-	case 16U:
-		_outBits = static_cast<u32>(readRdramU16Wrapped(byteAddress));
-		_outBitWidth = 16U;
-		return true;
-	case 32U: {
-		const u8 r = readRdramByteWrapped(byteAddress + 0U);
-		const u8 g = readRdramByteWrapped(byteAddress + 1U);
-		const u8 b = readRdramByteWrapped(byteAddress + 2U);
-		const u8 a = readRdramByteWrapped(byteAddress + 3U);
-		_outBits = packRgba8(r, g, b, a);
-		_outBitWidth = 32U;
-		return true;
-	}
-	default:
-		return false;
-	}
-}
-
-inline bool sampleTextureFromRdram(
-	const rvk2::RenderWorkPacket & _work,
-	s32 _s,
-	s32 _t,
-	u32 & _outRgba,
-	bool & _outNeedsLUT)
-{
-	const u8 format = (_work.tileFormat & 0x7U) <= 4U
-		? (_work.tileFormat & 0x7U)
-		: (_work.textureImageFormat & 0x7U);
-	const u8 size = _work.tileSize & 0x3U;
-
-	u32 bits = 0U;
-	u32 bitWidth = 0U;
-	if (!readTextureBitsAt(_work, _s, _t, size, bits, bitWidth))
-		return false;
-
-	_outNeedsLUT = false;
-	switch (format) {
-	case 0U: // RGBA
-		if (bitWidth == 32U) {
-			_outRgba = bits;
-			return true;
-		}
-		if (bitWidth == 16U) {
-			const u16 rgba16 = static_cast<u16>(bits & 0xFFFFU);
-			const u8 r5 = static_cast<u8>((rgba16 >> 11U) & 0x1FU);
-			const u8 g5 = static_cast<u8>((rgba16 >> 6U) & 0x1FU);
-			const u8 b5 = static_cast<u8>((rgba16 >> 1U) & 0x1FU);
-			const u8 a = (rgba16 & 0x1U) != 0U ? 255U : 0U;
-			_outRgba = packRgba8(expand5To8(r5), expand5To8(g5), expand5To8(b5), a);
-			return true;
-		}
-		if (bitWidth == 8U) {
-			const u8 value = static_cast<u8>(bits & 0xFFU);
-			_outRgba = packRgba8(value, value, value, 255U);
-			return true;
-		}
-		return false;
-
-	case 1U: // YUV (not modeled yet)
-		return false;
-
-	case 2U: { // CI
-		u8 index = static_cast<u8>(bits & 0xFFU);
-		if (bitWidth == 4U)
-			index &= 0x0FU;
-		if (decodeTextureLUTMode(_work) != 0U) {
-			_outNeedsLUT = true;
-			if (bitWidth == 4U)
-				index = static_cast<u8>((_work.tilePalette << 4U) | index);
-		}
-		_outRgba = packRgba8(index, index, index, 255U);
-		return true;
-	}
-
-	case 3U: // IA
-		if (bitWidth == 16U) {
-			const u8 i = static_cast<u8>((bits >> 8U) & 0xFFU);
-			const u8 a = static_cast<u8>(bits & 0xFFU);
-			_outRgba = packRgba8(i, i, i, a);
-			return true;
-		}
-		if (bitWidth == 8U) {
-			const u8 ia = static_cast<u8>(bits & 0xFFU);
-			const u8 i = expand4To8(static_cast<u8>((ia >> 4U) & 0x0FU));
-			const u8 a = expand4To8(static_cast<u8>(ia & 0x0FU));
-			_outRgba = packRgba8(i, i, i, a);
-			return true;
-		}
-		if (bitWidth == 4U) {
-			const u8 ia = static_cast<u8>(bits & 0x0FU);
-			const u8 i = expand3To8(static_cast<u8>((ia >> 1U) & 0x07U));
-			const u8 a = (ia & 0x1U) != 0U ? 255U : 0U;
-			_outRgba = packRgba8(i, i, i, a);
-			return true;
-		}
-		return false;
-
-	case 4U: // I
-		if (bitWidth == 8U) {
-			const u8 i = static_cast<u8>(bits & 0xFFU);
-			_outRgba = packRgba8(i, i, i, 255U);
-			return true;
-		}
-		if (bitWidth == 4U) {
-			const u8 i = expand4To8(static_cast<u8>(bits & 0x0FU));
-			_outRgba = packRgba8(i, i, i, 255U);
-			return true;
-		}
-		return false;
-
-	default:
-		return false;
-	}
-}
-
 inline bool sampleCITextureFromTMEM(
 	const rvk2::RenderWorkPacket & _work,
 	s32 _s,
@@ -1444,18 +1253,8 @@ inline u32 samplePseudoTexelColor(
 		else if (tmemReject == 3U)
 			++gActiveExecutorSummary->textureTmemRejectCoordCount;
 	}
-	if (sampleTextureFromRdram(_work, _s, _t, sampledColor, needsLUT)) {
-		if (gActiveExecutorSummary != nullptr) {
-			++gActiveExecutorSummary->textureRdramSampleCount;
-			if (needsLUT)
-				++gActiveExecutorSummary->textureLUTSampleCount;
-		}
-		if (_sourceBits != nullptr)
-			*_sourceBits |= kTexelSourceRdramBit;
-		if (needsLUT)
-			sampledColor = applyTextureLUTModeColor(_work, seed, sampledColor);
-		return applyTextureDetailModeColor(_work, seed, sampledColor);
-	}
+	// Keep textured sampling TMEM-authoritative in RVK2: unsupported/rejected
+	// TMEM decodes fall through to synthetic diagnostics instead of RDRAM.
 	if (gActiveExecutorSummary != nullptr)
 		++gActiveExecutorSummary->textureSyntheticSampleCount;
 	if (_sourceBits != nullptr)
@@ -1665,9 +1464,16 @@ bool chooseSurfaceForVIOriginGeneric(
 	bool bestSizeMatch = false;
 	bool bestWidthMatch = false;
 	bool found = false;
-	for (const auto & entry : _surfaces) {
-		const u32 surfaceAddress = entry.first;
-		const auto & surface = entry.second;
+	std::vector<u32> surfaceAddresses;
+	surfaceAddresses.reserve(_surfaces.size());
+	for (const auto & entry : _surfaces)
+		surfaceAddresses.push_back(entry.first);
+	std::sort(surfaceAddresses.begin(), surfaceAddresses.end());
+	for (u32 surfaceAddress : surfaceAddresses) {
+		const auto it = _surfaces.find(surfaceAddress);
+		if (it == _surfaces.end())
+			continue;
+		const auto & surface = it->second;
 		bool exactMatch = false;
 		if (!originMatchesSurfaceRange(surfaceAddress, surface, _viOriginAddress, exactMatch))
 			continue;
@@ -1679,7 +1485,8 @@ bool chooseSurfaceForVIOriginGeneric(
 		if (!found
 			|| (sizeMatch && !bestSizeMatch)
 			|| (sizeMatch == bestSizeMatch && widthMatch && !bestWidthMatch)
-			|| (sizeMatch == bestSizeMatch && widthMatch == bestWidthMatch && delta < bestDelta)) {
+			|| (sizeMatch == bestSizeMatch && widthMatch == bestWidthMatch && delta < bestDelta)
+			|| (sizeMatch == bestSizeMatch && widthMatch == bestWidthMatch && delta == bestDelta && surfaceAddress < bestAddress)) {
 			found = true;
 			bestDelta = delta;
 			bestAddress = surfaceAddress;
@@ -1712,9 +1519,16 @@ bool chooseNearestSurfaceForVIOriginGeneric(
 	bool bestWidthMatch = false;
 	bool bestAhead = true;
 	bool found = false;
-	for (const auto & entry : _surfaces) {
-		const u32 surfaceAddress = entry.first;
-		const auto & surface = entry.second;
+	std::vector<u32> surfaceAddresses;
+	surfaceAddresses.reserve(_surfaces.size());
+	for (const auto & entry : _surfaces)
+		surfaceAddresses.push_back(entry.first);
+	std::sort(surfaceAddresses.begin(), surfaceAddresses.end());
+	for (u32 surfaceAddress : surfaceAddresses) {
+		const auto it = _surfaces.find(surfaceAddress);
+		if (it == _surfaces.end())
+			continue;
+		const auto & surface = it->second;
 		const bool sizeMatch =
 			!_preferSurfaceSize || ((surface.size & 0x3U) == (_preferredSurfaceSize & 0x3U));
 		const bool widthMatch =
@@ -1728,7 +1542,8 @@ bool chooseNearestSurfaceForVIOriginGeneric(
 			|| (sizeMatch && !bestSizeMatch)
 			|| (sizeMatch == bestSizeMatch && widthMatch && !bestWidthMatch)
 			|| (sizeMatch == bestSizeMatch && widthMatch == bestWidthMatch && !ahead && bestAhead)
-			|| (sizeMatch == bestSizeMatch && widthMatch == bestWidthMatch && ahead == bestAhead && distance < bestDistance)) {
+			|| (sizeMatch == bestSizeMatch && widthMatch == bestWidthMatch && ahead == bestAhead && distance < bestDistance)
+			|| (sizeMatch == bestSizeMatch && widthMatch == bestWidthMatch && ahead == bestAhead && distance == bestDistance && surfaceAddress < bestAddress)) {
 			found = true;
 			bestAddress = surfaceAddress;
 			bestDistance = distance;
@@ -2665,7 +2480,7 @@ inline u32 applySyntheticBlender(
 		u8 _memoryCoverage) -> u8 {
 		switch (_selector & 0x3U) {
 		case 0U: return static_cast<u8>(255U - _alphaA); // 1.0 - A
-		case 1U: return _memoryCoverage; // framebuffer coverage (approximated by stored alpha)
+		case 1U: return _memoryCoverage; // framebuffer coverage from stored coverage + hidden bits
 		case 2U: return 255U; // 1.0
 		default: return 0U;   // 0.0
 		}
@@ -4446,7 +4261,10 @@ ExecutorOutput Executor::executeWithOutput(
 		u64 oldestTouched = std::numeric_limits<u64>::max();
 		bool foundOldest = false;
 		for (const auto & historyEntry : m_surfaceHistory) {
-			if (!foundOldest || historyEntry.second.lastTouched < oldestTouched) {
+			if (!foundOldest
+				|| historyEntry.second.lastTouched < oldestTouched
+				|| (historyEntry.second.lastTouched == oldestTouched
+					&& historyEntry.first < oldestAddress)) {
 				foundOldest = true;
 				oldestAddress = historyEntry.first;
 				oldestTouched = historyEntry.second.lastTouched;

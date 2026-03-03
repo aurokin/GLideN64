@@ -2521,6 +2521,46 @@ void testTMEM32AuthoritativePathConformance()
 		"TMEM32 authoritative path should not fall back to synthetic texels");
 }
 
+void testUnsupportedTMEMDecodeUsesSyntheticConformance()
+{
+	rvk2::Executor executor;
+	rvk2::RenderWorkPacket work = makeTexRectWork(false);
+	work.sourcePacketId = 208ULL;
+	work.colorImageAddress = 0x00A0E400U;
+	work.colorImageWidth = 8U;
+	work.rectULX = 0U;
+	work.rectULY = 0U;
+	work.rectLRX = 3U;
+	work.rectLRY = 3U;
+	work.textureImageFormat = 0U;
+	work.textureImageSize = 0U;
+	work.textureImageWidth = 8U;
+	work.tileFormat = 0U; // RGBA + 4b is unsupported by TMEM decode path.
+	work.tileSize = 0U;   // 4b
+	work.tileLine = 1U;
+	work.tileTmem = 0U;
+	work.tileULS = 0U;
+	work.tileULT = 0U;
+	work.tileLRS = 0x003CU;
+	work.tileLRT = 0x003CU;
+
+	const std::vector<rvk2::SubmissionBatchPacket> oneBatch{makeSingleBatch()};
+	const rvk2::ExecutorOutput out =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{work}, oneBatch);
+
+	expectTrue(
+		out.summary.colorWriteCount > 0ULL,
+		"unsupported TMEM decode conformance scene should write pixels");
+	expectEq(
+		out.summary.stageTexelSourceRdramWriteCount,
+		0ULL,
+		"unsupported TMEM decode path should not fall back to RDRAM in RVK2");
+	expectEq(
+		out.summary.stageTexelSourceSyntheticWriteCount,
+		out.summary.colorWriteCount,
+		"unsupported TMEM decode path should resolve through synthetic diagnostic source");
+}
+
 void testFillPhaseIgnoresBlendCombinerConformance()
 {
 	rvk2::Executor executor;
@@ -3947,6 +3987,7 @@ int main()
 	testCycle1CombinedFeedbackHazardConformance();
 	testCycle1Texel1SecondaryTileConformance();
 	testTMEM32AuthoritativePathConformance();
+	testUnsupportedTMEMDecodeUsesSyntheticConformance();
 	testFillPhaseIgnoresBlendCombinerConformance();
 	testCopyFillBypassAlphaCoverageConformance();
 	testFillSeedsCoverageForImageReadBlendConformance();

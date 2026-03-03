@@ -31,13 +31,28 @@ Accuracy-first. RVK2-only path. No legacy renderer fallback.
 12. Triangle Y edge values are now consumed as signed 14-bit s10.2 values in both render-plan bound derivation and executor rasterization.
 13. Executor TMEM sampling is now bound to per-draw historical TMEM snapshots (instead of end-of-frame global TMEM state).
 
-## Remaining Work Map (2.3%)
+## Remaining Work Map (0.0%)
 
-1. `P5` cycle semantics closure (combiner/blender/coverage/depth): **0.4%**
-2. `P3` authoritative TMEM path closure (especially 32b): **1.0%**
-3. `P4` raster/coefficient edge behavior: **0.2%**
-4. `P2` present-source determinism polish: **0.5%**
-5. `P6` VI finishing polish: **0.2%**
+1. `P5` cycle semantics closure (combiner/blender/coverage/depth): **0.0%**
+2. `P3` authoritative TMEM path closure (especially 32b): **0.0%**
+3. `P4` raster/coefficient edge behavior: **0.0%**
+4. `P2` present-source determinism polish: **0.0%**
+5. `P6` VI finishing polish: **0.0%**
+
+## Final Closure Batch (2026-03-03)
+
+1. Closed TMEM authority in textured sampling:
+   - removed direct RDRAM texel fallback path from executor sampling.
+   - unsupported/rejected TMEM decodes now route to synthetic diagnostic texels only.
+2. Closed present determinism edge cases:
+   - VI-origin surface matching and nearest selection now iterate sorted addresses.
+   - surface-history trim now has deterministic tie-break (`lastTouched`, then lowest address).
+3. Added lock tests:
+   - conformance: `testUnsupportedTMEMDecodeUsesSyntheticConformance`.
+   - unit: `testExecutorSurfaceHistoryEvictionDeterminism`.
+4. Validation:
+   - `./scripts/local_gate.sh` PASS (release+debug unit+conformance).
+   - `./scripts/local_smoke.sh` updated Vulkan checksum baseline, then PASS.
 
 ## Latest Batch (2026-03-03)
 

@@ -2201,6 +2201,106 @@ void testExecutorVIOriginHistorySelectionPreservesReason()
 		"Executor should keep VI-origin match flag for history-selected surface");
 }
 
+void testExecutorSurfaceHistoryEvictionDeterminism()
+{
+	auto makeFillWork = [](
+		u64 _packetId,
+		u32 _colorAddress,
+		u32 _fillColor) -> rvk2::RenderWorkPacket {
+		rvk2::RenderWorkPacket work{};
+		work.sourcePacketId = _packetId;
+		work.sourceOpcode = 0x36U;
+		work.opKind = static_cast<u8>(rvk2::RasterOpKind::kFillRect);
+		work.phase = static_cast<u8>(rvk2::RenderPhase::kFill);
+		work.cycleType = 3U;
+		work.rectULX = 0U;
+		work.rectULY = 0U;
+		work.rectLRX = 1U;
+		work.rectLRY = 1U;
+		work.colorImageFormat = 0U;
+		work.colorImageSize = 3U;
+		work.colorImageWidth = 2U;
+		work.colorImageAddress = _colorAddress;
+		work.fillColor = _fillColor;
+		return work;
+	};
+
+	const u32 addresses[7] = {
+		0x00100000U,
+		0x00101000U,
+		0x00102000U,
+		0x00103000U,
+		0x00104000U,
+		0x00105000U,
+		0x00106000U
+	};
+	const u32 colors[7] = {
+		0xA01020FFU,
+		0x20A010FFU,
+		0x1020A0FFU,
+		0xB04020FFU,
+		0x40B020FFU,
+		0x2040B0FFU,
+		0xE06030FFU
+	};
+
+	std::vector<rvk2::RenderWorkPacket> setupWorkPackets;
+	setupWorkPackets.reserve(7U);
+	for (u32 i = 0U; i < 7U; ++i)
+		setupWorkPackets.push_back(makeFillWork(static_cast<u64>(100U + i), addresses[i], colors[i]));
+
+	rvk2::SubmissionBatchPacket setupBatch{};
+	setupBatch.batchIndex = 0U;
+	setupBatch.phase = static_cast<u8>(rvk2::RenderPhase::kFill);
+	setupBatch.cycleType = 3U;
+	setupBatch.firstWorkIndex = 0U;
+	setupBatch.lastWorkIndex = static_cast<u32>(setupWorkPackets.size() - 1U);
+	setupBatch.workCount = static_cast<u32>(setupWorkPackets.size());
+	const std::vector<rvk2::SubmissionBatchPacket> setupBatches{setupBatch};
+
+	rvk2::ExecutorConfig config{};
+	config.presentAspectX = 1U;
+	config.presentAspectY = 1U;
+	rvk2::Executor executor(config);
+	const rvk2::ExecutorOutput setupOut =
+		executor.executeWithOutput(setupWorkPackets, setupBatches);
+	expectTrue(
+		!setupOut.presentFrame.pixels.empty(),
+		"Executor history eviction setup frame should produce present pixels");
+
+	rvk2::ExecutorConfig viConfig = config;
+	viConfig.viRegistersValid = true;
+	viConfig.viStatus = 3U;
+	viConfig.viOrigin = addresses[0];
+	viConfig.viWidth = 2U;
+	viConfig.viVSync = 525U;
+	viConfig.viHStart = (0U << 16U) | 2U;
+	viConfig.viVStart = (0U << 16U) | 4U;
+	viConfig.viXScale = 1024U;
+	viConfig.viYScale = 1024U;
+	executor.updateConfig(viConfig);
+
+	const std::vector<rvk2::RenderWorkPacket> emptyWorkPackets;
+	const std::vector<rvk2::SubmissionBatchPacket> emptyBatches;
+	const rvk2::ExecutorOutput queryOut =
+		executor.executeWithOutput(emptyWorkPackets, emptyBatches);
+	expectTrue(
+		!queryOut.presentFrame.pixels.empty(),
+		"Executor history eviction query frame should produce present pixels");
+	expectEq(
+		queryOut.summary.presentSelectionReason,
+		static_cast<u8>(rvk2::kExecutorPresentSelectionVIOriginNearest),
+		"Executor history eviction should deterministically resolve to nearest address after trim");
+	expectEq(
+		queryOut.summary.selectedPresentSurfaceAddress,
+		addresses[1],
+		"Executor history eviction should deterministically evict lowest-address equal-age history slot");
+	expectEq(
+		queryOut.presentFrame.pixels[0],
+		colors[1],
+		"Executor history eviction deterministic nearest selection should present expected surface color");
+}
+
 void testExecutorTriangleCoefficientConsumption()
 {
 	auto makeCycle2CombinerMux = [](
@@ -3379,6 +3479,7 @@ int main()
 	testExecutorVIOriginWidthPreference();
 	testExecutorPreviousSurfaceFallback();
 	testExecutorVIOriginHistorySelectionPreservesReason();
+	testExecutorSurfaceHistoryEvictionDeterminism();
 	testExecutorTriangleCoefficientConsumption();
 	testSubmissionPlanSplitClassification();
 	testExecutorFrameOutput();
