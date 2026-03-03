@@ -39,6 +39,22 @@ public:
 	bool present() override;
 
 private:
+	struct FrontendIngressCounters {
+		u64 frameId = 0ULL;
+		u64 stateCallCount = 0ULL;
+		u64 triangleCallCount = 0ULL;
+		u64 triangleVertexCount = 0ULL;
+		u64 rectCallCount = 0ULL;
+		u64 rectVertexCount = 0ULL;
+		u64 lineCallCount = 0ULL;
+		u64 lineVertexCount = 0ULL;
+	};
+
+	void syncIngressFrame();
+	void resetIngressCounters(u64 _frameId);
+	bool shadowDrawForwardingEnabled() const;
+	bool shadowPresentEnabled() const;
+
 	void ensurePresenterTexture(u32 _width, u32 _height);
 	void renderPresentedFrame(const ExecutorOutput & _output);
 	void uploadPresenterTexture(const ExecutorPresentFrame & _frame);
@@ -49,6 +65,7 @@ private:
 	u32 m_presentTextureWidth = 0U;
 	u32 m_presentTextureHeight = 0U;
 	std::vector<u8> m_presentUploadBytes;
+	FrontendIngressCounters m_ingressCounters{};
 	Executor m_executor;
 };
 

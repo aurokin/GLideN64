@@ -112,6 +112,26 @@ python3 scripts/rvk2_packet_trace_replay.py \
 When deep telemetry smoke is enabled, `local_gate.sh` auto-wires replay to
 `paper_mario_intro.candidate.frame-forensics.tsv` if present.
 
+## RVK2 Shadow Debugging
+
+Optional debug toggles for ingress-vs-render-plan investigation:
+
+- `REALITYVK_RVK2_SHADOW_DRAW=1`
+  - Forwards rvk2 context draw/state API calls through base Vulkan path.
+- `REALITYVK_RVK2_SHADOW_PRESENT=1`
+  - Presents the forwarded Vulkan path instead of executor output.
+  - Requires `REALITYVK_RVK2_SHADOW_DRAW=1`.
+
+Frame-forensics rows now include ingress counters and gaps:
+
+- `ing_state_calls`
+- `ing_tri_calls`, `ing_tri_verts`
+- `ing_rect_calls`, `ing_rect_verts`
+- `ing_line_calls`, `ing_line_verts`
+- `ing_shadow_draw`, `ing_shadow_present`
+- `ing_gap_tri_work` (`work_tri - ing_tri_calls`)
+- `ing_gap_texrect_work` (`work_texrect - ing_rect_calls`)
+
 ## Archive Compare
 
 ```bash

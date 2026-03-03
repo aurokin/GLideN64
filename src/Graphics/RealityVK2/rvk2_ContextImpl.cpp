@@ -31,6 +31,31 @@ bool shouldFlipPresentedFrameY()
 	return envFlagEnabled("REALITYVK_RVK2_PRESENT_FLIP_Y", true);
 }
 
+bool shouldForwardShadowDrawCalls()
+{
+	// Debug path: forward no-op draw/state calls through base Vulkan renderer.
+	return envFlagEnabled("REALITYVK_RVK2_SHADOW_DRAW", false);
+}
+
+bool shouldPresentShadowPath()
+{
+	// Debug path: present forwarded Vulkan output instead of executor output.
+	return envFlagEnabled("REALITYVK_RVK2_SHADOW_PRESENT", false);
+}
+
+struct ForensicsIngressSnapshot {
+	u64 frameId = 0ULL;
+	u64 stateCallCount = 0ULL;
+	u64 triangleCallCount = 0ULL;
+	u64 triangleVertexCount = 0ULL;
+	u64 rectCallCount = 0ULL;
+	u64 rectVertexCount = 0ULL;
+	u64 lineCallCount = 0ULL;
+	u64 lineVertexCount = 0ULL;
+	bool shadowDrawForwarding = false;
+	bool shadowPresent = false;
+};
+
 void buildFullscreenRect(RectVertex (&_vertices)[4], bool _flipY)
 {
 	const f32 bottomT = _flipY ? 0.0f : 1.0f;
@@ -96,7 +121,9 @@ void writeTextureReplacementSummaryFile(
 	std::fclose(file);
 }
 
-void appendFrameForensicsRecord(const rvk2::ExecutorOutput & _output)
+void appendFrameForensicsRecord(
+	const rvk2::ExecutorOutput & _output,
+	const ForensicsIngressSnapshot & _ingress)
 {
 	const char * path = std::getenv("REALITYVK2_FRAME_FORENSICS_FILE");
 	if (path == nullptr || path[0] == '\0')
@@ -380,6 +407,27 @@ void appendFrameForensicsRecord(const rvk2::ExecutorOutput & _output)
 			i,
 			static_cast<unsigned long long>(summary.colorImageEventWorkOrdinal[i]));
 	}
+	const long long triWorkGap =
+		static_cast<long long>(summary.workKindTriangleCount)
+		- static_cast<long long>(_ingress.triangleCallCount);
+	const long long texrectWorkGap =
+		static_cast<long long>(summary.workKindTexRectCount)
+		- static_cast<long long>(_ingress.rectCallCount);
+	std::fprintf(
+		file,
+		"\ting_frame=%llu\ting_state_calls=%llu\ting_tri_calls=%llu\ting_tri_verts=%llu\ting_rect_calls=%llu\ting_rect_verts=%llu\ting_line_calls=%llu\ting_line_verts=%llu\ting_shadow_draw=%u\ting_shadow_present=%u\ting_gap_tri_work=%lld\ting_gap_texrect_work=%lld",
+		static_cast<unsigned long long>(_ingress.frameId),
+		static_cast<unsigned long long>(_ingress.stateCallCount),
+		static_cast<unsigned long long>(_ingress.triangleCallCount),
+		static_cast<unsigned long long>(_ingress.triangleVertexCount),
+		static_cast<unsigned long long>(_ingress.rectCallCount),
+		static_cast<unsigned long long>(_ingress.rectVertexCount),
+		static_cast<unsigned long long>(_ingress.lineCallCount),
+		static_cast<unsigned long long>(_ingress.lineVertexCount),
+		static_cast<unsigned int>(_ingress.shadowDrawForwarding),
+		static_cast<unsigned int>(_ingress.shadowPresent),
+		triWorkGap,
+		texrectWorkGap);
 	std::fprintf(file, "\n");
 	std::fclose(file);
 }
@@ -400,6 +448,29 @@ ContextImpl::ContextImpl()
 }
 
 ContextImpl::~ContextImpl() = default;
+
+void ContextImpl::resetIngressCounters(u64 _frameId)
+{
+	m_ingressCounters = FrontendIngressCounters{};
+	m_ingressCounters.frameId = _frameId;
+}
+
+void ContextImpl::syncIngressFrame()
+{
+	const u64 frameId = rvk2::runtime().commandStream().frameId();
+	if (frameId != m_ingressCounters.frameId)
+		resetIngressCounters(frameId);
+}
+
+bool ContextImpl::shadowDrawForwardingEnabled() const
+{
+	return shouldForwardShadowDrawCalls();
+}
+
+bool ContextImpl::shadowPresentEnabled() const
+{
+	return shouldPresentShadowPath();
+}
 
 void ContextImpl::setPresentationWindowInfo(const graphics::Context::PresentationWindowInfo & _info)
 {
@@ -426,51 +497,66 @@ void ContextImpl::destroy()
 
 void ContextImpl::enable(graphics::EnableParam _parameter, bool _enable)
 {
-	(void)_parameter;
-	(void)_enable;
+	syncIngressFrame();
+	++m_ingressCounters.stateCallCount;
+	if (shadowDrawForwardingEnabled())
+		vulkan::ContextImpl::enable(_parameter, _enable);
 }
 
 u32 ContextImpl::isEnabled(graphics::EnableParam _parameter)
 {
+	if (shadowDrawForwardingEnabled())
+		return vulkan::ContextImpl::isEnabled(_parameter);
 	(void)_parameter;
 	return 0U;
 }
 
 void ContextImpl::cullFace(graphics::CullModeParam _mode)
 {
-	(void)_mode;
+	syncIngressFrame();
+	++m_ingressCounters.stateCallCount;
+	if (shadowDrawForwardingEnabled())
+		vulkan::ContextImpl::cullFace(_mode);
 }
 
 void ContextImpl::enableDepthWrite(bool _enable)
 {
-	(void)_enable;
+	syncIngressFrame();
+	++m_ingressCounters.stateCallCount;
+	if (shadowDrawForwardingEnabled())
+		vulkan::ContextImpl::enableDepthWrite(_enable);
 }
 
 void ContextImpl::setDepthCompare(graphics::CompareParam _mode)
 {
-	(void)_mode;
+	syncIngressFrame();
+	++m_ingressCounters.stateCallCount;
+	if (shadowDrawForwardingEnabled())
+		vulkan::ContextImpl::setDepthCompare(_mode);
 }
 
 void ContextImpl::setViewport(s32 _x, s32 _y, s32 _width, s32 _height)
 {
-	(void)_x;
-	(void)_y;
-	(void)_width;
-	(void)_height;
+	syncIngressFrame();
+	++m_ingressCounters.stateCallCount;
+	if (shadowDrawForwardingEnabled())
+		vulkan::ContextImpl::setViewport(_x, _y, _width, _height);
 }
 
 void ContextImpl::setScissor(s32 _x, s32 _y, s32 _width, s32 _height)
 {
-	(void)_x;
-	(void)_y;
-	(void)_width;
-	(void)_height;
+	syncIngressFrame();
+	++m_ingressCounters.stateCallCount;
+	if (shadowDrawForwardingEnabled())
+		vulkan::ContextImpl::setScissor(_x, _y, _width, _height);
 }
 
 void ContextImpl::setBlending(graphics::BlendParam _sfactor, graphics::BlendParam _dfactor)
 {
-	(void)_sfactor;
-	(void)_dfactor;
+	syncIngressFrame();
+	++m_ingressCounters.stateCallCount;
+	if (shadowDrawForwardingEnabled())
+		vulkan::ContextImpl::setBlending(_sfactor, _dfactor);
 }
 
 void ContextImpl::setBlendingSeparate(
@@ -479,40 +565,58 @@ void ContextImpl::setBlendingSeparate(
 	graphics::BlendParam _sfactoralpha,
 	graphics::BlendParam _dfactoralpha)
 {
-	(void)_sfactorcolor;
-	(void)_dfactorcolor;
-	(void)_sfactoralpha;
-	(void)_dfactoralpha;
+	syncIngressFrame();
+	++m_ingressCounters.stateCallCount;
+	if (shadowDrawForwardingEnabled()) {
+		vulkan::ContextImpl::setBlendingSeparate(
+			_sfactorcolor,
+			_dfactorcolor,
+			_sfactoralpha,
+			_dfactoralpha);
+	}
 }
 
 void ContextImpl::setBlendColor(f32 _red, f32 _green, f32 _blue, f32 _alpha)
 {
-	(void)_red;
-	(void)_green;
-	(void)_blue;
-	(void)_alpha;
+	syncIngressFrame();
+	++m_ingressCounters.stateCallCount;
+	if (shadowDrawForwardingEnabled())
+		vulkan::ContextImpl::setBlendColor(_red, _green, _blue, _alpha);
 }
 
 void ContextImpl::setPolygonOffset(f32 _factor, f32 _units)
 {
-	(void)_factor;
-	(void)_units;
+	syncIngressFrame();
+	++m_ingressCounters.stateCallCount;
+	if (shadowDrawForwardingEnabled())
+		vulkan::ContextImpl::setPolygonOffset(_factor, _units);
 }
 
 void ContextImpl::drawTriangles(const graphics::Context::DrawTriangleParameters & _params)
 {
-	(void)_params;
+	syncIngressFrame();
+	++m_ingressCounters.triangleCallCount;
+	m_ingressCounters.triangleVertexCount += static_cast<u64>(_params.verticesCount);
+	if (shadowDrawForwardingEnabled())
+		vulkan::ContextImpl::drawTriangles(_params);
 }
 
 void ContextImpl::drawRects(const graphics::Context::DrawRectParameters & _params)
 {
-	(void)_params;
+	syncIngressFrame();
+	++m_ingressCounters.rectCallCount;
+	m_ingressCounters.rectVertexCount += static_cast<u64>(_params.verticesCount);
+	if (shadowDrawForwardingEnabled())
+		vulkan::ContextImpl::drawRects(_params);
 }
 
 void ContextImpl::drawLine(f32 _width, SPVertex * _vertices)
 {
-	(void)_width;
-	(void)_vertices;
+	syncIngressFrame();
+	++m_ingressCounters.lineCallCount;
+	m_ingressCounters.lineVertexCount += 2ULL;
+	if (shadowDrawForwardingEnabled())
+		vulkan::ContextImpl::drawLine(_width, _vertices);
 }
 
 void ContextImpl::convertToRgbaBytes(const std::vector<u32> & _srcPixels, std::vector<u8> & _dstBytes)
@@ -638,6 +742,29 @@ void ContextImpl::renderPresentedFrame(const ExecutorOutput & _output)
 
 bool ContextImpl::present()
 {
+	syncIngressFrame();
+	ForensicsIngressSnapshot ingress{};
+	ingress.frameId = m_ingressCounters.frameId;
+	ingress.stateCallCount = m_ingressCounters.stateCallCount;
+	ingress.triangleCallCount = m_ingressCounters.triangleCallCount;
+	ingress.triangleVertexCount = m_ingressCounters.triangleVertexCount;
+	ingress.rectCallCount = m_ingressCounters.rectCallCount;
+	ingress.rectVertexCount = m_ingressCounters.rectVertexCount;
+	ingress.lineCallCount = m_ingressCounters.lineCallCount;
+	ingress.lineVertexCount = m_ingressCounters.lineVertexCount;
+	ingress.shadowDrawForwarding = shadowDrawForwardingEnabled();
+	const bool shadowPresentRequested = shadowPresentEnabled();
+	ingress.shadowPresent = ingress.shadowDrawForwarding && shadowPresentRequested;
+	if (shadowPresentRequested && !ingress.shadowDrawForwarding) {
+		static bool warnedMissingShadowDraw = false;
+		if (!warnedMissingShadowDraw) {
+			LOG(
+				LOG_WARNING,
+				"REALITYVK_RVK2_SHADOW_PRESENT requested without REALITYVK_RVK2_SHADOW_DRAW; falling back to executor-present.");
+			warnedMissingShadowDraw = true;
+		}
+	}
+
 	const ExecutorConfig config = buildExecutorConfigFromVIRegisters();
 	m_executor.updateConfig(config);
 	const ExecutorOutput output =
@@ -657,8 +784,9 @@ bool ContextImpl::present()
 			static_cast<unsigned long long>(output.summary.textureReplacementMissCount));
 	}
 	writeTextureReplacementSummaryFile(config, output.summary);
-	appendFrameForensicsRecord(output);
-	renderPresentedFrame(output);
+	appendFrameForensicsRecord(output, ingress);
+	if (!ingress.shadowPresent)
+		renderPresentedFrame(output);
 	return vulkan::ContextImpl::present();
 }
 
