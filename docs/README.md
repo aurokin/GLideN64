@@ -4,6 +4,8 @@
 
 - `../README.md`: maintainer-facing project overview and operating rules.
 - `local-ci.md`: build, gate, smoke, parity, and replay commands.
+- `workflow.md`: primary objective, acceptance bar, ground-truth assumptions, and active diagnosis snapshot.
+- `status.md`: prioritized fix lanes and current baseline checkpoint.
 - `references/n64/README.md`: local N64 hardware/reference corpus.
 
 ## RVK2 Operating Policy
