@@ -46,6 +46,13 @@ DEEP_TELEMETRY_REPLAY_STATEFUL="${REALITYVK_PM_DEEP_TELEMETRY_REPLAY_STATEFUL:-1
 DEEP_TELEMETRY_TRACE_LOG_SUMMARY="${REALITYVK_PM_DEEP_TELEMETRY_TRACE_LOG_SUMMARY:-1}"
 DEEP_TELEMETRY_FBO_TRACE_LIMIT="${REALITYVK_PM_DEEP_TELEMETRY_FBO_TRACE_LIMIT:-20000}"
 DEEP_TELEMETRY_READBACK_LIMIT="${REALITYVK_PM_DEEP_TELEMETRY_READBACK_LIMIT:-20000}"
+DEEP_TELEMETRY_DIFF_PLAYBOOK="${REALITYVK_PM_DEEP_TELEMETRY_DIFF_PLAYBOOK:-1}"
+DEEP_TELEMETRY_DIFF_THRESHOLD="${REALITYVK_PM_DEEP_TELEMETRY_DIFF_THRESHOLD:-20}"
+DEEP_TELEMETRY_DIFF_MIN_AREA="${REALITYVK_PM_DEEP_TELEMETRY_DIFF_MIN_AREA:-256}"
+DEEP_TELEMETRY_DIFF_MAX_BOXES="${REALITYVK_PM_DEEP_TELEMETRY_DIFF_MAX_BOXES:-32}"
+DEEP_TELEMETRY_DIFF_DILATE="${REALITYVK_PM_DEEP_TELEMETRY_DIFF_DILATE:-1}"
+DEEP_TELEMETRY_COMMAND_CENSUS="${REALITYVK_PM_DEEP_TELEMETRY_COMMAND_CENSUS:-1}"
+DEEP_TELEMETRY_COMMAND_FOCUS_WINDOW="${REALITYVK_PM_DEEP_TELEMETRY_COMMAND_FOCUS_WINDOW:-1}"
 
 if [[ ! -f "${MANIFEST}" ]]; then
   echo "ERROR: scenario manifest not found: ${MANIFEST}" >&2
@@ -188,6 +195,41 @@ if ! [[ "${DEEP_TELEMETRY_READBACK_LIMIT}" =~ ^[0-9]+$ ]] || [[ "${DEEP_TELEMETR
   exit 2
 fi
 
+if [[ "${DEEP_TELEMETRY_DIFF_PLAYBOOK}" != "0" && "${DEEP_TELEMETRY_DIFF_PLAYBOOK}" != "1" ]]; then
+  echo "ERROR: REALITYVK_PM_DEEP_TELEMETRY_DIFF_PLAYBOOK must be 0 or 1." >&2
+  exit 2
+fi
+
+if [[ "${DEEP_TELEMETRY_COMMAND_CENSUS}" != "0" && "${DEEP_TELEMETRY_COMMAND_CENSUS}" != "1" ]]; then
+  echo "ERROR: REALITYVK_PM_DEEP_TELEMETRY_COMMAND_CENSUS must be 0 or 1." >&2
+  exit 2
+fi
+
+if ! [[ "${DEEP_TELEMETRY_DIFF_THRESHOLD}" =~ ^[0-9]+$ ]] || (( DEEP_TELEMETRY_DIFF_THRESHOLD > 255 )); then
+  echo "ERROR: REALITYVK_PM_DEEP_TELEMETRY_DIFF_THRESHOLD must be an integer in [0,255]." >&2
+  exit 2
+fi
+
+if ! [[ "${DEEP_TELEMETRY_DIFF_MIN_AREA}" =~ ^[0-9]+$ ]] || [[ "${DEEP_TELEMETRY_DIFF_MIN_AREA}" == "0" ]]; then
+  echo "ERROR: REALITYVK_PM_DEEP_TELEMETRY_DIFF_MIN_AREA must be an integer >= 1." >&2
+  exit 2
+fi
+
+if ! [[ "${DEEP_TELEMETRY_DIFF_MAX_BOXES}" =~ ^[0-9]+$ ]] || [[ "${DEEP_TELEMETRY_DIFF_MAX_BOXES}" == "0" ]]; then
+  echo "ERROR: REALITYVK_PM_DEEP_TELEMETRY_DIFF_MAX_BOXES must be an integer >= 1." >&2
+  exit 2
+fi
+
+if ! [[ "${DEEP_TELEMETRY_DIFF_DILATE}" =~ ^[0-9]+$ ]]; then
+  echo "ERROR: REALITYVK_PM_DEEP_TELEMETRY_DIFF_DILATE must be an integer >= 0." >&2
+  exit 2
+fi
+
+if ! [[ "${DEEP_TELEMETRY_COMMAND_FOCUS_WINDOW}" =~ ^[0-9]+$ ]]; then
+  echo "ERROR: REALITYVK_PM_DEEP_TELEMETRY_COMMAND_FOCUS_WINDOW must be an integer >= 0." >&2
+  exit 2
+fi
+
 if [[ ! -f "${CANDIDATE_PLUGIN}" ]]; then
   echo "ERROR: candidate plugin not found: ${CANDIDATE_PLUGIN}" >&2
   exit 2
@@ -267,6 +309,12 @@ CANDIDATE_FRAME_FORENSICS_SUMMARY_OUT=""
 CANDIDATE_FRAME_FORENSICS_ACTIVE_SUMMARY_OUT=""
 CANDIDATE_LAUNCH_LOG_OUT=""
 CANDIDATE_DEPTH_SUMMARY_OUT=""
+DEVIATION_OUT_DIR=""
+DIFF_PLAYBOOK_SUMMARY_OUT=""
+DIFF_PLAYBOOK_BOXES_OUT=""
+DIFF_PLAYBOOK_SNIPPET_OUT=""
+COMMAND_CENSUS_OUT=""
+COMMAND_CENSUS_MD_OUT=""
 
 SCENARIO_ARGS_ARRAY=()
 if [[ -n "${SCENARIO_ARGS// }" ]]; then
@@ -310,7 +358,14 @@ if [[ "${DEEP_TELEMETRY}" == "1" ]]; then
   CANDIDATE_FRAME_FORENSICS_ACTIVE_SUMMARY_OUT="${TELEMETRY_ROOT}/${SCENARIO_ID}.candidate.frame-forensics.active.summary.txt"
   CANDIDATE_LAUNCH_LOG_OUT="${TELEMETRY_ROOT}/${SCENARIO_ID}.candidate.launch.log"
   CANDIDATE_DEPTH_SUMMARY_OUT="${TELEMETRY_ROOT}/${SCENARIO_ID}.candidate.depth-blit-summary.json"
+  DEVIATION_OUT_DIR="${TELEMETRY_ROOT}/${SCENARIO_ID}.deviation"
+  DIFF_PLAYBOOK_SUMMARY_OUT="${DEVIATION_OUT_DIR}/summary.json"
+  DIFF_PLAYBOOK_BOXES_OUT="${DEVIATION_OUT_DIR}/boxes.json"
+  DIFF_PLAYBOOK_SNIPPET_OUT="${DEVIATION_OUT_DIR}/playbook_snippet.md"
+  COMMAND_CENSUS_OUT="${TELEMETRY_ROOT}/${SCENARIO_ID}.candidate.command-census.json"
+  COMMAND_CENSUS_MD_OUT="${TELEMETRY_ROOT}/${SCENARIO_ID}.candidate.command-census.md"
   TELEMETRY_BUNDLE_OUT="${TELEMETRY_ROOT}/${SCENARIO_ID}.telemetry.bundle.json"
+  rm -rf "${DEVIATION_OUT_DIR}"
   rm -f \
     "${CANDIDATE_TRACE_OUT}" \
     "${CANDIDATE_PACKET_TRACE_OUT}" \
@@ -320,6 +375,8 @@ if [[ "${DEEP_TELEMETRY}" == "1" ]]; then
     "${CANDIDATE_FRAME_FORENSICS_ACTIVE_SUMMARY_OUT}" \
     "${CANDIDATE_LAUNCH_LOG_OUT}" \
     "${CANDIDATE_DEPTH_SUMMARY_OUT}" \
+    "${COMMAND_CENSUS_OUT}" \
+    "${COMMAND_CENSUS_MD_OUT}" \
     "${TELEMETRY_BUNDLE_OUT}"
 fi
 
@@ -672,6 +729,45 @@ if [[ "${DEEP_TELEMETRY}" == "1" ]]; then
     echo "WARN: frame forensics file missing: ${CANDIDATE_FRAME_FORENSICS_OUT}" >&2
   fi
 
+  if [[ "${DEEP_TELEMETRY_DIFF_PLAYBOOK}" == "1" ]]; then
+    echo "==> [telemetry] build deviation playbook artifacts"
+    if python3 "${ROOT_DIR}/scripts/rvk2_image_diff_playbook.py" \
+      --ref "${REFERENCE_PNG}" \
+      --test "${CANDIDATE_PNG}" \
+      --outdir "${DEVIATION_OUT_DIR}" \
+      --threshold "${DEEP_TELEMETRY_DIFF_THRESHOLD}" \
+      --min-area "${DEEP_TELEMETRY_DIFF_MIN_AREA}" \
+      --max-boxes "${DEEP_TELEMETRY_DIFF_MAX_BOXES}" \
+      --dilate "${DEEP_TELEMETRY_DIFF_DILATE}"; then
+      :
+    else
+      echo "WARN: deviation playbook artifact generation failed." >&2
+    fi
+  fi
+
+  if [[ "${DEEP_TELEMETRY_COMMAND_CENSUS}" == "1" ]]; then
+    echo "==> [telemetry] command census"
+    if [[ -s "${CANDIDATE_PACKET_TRACE_OUT}" ]]; then
+      census_args=(
+        "${ROOT_DIR}/scripts/rvk2_packet_command_census.py"
+        --input "${CANDIDATE_PACKET_TRACE_OUT}"
+        --json-out "${COMMAND_CENSUS_OUT}"
+        --md-out "${COMMAND_CENSUS_MD_OUT}"
+        --focus-window "${DEEP_TELEMETRY_COMMAND_FOCUS_WINDOW}"
+      )
+      if [[ -s "${CANDIDATE_PACKET_REPLAY_OUT}" ]]; then
+        census_args+=(--replay "${CANDIDATE_PACKET_REPLAY_OUT}")
+      fi
+      if python3 "${census_args[@]}"; then
+        :
+      else
+        echo "WARN: command census generation failed." >&2
+      fi
+    else
+      echo "WARN: packet trace missing for command census: ${CANDIDATE_PACKET_TRACE_OUT}" >&2
+    fi
+  fi
+
   python3 "${ROOT_DIR}/scripts/rvk2_telemetry_bundle.py" \
     --scenario-id "${SCENARIO_ID}" \
     --output "${TELEMETRY_BUNDLE_OUT}" \
@@ -690,9 +786,19 @@ if [[ "${DEEP_TELEMETRY}" == "1" ]]; then
     --forensics-summary-active "${CANDIDATE_FRAME_FORENSICS_ACTIVE_SUMMARY_OUT}" \
     --depth-summary "${CANDIDATE_DEPTH_SUMMARY_OUT}" \
     --launch-log "${CANDIDATE_LAUNCH_LOG_OUT}" \
+    --diff-playbook-summary "${DIFF_PLAYBOOK_SUMMARY_OUT}" \
+    --diff-playbook-boxes "${DIFF_PLAYBOOK_BOXES_OUT}" \
+    --diff-playbook-snippet "${DIFF_PLAYBOOK_SNIPPET_OUT}" \
+    --command-census "${COMMAND_CENSUS_OUT}" \
     --packet-replay-exit "${DEEP_REPLAY_EXIT_CODE}" \
     --forensics-summary-exit "${DEEP_FORENSICS_SUMMARY_EXIT_CODE}" \
     --forensics-summary-active-exit "${DEEP_FORENSICS_ACTIVE_SUMMARY_EXIT_CODE}"
+  if [[ -f "${DIFF_PLAYBOOK_SNIPPET_OUT}" ]]; then
+    echo "deviation playbook snippet: ${DIFF_PLAYBOOK_SNIPPET_OUT}"
+  fi
+  if [[ -f "${COMMAND_CENSUS_MD_OUT}" ]]; then
+    echo "command census: ${COMMAND_CENSUS_MD_OUT}"
+  fi
   echo "telemetry bundle: ${TELEMETRY_BUNDLE_OUT}"
 fi
 

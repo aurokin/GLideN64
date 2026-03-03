@@ -21,6 +21,27 @@ def _load_json(path: Optional[Path]) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _load_json_any(path: Optional[Path]) -> Optional[Any]:
+    if path is None or not path.is_file():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _load_text(path: Optional[Path], limit: int = 12000) -> Optional[str]:
+    if path is None or not path.is_file():
+        return None
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return None
+    if len(text) > limit:
+        return text[:limit]
+    return text
+
+
 def _file_meta(path: Optional[Path]) -> Dict[str, Any]:
     if path is None:
         return {"path": None, "exists": False, "size_bytes": 0}
@@ -189,6 +210,8 @@ def _build_signals(
     launch_summary: Dict[str, Any],
     depth_summary: Optional[Dict[str, Any]],
     metrics: Optional[Dict[str, Any]],
+    command_census: Optional[Dict[str, Any]],
+    diff_playbook_summary: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
     tx_samples = _u64(last_record, "tx_samples")
     tx_tmem = _u64(last_record, "tx_tmem")
@@ -351,6 +374,69 @@ def _build_signals(
         if luma_ratio is not None and luma_ratio < 0.85:
             suspected_gaps.append("candidate mean luma is below 85% of reference (missing texture/detail likely)")
 
+    command_signal: Dict[str, Any] = {}
+    if isinstance(command_census, dict):
+        overall = command_census.get("overall", {})
+        overall_families = overall.get("rdp_family_counts", {}) if isinstance(overall, dict) else {}
+        focus_frame = command_census.get("focus_frame", {})
+        focus_families = focus_frame.get("rdp_family_counts", {}) if isinstance(focus_frame, dict) else {}
+
+        tri_total = int(overall_families.get("triangles", 0) or 0) if isinstance(overall_families, dict) else 0
+        texrect_total = int(overall_families.get("texrect", 0) or 0) if isinstance(overall_families, dict) else 0
+        fillrect_total = int(overall_families.get("fillrect", 0) or 0) if isinstance(overall_families, dict) else 0
+        set_color_total = (
+            int(overall_families.get("set_color_image", 0) or 0) if isinstance(overall_families, dict) else 0
+        )
+
+        tri_focus = int(focus_families.get("triangles", 0) or 0) if isinstance(focus_families, dict) else 0
+        texrect_focus = int(focus_families.get("texrect", 0) or 0) if isinstance(focus_families, dict) else 0
+        fillrect_focus = int(focus_families.get("fillrect", 0) or 0) if isinstance(focus_families, dict) else 0
+        set_color_focus = int(focus_families.get("set_color_image", 0) or 0) if isinstance(focus_families, dict) else 0
+
+        command_signal = {
+            "replay_first_failed_frame": command_census.get("replay_first_failed_frame"),
+            "focus_frame_id": command_census.get("focus_frame_id"),
+            "triangles_total": tri_total,
+            "texrect_total": texrect_total,
+            "fillrect_total": fillrect_total,
+            "set_color_image_total": set_color_total,
+            "triangles_focus": tri_focus,
+            "texrect_focus": texrect_focus,
+            "fillrect_focus": fillrect_focus,
+            "set_color_image_focus": set_color_focus,
+            "leads": command_census.get("leads", []),
+        }
+
+        if tri_total == 0 and (texrect_total > 0 or fillrect_total > 0):
+            suspected_gaps.append(
+                "command census shows texrect/fill traffic but no triangle traffic (possible RSP microcode or DL submission drop)"
+            )
+        if tri_focus == 0 and texrect_focus > 0:
+            suspected_gaps.append("focus frame has texrect traffic without triangles (UI-only render symptom)")
+        if set_color_focus > 1:
+            suspected_gaps.append("focus frame changes color-image target multiple times (verify VI source buffer selection)")
+        if tri_total > 0 and texrect_total > 0 and write_tri == 0:
+            suspected_gaps.append("triangles are present in command stream but no triangle writes were produced")
+
+    deviation_signal: Dict[str, Any] = {}
+    if isinstance(diff_playbook_summary, dict):
+        metrics_payload = diff_playbook_summary.get("metrics", {})
+        first_raw = metrics_payload.get("first_mismatch_raw") if isinstance(metrics_payload, dict) else None
+        first_dilated = metrics_payload.get("first_mismatch") if isinstance(metrics_payload, dict) else None
+        percent_changed = float(metrics_payload.get("percent_changed", 0.0) or 0.0) if isinstance(metrics_payload, dict) else 0.0
+        box_count = int(diff_playbook_summary.get("box_count", 0) or 0)
+        deviation_signal = {
+            "threshold": diff_playbook_summary.get("threshold"),
+            "min_area": diff_playbook_summary.get("min_area"),
+            "dilate": diff_playbook_summary.get("dilate"),
+            "box_count": box_count,
+            "percent_changed": percent_changed,
+            "first_mismatch_raw": first_raw,
+            "first_mismatch": first_dilated,
+        }
+        if box_count == 0 and percent_changed == 0.0:
+            suspected_gaps.append("image diff playbook found no structural mismatch (check threshold or capture mismatch)")
+
     if int(launch_summary.get("readback_marker_count", 0) or 0) == 0:
         suspected_gaps.append("launch log contains no VK readback debug markers")
 
@@ -360,6 +446,8 @@ def _build_signals(
         "geometry": geometry_signal,
         "depth": depth_signal,
         "visibility": visibility_signal,
+        "command": command_signal,
+        "deviation": deviation_signal,
         "suspected_gaps": suspected_gaps,
     }
 
@@ -627,6 +715,10 @@ def main() -> int:
     parser.add_argument("--forensics-summary-active")
     parser.add_argument("--depth-summary")
     parser.add_argument("--launch-log")
+    parser.add_argument("--diff-playbook-summary")
+    parser.add_argument("--diff-playbook-boxes")
+    parser.add_argument("--diff-playbook-snippet")
+    parser.add_argument("--command-census")
     parser.add_argument("--packet-replay-exit", type=int, default=-1)
     parser.add_argument("--forensics-summary-exit", type=int, default=-1)
     parser.add_argument("--forensics-summary-active-exit", type=int, default=-1)
@@ -648,11 +740,19 @@ def main() -> int:
     forensics_summary_active = Path(args.forensics_summary_active) if args.forensics_summary_active else None
     depth_summary_path = Path(args.depth_summary) if args.depth_summary else None
     launch_log = Path(args.launch_log) if args.launch_log else None
+    diff_playbook_summary_path = Path(args.diff_playbook_summary) if args.diff_playbook_summary else None
+    diff_playbook_boxes_path = Path(args.diff_playbook_boxes) if args.diff_playbook_boxes else None
+    diff_playbook_snippet_path = Path(args.diff_playbook_snippet) if args.diff_playbook_snippet else None
+    command_census_path = Path(args.command_census) if args.command_census else None
 
     metrics = _load_json(metrics_path)
     capture_context = _load_json(capture_context_path)
     replay = _load_json(packet_replay)
     depth_summary = _load_json(depth_summary_path)
+    diff_playbook_summary = _load_json(diff_playbook_summary_path)
+    diff_playbook_boxes = _load_json_any(diff_playbook_boxes_path)
+    diff_playbook_snippet = _load_text(diff_playbook_snippet_path)
+    command_census = _load_json(command_census_path)
 
     forensics_data = _parse_forensics(forensics)
     replay_summary = _summarize_replay(replay)
@@ -674,6 +774,8 @@ def main() -> int:
         launch_summary,
         depth_summary,
         metrics,
+        command_census,
+        diff_playbook_summary,
     )
 
     payload = {
@@ -701,9 +803,19 @@ def main() -> int:
             "forensics_summary_active": _file_meta(forensics_summary_active),
             "depth_summary": _file_meta(depth_summary_path),
             "launch_log": _file_meta(launch_log),
+            "diff_playbook_summary": _file_meta(diff_playbook_summary_path),
+            "diff_playbook_boxes": _file_meta(diff_playbook_boxes_path),
+            "diff_playbook_snippet": _file_meta(diff_playbook_snippet_path),
+            "command_census": _file_meta(command_census_path),
         },
         "metrics": metrics,
         "capture_context": capture_context,
+        "deviation_playbook": {
+            "summary": diff_playbook_summary,
+            "boxes": diff_playbook_boxes if isinstance(diff_playbook_boxes, list) else [],
+            "snippet": diff_playbook_snippet,
+        },
+        "command_census": command_census,
         "packet_replay_summary": replay_summary,
         "forensics": {
             "record_count": int(forensics_data.get("record_count", 0) or 0),
@@ -718,6 +830,8 @@ def main() -> int:
             "geometry": signal_summary["geometry"],
             "depth": signal_summary["depth"],
             "visibility": signal_summary["visibility"],
+            "command": signal_summary["command"],
+            "deviation": signal_summary["deviation"],
         },
         "suspected_gaps": signal_summary["suspected_gaps"],
     }
