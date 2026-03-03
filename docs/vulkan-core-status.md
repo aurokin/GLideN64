@@ -588,6 +588,21 @@
     - unwritten missing pixels are mostly explained by prior-frame writes (carry-forward/handoff dependency),
     - unwritten missing pixels are not explained by recent history (absent primitive coverage),
     - multiple prior targets strongly overlap unwritten missing pixels (cross-surface composition requirement).
+- Deep-smoke archival (new default behavior):
+  - `scripts/paper_mario_parity.sh` now archives each deep telemetry run under:
+    - `build/parity-runs/paper-mario/archive/<scenario>.<utc-stamp>.<git-sha>/`
+  - Archive includes:
+    - core compare artifacts (`reference/candidate`, diff, side-by-side image, capture context, metrics),
+    - telemetry outputs (trace/packet replay, forensics, command census, missing-region focus, bundle),
+    - deviation playbook directory.
+  - Indexing and metadata:
+    - append-only TSV index at `build/parity-runs/paper-mario/archive/index.tsv`,
+    - per-run metadata JSON at `<run>/run_meta.json`,
+    - latest symlink at `build/parity-runs/paper-mario/archive/paper_mario_intro.latest`.
+  - Control knobs:
+    - `REALITYVK_PM_DEEP_TELEMETRY_ARCHIVE=0/1` (default `1`)
+    - `REALITYVK_PM_DEEP_TELEMETRY_ARCHIVE_ROOT=<dir>`
+    - `REALITYVK_PM_DEEP_TELEMETRY_ARCHIVE_INDEX=<file>`
 - New deep run (`paper_mario-exp-handoff-lane`, bootstrap + cross-surface + `REALITYVK_RVK2_DEBUG_DISABLE_VI_HISTORY_PRESENT=1`):
   - `rmse=0.368067`, `candidate_non_black_ratio=0.742217`, `candidate_mean_luma=0.280745`.
   - Missing-region focus (`frame 126`) still shows mixed failure modes:

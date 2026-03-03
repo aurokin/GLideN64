@@ -61,6 +61,9 @@ DEEP_TELEMETRY_REQUIRE_LIVE_PRESENT_SURFACE="${REALITYVK_PM_DEEP_TELEMETRY_REQUI
 DEEP_TELEMETRY_MISSING_REGION_MAX_HIT_SAMPLES="${REALITYVK_PM_DEEP_TELEMETRY_MISSING_REGION_MAX_HIT_SAMPLES:-4096}"
 DEEP_TELEMETRY_MISSING_REGION_HISTORY_WINDOW="${REALITYVK_PM_DEEP_TELEMETRY_MISSING_REGION_HISTORY_WINDOW:-4}"
 DEEP_TELEMETRY_MISSING_REGION_MAX_ADDRESS_OVERLAP="${REALITYVK_PM_DEEP_TELEMETRY_MISSING_REGION_MAX_ADDRESS_OVERLAP:-16}"
+DEEP_TELEMETRY_ARCHIVE="${REALITYVK_PM_DEEP_TELEMETRY_ARCHIVE:-1}"
+DEEP_TELEMETRY_ARCHIVE_ROOT="${REALITYVK_PM_DEEP_TELEMETRY_ARCHIVE_ROOT:-${RUN_ROOT}/archive}"
+DEEP_TELEMETRY_ARCHIVE_INDEX="${REALITYVK_PM_DEEP_TELEMETRY_ARCHIVE_INDEX:-${DEEP_TELEMETRY_ARCHIVE_ROOT}/index.tsv}"
 RVK2_ENABLE_SURFACE_HISTORY_BOOTSTRAP="${REALITYVK_PM_RVK2_ENABLE_SURFACE_HISTORY_BOOTSTRAP:-1}"
 RVK2_ENABLE_CROSS_SURFACE_BOOTSTRAP="${REALITYVK_PM_RVK2_ENABLE_CROSS_SURFACE_BOOTSTRAP:-1}"
 AUTO_COMPARE_VIEW="${REALITYVK_PM_AUTO_COMPARE_VIEW:-1}"
@@ -304,6 +307,11 @@ if ! [[ "${DEEP_TELEMETRY_MISSING_REGION_MAX_ADDRESS_OVERLAP}" =~ ^[0-9]+$ ]]; t
   exit 2
 fi
 
+if [[ "${DEEP_TELEMETRY_ARCHIVE}" != "0" && "${DEEP_TELEMETRY_ARCHIVE}" != "1" ]]; then
+  echo "ERROR: REALITYVK_PM_DEEP_TELEMETRY_ARCHIVE must be 0 or 1." >&2
+  exit 2
+fi
+
 if [[ ! -f "${CANDIDATE_PLUGIN}" ]]; then
   echo "ERROR: candidate plugin not found: ${CANDIDATE_PLUGIN}" >&2
   exit 2
@@ -392,6 +400,10 @@ COMMAND_CENSUS_OUT=""
 COMMAND_CENSUS_MD_OUT=""
 COMPARE_SIDE_BY_SIDE_OUT="${RUN_ROOT}/${SCENARIO_ID}.compare_side_by_side.latest.png"
 COMPARE_VIEWER_PID_FILE="${RUN_ROOT}/.paper_mario_parity_compare_view.pid"
+DEEP_ARCHIVE_RUN_STAMP="$(date -u +%Y%m%d-%H%M%SZ)"
+DEEP_ARCHIVE_GIT_SHA="$(git -C "${ROOT_DIR}" rev-parse --short HEAD 2>/dev/null || echo "nogit")"
+DEEP_ARCHIVE_RUN_ID="${SCENARIO_ID}.${DEEP_ARCHIVE_RUN_STAMP}.${DEEP_ARCHIVE_GIT_SHA}"
+DEEP_ARCHIVE_DIR="${DEEP_TELEMETRY_ARCHIVE_ROOT}/${DEEP_ARCHIVE_RUN_ID}"
 
 SCENARIO_ARGS_ARRAY=()
 if [[ -n "${SCENARIO_ARGS// }" ]]; then
@@ -640,6 +652,169 @@ open_auto_compare_viewer() {
   echo "WARN: eog exited before image view stabilized: ${image_path}" >&2
   rm -f "${COMPARE_VIEWER_PID_FILE}"
   return 0
+}
+
+copy_artifact_if_file() {
+  local src="$1"
+  local dst="$2"
+  if [[ -f "${src}" ]]; then
+    mkdir -p "$(dirname "${dst}")"
+    cp -f "${src}" "${dst}"
+  fi
+}
+
+archive_deep_telemetry_run() {
+  if [[ "${DEEP_TELEMETRY}" != "1" || "${DEEP_TELEMETRY_ARCHIVE}" != "1" ]]; then
+    return 0
+  fi
+
+  mkdir -p "${DEEP_ARCHIVE_DIR}" "${DEEP_ARCHIVE_DIR}/telemetry" "$(dirname "${DEEP_TELEMETRY_ARCHIVE_INDEX}")"
+
+  local -a run_artifacts=(
+    "${METRICS_OUT}"
+    "${CAPTURE_CONTEXT_OUT}"
+    "${REFERENCE_CAPTURE}"
+    "${CANDIDATE_CAPTURE}"
+    "${REFERENCE_PNG}"
+    "${CANDIDATE_PNG}"
+    "${DIFF_OUT}"
+    "${COMPARE_SIDE_BY_SIDE_OUT}"
+  )
+  for src in "${run_artifacts[@]}"; do
+    copy_artifact_if_file "${src}" "${DEEP_ARCHIVE_DIR}/$(basename "${src}")"
+  done
+
+  local -a telemetry_artifacts=(
+    "${CANDIDATE_TRACE_OUT}"
+    "${CANDIDATE_PACKET_TRACE_OUT}"
+    "${CANDIDATE_PACKET_REPLAY_OUT}"
+    "${CANDIDATE_FRAME_FORENSICS_OUT}"
+    "${CANDIDATE_FRAME_FORENSICS_SUMMARY_OUT}"
+    "${CANDIDATE_FRAME_FORENSICS_ACTIVE_SUMMARY_OUT}"
+    "${CANDIDATE_LAUNCH_LOG_OUT}"
+    "${CANDIDATE_DEPTH_SUMMARY_OUT}"
+    "${CANDIDATE_MISSING_REGION_FOCUS_OUT}"
+    "${COMMAND_CENSUS_OUT}"
+    "${COMMAND_CENSUS_MD_OUT}"
+    "${TELEMETRY_BUNDLE_OUT}"
+  )
+  for src in "${telemetry_artifacts[@]}"; do
+    if [[ -n "${src}" ]]; then
+      copy_artifact_if_file "${src}" "${DEEP_ARCHIVE_DIR}/telemetry/$(basename "${src}")"
+    fi
+  done
+
+  if [[ -n "${DEVIATION_OUT_DIR}" && -d "${DEVIATION_OUT_DIR}" ]]; then
+    local deviation_archive_dir="${DEEP_ARCHIVE_DIR}/telemetry/$(basename "${DEVIATION_OUT_DIR}")"
+    mkdir -p "${deviation_archive_dir}"
+    cp -a "${DEVIATION_OUT_DIR}/." "${deviation_archive_dir}/"
+  fi
+
+  python3 - \
+    "${DEEP_ARCHIVE_DIR}/run_meta.json" \
+    "${SCENARIO_ID}" \
+    "${DEEP_ARCHIVE_RUN_ID}" \
+    "${DEEP_ARCHIVE_RUN_STAMP}" \
+    "${DEEP_ARCHIVE_GIT_SHA}" \
+    "${ROOT_DIR}" \
+    "${RUN_ROOT}" \
+    "${TELEMETRY_ROOT}" \
+    "${VISUAL_COMPARE_EXIT_CODE}" \
+    "${DEEP_REPLAY_EXIT_CODE}" \
+    "${DEEP_FORENSICS_SUMMARY_EXIT_CODE}" \
+    "${DEEP_FORENSICS_ACTIVE_SUMMARY_EXIT_CODE}" \
+    "${METRICS_OUT}" \
+    "${TELEMETRY_BUNDLE_OUT}" \
+    "${CANDIDATE_MISSING_REGION_FOCUS_OUT}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+out_path = Path(sys.argv[1])
+payload = {
+    "scenario_id": sys.argv[2],
+    "run_id": sys.argv[3],
+    "run_stamp_utc": sys.argv[4],
+    "git_commit_short": sys.argv[5],
+    "root_dir": sys.argv[6],
+    "run_root": sys.argv[7],
+    "telemetry_root": sys.argv[8],
+    "status": {
+        "visual_compare_exit": int(sys.argv[9]),
+        "packet_replay_exit": int(sys.argv[10]),
+        "forensics_summary_exit": int(sys.argv[11]),
+        "forensics_active_summary_exit": int(sys.argv[12]),
+    },
+    "artifacts": {
+        "metrics": sys.argv[13],
+        "telemetry_bundle": sys.argv[14],
+        "missing_region_focus": sys.argv[15],
+    },
+}
+out_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+PY
+
+  if [[ ! -f "${DEEP_TELEMETRY_ARCHIVE_INDEX}" ]]; then
+    printf "run_id\trun_stamp_utc\tscenario\tgit_commit_short\trmse\tmae\tcandidate_non_black_ratio\tcandidate_mean_luma\tarchive_dir\tbundle\n" > "${DEEP_TELEMETRY_ARCHIVE_INDEX}"
+  fi
+
+  python3 - \
+    "${DEEP_TELEMETRY_ARCHIVE_INDEX}" \
+    "${METRICS_OUT}" \
+    "${DEEP_ARCHIVE_RUN_ID}" \
+    "${DEEP_ARCHIVE_RUN_STAMP}" \
+    "${SCENARIO_ID}" \
+    "${DEEP_ARCHIVE_GIT_SHA}" \
+    "${DEEP_ARCHIVE_DIR}" \
+    "${TELEMETRY_BUNDLE_OUT}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+index_path = Path(sys.argv[1])
+metrics_path = Path(sys.argv[2])
+run_id = sys.argv[3]
+run_stamp = sys.argv[4]
+scenario_id = sys.argv[5]
+git_sha = sys.argv[6]
+archive_dir = sys.argv[7]
+bundle_path = sys.argv[8]
+
+rmse = ""
+mae = ""
+candidate_non_black_ratio = ""
+candidate_mean_luma = ""
+if metrics_path.is_file():
+    try:
+        data = json.loads(metrics_path.read_text(encoding="utf-8"))
+        rmse = str(data.get("rmse", ""))
+        mae = str(data.get("mae", ""))
+        candidate_non_black_ratio = str(data.get("candidate_non_black_ratio", ""))
+        candidate_mean_luma = str(data.get("candidate_mean_luma", ""))
+    except Exception:
+        pass
+
+row = "\t".join(
+    [
+        run_id,
+        run_stamp,
+        scenario_id,
+        git_sha,
+        rmse,
+        mae,
+        candidate_non_black_ratio,
+        candidate_mean_luma,
+        archive_dir,
+        bundle_path,
+    ]
+)
+with index_path.open("a", encoding="utf-8") as f:
+    f.write(row + "\n")
+PY
+
+  ln -sfn "${DEEP_ARCHIVE_DIR}" "${DEEP_TELEMETRY_ARCHIVE_ROOT}/${SCENARIO_ID}.latest"
+  echo "deep telemetry archive: ${DEEP_ARCHIVE_DIR}"
+  echo "deep telemetry index: ${DEEP_TELEMETRY_ARCHIVE_INDEX}"
 }
 
 if [[ "${REFRESH_REFERENCE}" == "1" || ! -s "${REFERENCE_CAPTURE}" ]]; then
@@ -1022,6 +1197,8 @@ PY
     fi
   fi
 fi
+
+archive_deep_telemetry_run
 
 if [[ "${VISUAL_COMPARE_EXIT_CODE}" != "0" ]]; then
   exit "${VISUAL_COMPARE_EXIT_CODE}"
