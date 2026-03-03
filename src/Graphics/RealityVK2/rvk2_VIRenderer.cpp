@@ -545,9 +545,15 @@ VIFrameSummary VIRenderer::present(
 	const u64 sourceLineStrideSamples =
 		std::max<u64>(1ULL, sourceLineStrideBytes / static_cast<u64>(sourceBytesPerPixel));
 
-	u64 hash = kFnvOffset;
+	u64 hashDecode = kFnvOffset;
+	u64 hashFilter = kFnvOffset;
+	u64 hashGammaDither = kFnvOffset;
+	u64 hashFinal = kFnvOffset;
 	for (u32 y = 0U; y < outputHeight; ++y) {
 		for (u32 x = 0U; x < outputWidth; ++x) {
+			u32 decodePixel = 0U;
+			u32 filteredPixel = 0U;
+			u32 gammaDitherPixel = 0U;
 			u32 pixel = 0U;
 			if (x >= contentX
 				&& x < contentX + contentWidth
@@ -609,11 +615,12 @@ VIFrameSummary VIRenderer::present(
 					sampleIndex = static_cast<u64>(pixelIndex(_input.sourceWidth, sourceX, sourceY));
 				}
 				if (sampleValid) {
-					pixel = applyVITypeDecode(
+					decodePixel = applyVITypeDecode(
 						(*_input.sourcePixels)[static_cast<size_t>(sampleIndex)],
 						viState.viType);
+					filteredPixel = decodePixel;
 					++summary.sourceSampleCount;
-					summary.sourceLumaSum += static_cast<u64>(lumaFromPixel(pixel));
+					summary.sourceLumaSum += static_cast<u64>(lumaFromPixel(decodePixel));
 					const bool deditherActive =
 						viState.deditherEnabled
 						&& viState.viType == kVIType16Bpp
@@ -698,8 +705,8 @@ VIFrameSummary VIRenderer::present(
 							const u32 downRightPixel = applyVITypeDecode(
 								(*_input.sourcePixels)[static_cast<size_t>(downRightIndex)],
 								viState.viType);
-							pixel = applyDeditherToPixel(
-								pixel,
+							filteredPixel = applyDeditherToPixel(
+								filteredPixel,
 								leftPixel,
 								rightPixel,
 								upPixel,
@@ -710,8 +717,8 @@ VIFrameSummary VIRenderer::present(
 								downRightPixel);
 						}
 						else if (viState.aaMode != 3U) {
-							pixel = filterAAPixel(
-								pixel,
+							filteredPixel = filterAAPixel(
+								filteredPixel,
 								leftPixel,
 								rightPixel,
 								upPixel,
@@ -720,14 +727,16 @@ VIFrameSummary VIRenderer::present(
 						}
 
 						if (viState.divotEnabled && sourceLineStride > 1U)
-							pixel = applyDivotToPixel(leftPixel, pixel, rightPixel);
+							filteredPixel = applyDivotToPixel(leftPixel, filteredPixel, rightPixel);
 					}
 				}
 				else
 					++summary.sourceInvalidSampleCount;
 			}
+			gammaDitherPixel = filteredPixel;
 			if (viState.gammaDitherEnabled)
-				pixel = applyGammaDitherToPixel(pixel, x, y);
+				gammaDitherPixel = applyGammaDitherToPixel(gammaDitherPixel, x, y);
+			pixel = gammaDitherPixel;
 			if (viState.gammaEnabled)
 				pixel = applyGammaToPixel(pixel);
 			summary.outputLumaSum += static_cast<u64>(lumaFromPixel(pixel));
@@ -735,13 +744,28 @@ VIFrameSummary VIRenderer::present(
 				++summary.outputNonBlackCount;
 			if (_outputPixels != nullptr)
 				(*_outputPixels)[pixelIndex(outputWidth, x, y)] = pixel;
-			updateHashByte(hash, static_cast<u8>((pixel >> 0U) & 0xFFU));
-			updateHashByte(hash, static_cast<u8>((pixel >> 8U) & 0xFFU));
-			updateHashByte(hash, static_cast<u8>((pixel >> 16U) & 0xFFU));
-			updateHashByte(hash, static_cast<u8>((pixel >> 24U) & 0xFFU));
+			updateHashByte(hashDecode, static_cast<u8>((decodePixel >> 0U) & 0xFFU));
+			updateHashByte(hashDecode, static_cast<u8>((decodePixel >> 8U) & 0xFFU));
+			updateHashByte(hashDecode, static_cast<u8>((decodePixel >> 16U) & 0xFFU));
+			updateHashByte(hashDecode, static_cast<u8>((decodePixel >> 24U) & 0xFFU));
+			updateHashByte(hashFilter, static_cast<u8>((filteredPixel >> 0U) & 0xFFU));
+			updateHashByte(hashFilter, static_cast<u8>((filteredPixel >> 8U) & 0xFFU));
+			updateHashByte(hashFilter, static_cast<u8>((filteredPixel >> 16U) & 0xFFU));
+			updateHashByte(hashFilter, static_cast<u8>((filteredPixel >> 24U) & 0xFFU));
+			updateHashByte(hashGammaDither, static_cast<u8>((gammaDitherPixel >> 0U) & 0xFFU));
+			updateHashByte(hashGammaDither, static_cast<u8>((gammaDitherPixel >> 8U) & 0xFFU));
+			updateHashByte(hashGammaDither, static_cast<u8>((gammaDitherPixel >> 16U) & 0xFFU));
+			updateHashByte(hashGammaDither, static_cast<u8>((gammaDitherPixel >> 24U) & 0xFFU));
+			updateHashByte(hashFinal, static_cast<u8>((pixel >> 0U) & 0xFFU));
+			updateHashByte(hashFinal, static_cast<u8>((pixel >> 8U) & 0xFFU));
+			updateHashByte(hashFinal, static_cast<u8>((pixel >> 16U) & 0xFFU));
+			updateHashByte(hashFinal, static_cast<u8>((pixel >> 24U) & 0xFFU));
 		}
 	}
-	summary.presentHash = hash;
+	summary.hashDecode = hashDecode;
+	summary.hashFilter = hashFilter;
+	summary.hashGammaDither = hashGammaDither;
+	summary.presentHash = hashFinal;
 	return summary;
 }
 

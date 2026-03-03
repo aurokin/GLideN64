@@ -43,6 +43,15 @@ Deep telemetry artifacts (Paper Mario intro) are emitted under:
   - `paper_mario_intro.candidate.launch.log`
   - `paper_mario_intro.telemetry.bundle.json`
 
+Key deep-telemetry provenance fields:
+- frame-forensics rows now include raw VI register snapshot plus VI stage hashes:
+  - `vi_hash_decode`
+  - `vi_hash_filter`
+  - `vi_hash_gdither`
+- frame-forensics rows also include pre-VI selected surface fingerprint:
+  - `selected_surface_hash`
+- replay/bundle correlation reports include stage and surface-hash mismatch counts for present-hash failures.
+
 Deep telemetry replay defaults:
 - `REALITYVK_GATE_SMOKE_DEEP_TELEMETRY_REPLAY_STATEFUL=1` (carry state across frames for lower-noise mismatch classification)
 - `REALITYVK_GATE_SMOKE_DEEP_TELEMETRY_REUSE_REPLAY_REPORT=1` (reuse parity-generated replay report in gate smoke check)

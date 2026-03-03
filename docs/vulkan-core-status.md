@@ -120,6 +120,13 @@
 - Replay failure family remains dominated by hash drift, but present-size mismatch class is removed after replay sizing reconciliation.
 - Stateful replay on early frames (`1..30`) remains reduced to executor present-hash drift (18/30), indicating most prior row/state mismatches were frame-state carry artifacts.
 - Deep replay now attaches frame-forensics VI context to present-hash mismatches (`forensics_present_hash`, `present_select`, `vi_reject`, `vi_use_regs`) so mismatch provenance is explicit in a single run.
+- Latest deep replay telemetry adds VI stage hashes (`vi_hash_decode/filter/gdither`) and raw selected-surface hash (`selected_surface_hash`) to every frame-forensics row.
+- In the latest Paper Mario deep run, all forensics-covered present mismatches (`56/56`) show:
+  - `selected_surface_hash` mismatch (replay vs forensics)
+  - `vi_hash_decode` mismatch
+  - `vi_hash_filter` mismatch
+  - `vi_hash_gdither` mismatch
+- Interpretation: mismatch origin is now localized pre-VI (source surface/raster reconstruction), not only VI post-processing.
 
 ## Progress Log
 

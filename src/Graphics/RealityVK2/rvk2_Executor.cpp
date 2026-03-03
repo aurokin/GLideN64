@@ -4691,6 +4691,14 @@ ExecutorOutput Executor::executeWithOutput(
 	summary.presentAspectY = m_config.presentAspectY;
 	summary.viRegistersValid = m_config.viRegistersValid ? 1U : 0U;
 	summary.viOriginAddress = m_config.viOrigin & 0x00FFFFFFU;
+	summary.viStatus = m_config.viStatus;
+	summary.viWidth = m_config.viWidth;
+	summary.viVCurrentLine = m_config.viVCurrentLine;
+	summary.viVSync = m_config.viVSync;
+	summary.viHStart = m_config.viHStart;
+	summary.viVStart = m_config.viVStart;
+	summary.viXScale = m_config.viXScale;
+	summary.viYScale = m_config.viYScale;
 	summary.textureReplacementEnabled = m_config.textureReplacementEnable;
 	summary.textureReplacementEntryCount = static_cast<u64>(m_textureReplacementStore.entryCount());
 	summary.textureReplacementPixelCount = m_textureReplacementStore.totalPixels();
@@ -4705,6 +4713,24 @@ ExecutorOutput Executor::executeWithOutput(
 	const VIRenderer viRenderer(viConfig);
 	const DebugStageViewMode stageViewMode = debugStageViewMode();
 	const auto presentSelectedFrame = [&](const VIFrameInput & _presentInput) {
+		u64 selectedSurfaceHash = kFnvOffset;
+		if (_presentInput.sourcePixels != nullptr
+			&& _presentInput.sourceWidth != 0U
+			&& _presentInput.sourceHeight != 0U) {
+			const size_t requiredPixelCount =
+				static_cast<size_t>(_presentInput.sourceWidth)
+				* static_cast<size_t>(_presentInput.sourceHeight);
+			const size_t availablePixelCount = _presentInput.sourcePixels->size();
+			const size_t pixelCount = std::min(requiredPixelCount, availablePixelCount);
+			for (size_t i = 0; i < pixelCount; ++i) {
+				const u32 pixel = (*_presentInput.sourcePixels)[i];
+				updateHashByte(selectedSurfaceHash, static_cast<u8>((pixel >> 0U) & 0xFFU));
+				updateHashByte(selectedSurfaceHash, static_cast<u8>((pixel >> 8U) & 0xFFU));
+				updateHashByte(selectedSurfaceHash, static_cast<u8>((pixel >> 16U) & 0xFFU));
+				updateHashByte(selectedSurfaceHash, static_cast<u8>((pixel >> 24U) & 0xFFU));
+			}
+		}
+		summary.selectedPresentSurfaceHash = selectedSurfaceHash;
 		const bool useDirectSource =
 			stageViewMode == DebugStageViewMode::kVISource
 			&& _presentInput.sourcePixels != nullptr
@@ -4747,6 +4773,9 @@ ExecutorOutput Executor::executeWithOutput(
 				summary.viSourceLumaSum = lumaSum;
 				summary.viOutputLumaSum = lumaSum;
 				summary.viOutputNonBlackCount = nonBlackCount;
+				summary.viHashDecode = hash;
+				summary.viHashFilter = hash;
+				summary.viHashGammaDither = hash;
 				summary.viResolvedType = _presentInput.sourceSize;
 				summary.viResolvedUsesRegisters = 0U;
 				return;
@@ -4767,6 +4796,9 @@ ExecutorOutput Executor::executeWithOutput(
 		summary.viSourceLumaSum = viSummary.sourceLumaSum;
 		summary.viOutputLumaSum = viSummary.outputLumaSum;
 		summary.viOutputNonBlackCount = viSummary.outputNonBlackCount;
+		summary.viHashDecode = viSummary.hashDecode;
+		summary.viHashFilter = viSummary.hashFilter;
+		summary.viHashGammaDither = viSummary.hashGammaDither;
 		summary.viResolvedType = viSummary.resolvedType;
 		summary.viResolvedUsesRegisters = viSummary.usesRegisters;
 		output.presentFrame.width = viSummary.presentWidth;

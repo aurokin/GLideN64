@@ -49,6 +49,9 @@ struct VIFrameInput {
 
 struct VIFrameSummary {
 	u64 presentHash = 1469598103934665603ULL;
+	u64 hashDecode = 1469598103934665603ULL;
+	u64 hashFilter = 1469598103934665603ULL;
+	u64 hashGammaDither = 1469598103934665603ULL;
 	u32 presentWidth = 0U;
 	u32 presentHeight = 0U;
 	u32 contentX = 0U;

@@ -78,6 +78,17 @@ TMEM_LOAD_KIND_TLUT = 3
 TMEM_TILE_COUNT = 8
 MAX_INLINE_EXTRA_WORDS = 6
 
+VI_STATUS_TYPE_MASK = 0x3
+VI_STATUS_GAMMA_DITHER_ENABLED = 0x000004
+VI_STATUS_GAMMA_ENABLED = 0x000008
+VI_STATUS_DIVOT_ENABLED = 0x000010
+VI_STATUS_SERRATE_ENABLED = 0x000040
+VI_STATUS_AA_MODE_MASK = 0x000300
+VI_STATUS_PIXEL_ADVANCE_MASK = 0x0000F000
+VI_STATUS_DEDITHER_ENABLED = 0x010000
+VI_TYPE_16BPP = 2
+VI_TYPE_32BPP = 3
+
 RENDER_PHASE_UNKNOWN = 0
 RENDER_PHASE_CYCLE1 = 1
 RENDER_PHASE_CYCLE2 = 2
@@ -165,6 +176,8 @@ class FrameRecord:
     forensics_present_height: int = -1
     forensics_present_surface: int = -1
     forensics_present_select: int = -1
+    forensics_selected_surface_size: int = -1
+    forensics_selected_surface_hash: int = -1
     forensics_vi_valid: int = -1
     forensics_vi_origin: int = -1
     forensics_vi_origin_match: int = -1
@@ -176,6 +189,17 @@ class FrameRecord:
     forensics_vi_out_w: int = -1
     forensics_vi_out_h: int = -1
     forensics_vi_stride: int = -1
+    forensics_vi_status: int = -1
+    forensics_vi_width: int = -1
+    forensics_vi_vcurrent: int = -1
+    forensics_vi_vsync: int = -1
+    forensics_vi_hstart: int = -1
+    forensics_vi_vstart: int = -1
+    forensics_vi_xscale: int = -1
+    forensics_vi_yscale: int = -1
+    forensics_vi_hash_decode: int = -1
+    forensics_vi_hash_filter: int = -1
+    forensics_vi_hash_gdither: int = -1
     packets: List[PacketRecord] = field(default_factory=list)
     semantics: List["DrawSemanticRecord"] = field(default_factory=list)
     raster_ops: List["RasterOpRecord"] = field(default_factory=list)
@@ -721,6 +745,8 @@ class FrameCheck:
     forensics_present_height: int
     forensics_present_surface: int
     forensics_present_select: int
+    forensics_selected_surface_hash: int
+    computed_selected_surface_hash: int
     forensics_vi_valid: int
     forensics_vi_origin: int
     forensics_vi_origin_match: int
@@ -732,6 +758,12 @@ class FrameCheck:
     forensics_vi_out_w: int
     forensics_vi_out_h: int
     forensics_vi_stride: int
+    forensics_vi_hash_decode: int
+    forensics_vi_hash_filter: int
+    forensics_vi_hash_gdither: int
+    computed_vi_hash_decode: int
+    computed_vi_hash_filter: int
+    computed_vi_hash_gdither: int
     declared_unknown_rdp_opcode_count: int
     computed_unknown_rdp_opcode_count: int
     declared_first_unknown_rdp_packet_id: int
@@ -827,6 +859,8 @@ def _augment_frames_with_forensics(
         frame.forensics_present_height = rec.get("present_h", -1)
         frame.forensics_present_surface = rec.get("present_surface", -1)
         frame.forensics_present_select = rec.get("present_select", -1)
+        frame.forensics_selected_surface_size = rec.get("selected_surface_size", -1)
+        frame.forensics_selected_surface_hash = rec.get("selected_surface_hash", -1)
         frame.forensics_vi_valid = rec.get("vi_valid", -1)
         frame.forensics_vi_origin = rec.get("vi_origin", -1)
         frame.forensics_vi_origin_match = rec.get("vi_origin_match", -1)
@@ -838,6 +872,17 @@ def _augment_frames_with_forensics(
         frame.forensics_vi_out_w = rec.get("vi_out_w", -1)
         frame.forensics_vi_out_h = rec.get("vi_out_h", -1)
         frame.forensics_vi_stride = rec.get("vi_stride", -1)
+        frame.forensics_vi_status = rec.get("vi_status", -1)
+        frame.forensics_vi_width = rec.get("vi_width", -1)
+        frame.forensics_vi_vcurrent = rec.get("vi_vcurrent", -1)
+        frame.forensics_vi_vsync = rec.get("vi_vsync", -1)
+        frame.forensics_vi_hstart = rec.get("vi_hstart", -1)
+        frame.forensics_vi_vstart = rec.get("vi_vstart", -1)
+        frame.forensics_vi_xscale = rec.get("vi_xscale", -1)
+        frame.forensics_vi_yscale = rec.get("vi_yscale", -1)
+        frame.forensics_vi_hash_decode = rec.get("vi_hash_decode", -1)
+        frame.forensics_vi_hash_filter = rec.get("vi_hash_filter", -1)
+        frame.forensics_vi_hash_gdither = rec.get("vi_hash_gdither", -1)
 
 
 def parse_packet_trace(path: Path) -> List[FrameRecord]:
@@ -1957,6 +2002,14 @@ def _fnv_update_bytes(current_hash: int, payload: bytes) -> int:
 
 def _fnv_update_int(current_hash: int, value: int, byte_width: int) -> int:
     return _fnv_update_bytes(current_hash, value.to_bytes(byte_width, "little", signed=False))
+
+
+def _fnv_update_pixel(current_hash: int, pixel: int) -> int:
+    hash_value = _fnv_update_int(current_hash, (pixel >> 0) & 0xFF, 1)
+    hash_value = _fnv_update_int(hash_value, (pixel >> 8) & 0xFF, 1)
+    hash_value = _fnv_update_int(hash_value, (pixel >> 16) & 0xFF, 1)
+    hash_value = _fnv_update_int(hash_value, (pixel >> 24) & 0xFF, 1)
+    return hash_value
 
 
 def _hash_command_stream(packets: Iterable[PacketRecord]) -> int:
@@ -3677,6 +3730,663 @@ class ExecutorReplaySummary:
     present_aspect_x: int
     present_aspect_y: int
     present_hash_variants: dict[str, int] = field(default_factory=dict)
+    selected_surface_hash: int = -1
+    vi_hash_decode: int = -1
+    vi_hash_filter: int = -1
+    vi_hash_gdither: int = -1
+
+
+@dataclass
+class _ReplayVIRegisters:
+    valid: bool = False
+    status: int = 0
+    origin: int = 0
+    width: int = 0
+    v_current_line: int = 0
+    v_sync: int = 0
+    h_start: int = 0
+    v_start: int = 0
+    x_scale: int = 0
+    y_scale: int = 0
+
+
+@dataclass
+class _ReplayVIInput:
+    source_address_valid: bool
+    source_address: int
+    source_width: int
+    source_height: int
+    source_size: int
+    source_pixels: List[int]
+    registers: _ReplayVIRegisters
+
+
+@dataclass
+class _ReplayPresentHints:
+    selected_surface_address: int = 0
+    selected_surface_size: int = -1
+    vi_origin_matched_surface: int = -1
+    vi_registers: Optional[_ReplayVIRegisters] = None
+
+
+@dataclass
+class _ReplayVIResolvedState:
+    use_registers: bool = False
+    dedither_enabled: bool = False
+    gamma_dither_enabled: bool = False
+    gamma_enabled: bool = False
+    divot_enabled: bool = False
+    interlaced: bool = False
+    interlace_field: int = 0
+    aa_mode: int = 0
+    vi_type: int = 0
+    source_base_byte_offset: int = 0
+    source_line_stride: int = 0
+    source_width: int = 0
+    source_height: int = 0
+    output_width: int = 0
+    output_height: int = 0
+    x_start: int = 0
+    y_start: int = 0
+    x_step: int = 1024
+    y_step: int = 1024
+    pixel_advance: int = 0
+    reject_reason: int = 0
+
+
+def _clamp_u32(value: int, minimum: int, maximum: int) -> int:
+    if value < minimum:
+        return minimum
+    if value > maximum:
+        return maximum
+    return value
+
+
+def _integer_sqrt(value: int) -> int:
+    result = 0
+    bit = 1 << 30
+    while bit > value:
+        bit >>= 2
+    while bit != 0:
+        if value >= result + bit:
+            value -= result + bit
+            result = (result >> 1) + bit
+        else:
+            result >>= 1
+        bit >>= 2
+    return result
+
+
+def _apply_gamma_channel(channel: int) -> int:
+    return _integer_sqrt(channel * 255)
+
+
+def _apply_gamma_to_pixel(pixel: int) -> int:
+    r = _apply_gamma_channel((pixel >> 24) & 0xFF)
+    g = _apply_gamma_channel((pixel >> 16) & 0xFF)
+    b = _apply_gamma_channel((pixel >> 8) & 0xFF)
+    a = pixel & 0xFF
+    return ((r & 0xFF) << 24) | ((g & 0xFF) << 16) | ((b & 0xFF) << 8) | (a & 0xFF)
+
+
+def _median3_u8(a: int, b: int, c: int) -> int:
+    if a > b:
+        a, b = b, a
+    if b > c:
+        b, c = c, b
+    if a > b:
+        a, b = b, a
+    return b
+
+
+def _apply_divot_to_pixel(left: int, center: int, right: int) -> int:
+    lr = (left >> 24) & 0xFF
+    lg = (left >> 16) & 0xFF
+    lb = (left >> 8) & 0xFF
+    cr = (center >> 24) & 0xFF
+    cg = (center >> 16) & 0xFF
+    cb = (center >> 8) & 0xFF
+    ca = center & 0xFF
+    rr = (right >> 24) & 0xFF
+    rg = (right >> 16) & 0xFF
+    rb = (right >> 8) & 0xFF
+    return (
+        (_median3_u8(lr, cr, rr) << 24)
+        | (_median3_u8(lg, cg, rg) << 16)
+        | (_median3_u8(lb, cb, rb) << 8)
+        | ca
+    )
+
+
+def _clamp_channel(value: int) -> int:
+    if value < 0:
+        return 0
+    if value > 255:
+        return 255
+    return value
+
+
+def _apply_gamma_dither_to_pixel(pixel: int, x: int, y: int) -> int:
+    bayer4x4 = (
+        -8,
+        0,
+        -6,
+        2,
+        4,
+        -4,
+        6,
+        -2,
+        -5,
+        3,
+        -7,
+        1,
+        7,
+        -1,
+        5,
+        -3,
+    )
+    bayer = bayer4x4[(y & 0x3) * 4 + (x & 0x3)]
+    dither = (bayer + 2) >> 2 if bayer >= 0 else -(((-bayer) + 2) >> 2)
+    r = _clamp_channel(((pixel >> 24) & 0xFF) + dither)
+    g = _clamp_channel(((pixel >> 16) & 0xFF) + dither)
+    b = _clamp_channel(((pixel >> 8) & 0xFF) + dither)
+    a = pixel & 0xFF
+    return ((r & 0xFF) << 24) | ((g & 0xFF) << 16) | ((b & 0xFF) << 8) | (a & 0xFF)
+
+
+def _filter_aa_pixel(
+    center: int,
+    left: int,
+    right: int,
+    up: int,
+    down: int,
+    aa_mode: int,
+) -> int:
+    if aa_mode == 3:
+        return center
+
+    def select_channel(pixel: int, shift: int) -> int:
+        return (pixel >> shift) & 0xFF
+
+    def filter_channel(shift: int) -> int:
+        c = select_channel(center, shift)
+        l = select_channel(left, shift)
+        r = select_channel(right, shift)
+        u = select_channel(up, shift)
+        d = select_channel(down, shift)
+        if aa_mode == 0:
+            value = (c * 3 + l + r + u + d + 3) // 7
+        elif aa_mode == 1:
+            value = (c * 2 + l + r + 2) // 4
+        else:
+            value = (c * 2 + l + r + u + d + 3) // 6
+        return value & 0xFF
+
+    r = filter_channel(24)
+    g = filter_channel(16)
+    b = filter_channel(8)
+    a = center & 0xFF
+    return ((r & 0xFF) << 24) | ((g & 0xFF) << 16) | ((b & 0xFF) << 8) | (a & 0xFF)
+
+
+def _dedither_channel(center: int, neighbors: List[int]) -> int:
+    mean = (sum(neighbors) + 4) // 8
+    delta = center - mean
+    if delta > 48 or delta < -48:
+        return center
+    return (center + mean * 3 + 2) // 4
+
+
+def _apply_dedither_to_pixel(
+    center: int,
+    left: int,
+    right: int,
+    up: int,
+    down: int,
+    up_left: int,
+    up_right: int,
+    down_left: int,
+    down_right: int,
+) -> int:
+    def dedither_component(shift: int) -> int:
+        c = (center >> shift) & 0xFF
+        neighbors = [
+            (left >> shift) & 0xFF,
+            (right >> shift) & 0xFF,
+            (up >> shift) & 0xFF,
+            (down >> shift) & 0xFF,
+            (up_left >> shift) & 0xFF,
+            (up_right >> shift) & 0xFF,
+            (down_left >> shift) & 0xFF,
+            (down_right >> shift) & 0xFF,
+        ]
+        return _dedither_channel(c, neighbors)
+
+    r = dedither_component(24)
+    g = dedither_component(16)
+    b = dedither_component(8)
+    a = center & 0xFF
+    return ((r & 0xFF) << 24) | ((g & 0xFF) << 16) | ((b & 0xFF) << 8) | (a & 0xFF)
+
+
+def _quantize5_to_8(value: int) -> int:
+    quantized = (value * 31 + 127) // 255
+    return (quantized * 255 + 15) // 31
+
+
+def _apply_vi_type_decode(pixel: int, vi_type: int) -> int:
+    if vi_type != VI_TYPE_16BPP:
+        return pixel & 0xFFFFFFFF
+    r = _quantize5_to_8((pixel >> 24) & 0xFF)
+    g = _quantize5_to_8((pixel >> 16) & 0xFF)
+    b = _quantize5_to_8((pixel >> 8) & 0xFF)
+    a = 255 if (pixel & 0xFF) >= 128 else 0
+    return ((r & 0xFF) << 24) | ((g & 0xFF) << 16) | ((b & 0xFF) << 8) | (a & 0xFF)
+
+
+def _luma_from_pixel(pixel: int) -> int:
+    r = (pixel >> 24) & 0xFF
+    g = (pixel >> 16) & 0xFF
+    b = (pixel >> 8) & 0xFF
+    return (r * 77 + g * 150 + b * 29 + 128) >> 8
+
+
+def _bytes_per_pixel_from_surface_size(size: int) -> int:
+    masked = size & 0x3
+    if masked == 0:
+        return 0
+    if masked == 1:
+        return 1
+    if masked == 2:
+        return 2
+    return 4
+
+
+def _derive_output_width_from_registers(registers: _ReplayVIRegisters) -> int:
+    h_start = (registers.h_start >> 16) & 0x3FF
+    h_end = registers.h_start & 0x3FF
+    if h_end <= h_start:
+        return 0
+    return h_end - h_start
+
+
+def _derive_output_height_from_registers(registers: _ReplayVIRegisters) -> int:
+    v_start = (registers.v_start >> 16) & 0x3FF
+    v_end = registers.v_start & 0x3FF
+    if v_end < v_start:
+        v_sync = registers.v_sync & 0x3FF
+        wrap = (v_sync + 1) if v_sync != 0 else 1024
+        v_end += wrap
+    if v_end <= v_start:
+        return 0
+    return max(1, (v_end - v_start) >> 1)
+
+
+def _is_valid_line_stride_for_type(vi_type: int, line_stride_pixels: int) -> bool:
+    if line_stride_pixels == 0:
+        return False
+    if vi_type == VI_TYPE_16BPP:
+        return (line_stride_pixels & 0x3) == 0
+    if vi_type == VI_TYPE_32BPP:
+        return (line_stride_pixels & 0x1) == 0
+    return False
+
+
+def _resolve_vi_state(
+    vi_input: _ReplayVIInput,
+    max_width: int,
+    max_height: int,
+) -> _ReplayVIResolvedState:
+    state = _ReplayVIResolvedState()
+    state.source_width = vi_input.source_width
+    state.source_height = vi_input.source_height
+    state.output_width = vi_input.source_width
+    state.output_height = vi_input.source_height
+    registers = vi_input.registers
+
+    if not registers.valid:
+        return state
+
+    if (registers.status & VI_STATUS_TYPE_MASK) == 0:
+        state.output_width = 0
+        state.output_height = 0
+        state.reject_reason = 3
+        return state
+
+    state.use_registers = True
+    state.vi_type = registers.status & VI_STATUS_TYPE_MASK
+    if state.vi_type not in (VI_TYPE_16BPP, VI_TYPE_32BPP):
+        state.output_width = 0
+        state.output_height = 0
+        state.reject_reason = 3
+        return state
+
+    state.dedither_enabled = (registers.status & VI_STATUS_DEDITHER_ENABLED) != 0
+    state.gamma_dither_enabled = (registers.status & VI_STATUS_GAMMA_DITHER_ENABLED) != 0
+    state.gamma_enabled = (registers.status & VI_STATUS_GAMMA_ENABLED) != 0
+    state.divot_enabled = (registers.status & VI_STATUS_DIVOT_ENABLED) != 0
+    state.interlaced = (registers.status & VI_STATUS_SERRATE_ENABLED) != 0
+    state.interlace_field = registers.v_current_line & 0x1
+    state.aa_mode = (registers.status & VI_STATUS_AA_MODE_MASK) >> 8
+    state.pixel_advance = (registers.status & VI_STATUS_PIXEL_ADVANCE_MASK) >> 12
+
+    vi_width = registers.width & 0x0FFF
+    if vi_width == 0 or not _is_valid_line_stride_for_type(state.vi_type, vi_width):
+        state.output_width = 0
+        state.output_height = 0
+        state.reject_reason = 3
+        return state
+
+    state.source_line_stride = vi_width if vi_width != 0 else state.source_width
+    if state.source_line_stride == 0:
+        state.source_line_stride = state.source_width
+
+    state.x_start = (registers.x_scale >> 16) & 0x0FFF
+    state.y_start = (registers.y_scale >> 16) & 0x0FFF
+    state.x_step = registers.x_scale & 0x0FFF
+    state.y_step = registers.y_scale & 0x0FFF
+    if state.x_step == 0:
+        state.x_step = 1024
+    if state.y_step == 0:
+        state.y_step = 1024
+
+    derived_output_width = _derive_output_width_from_registers(registers)
+    derived_output_height = _derive_output_height_from_registers(registers)
+    if derived_output_width == 0 or derived_output_height == 0:
+        state.output_width = 0
+        state.output_height = 0
+        state.reject_reason = 3
+        return state
+
+    if vi_input.source_address_valid:
+        base_address = vi_input.source_address & 0x00FFFFFF
+        origin_address = registers.origin & 0x00FFFFFF
+        if origin_address >= base_address:
+            state.source_base_byte_offset = origin_address - base_address
+
+    state.output_width = _clamp_u32(derived_output_width, 1, max(1, max_width))
+    state.output_height = _clamp_u32(derived_output_height, 1, max(1, max_height))
+    return state
+
+
+def _hash_output_pixels_with_variants(
+    output_pixels: List[int],
+    output_width: int,
+    output_height: int,
+    base_hash: Optional[int] = None,
+) -> tuple[int, dict[str, int]]:
+    def hash_variant(flip_x: bool, flip_y: bool, swap_rb: bool) -> int:
+        h = FNV_OFFSET
+        for y in range(output_height):
+            src_y = output_height - 1 - y if flip_y else y
+            row_base = src_y * output_width
+            for x in range(output_width):
+                src_x = output_width - 1 - x if flip_x else x
+                pixel = output_pixels[row_base + src_x]
+                if swap_rb:
+                    pixel = (
+                        (pixel & 0xFF00FF00)
+                        | ((pixel & 0x00FF0000) >> 16)
+                        | ((pixel & 0x000000FF) << 16)
+                    )
+                h = _fnv_update_pixel(h, pixel)
+        return h
+
+    resolved_base_hash = base_hash if base_hash is not None else hash_variant(False, False, False)
+    variants = {
+        "flip_y": hash_variant(False, True, False),
+        "flip_x": hash_variant(True, False, False),
+        "swap_rb": hash_variant(False, False, True),
+        "swap_rb_flip_y": hash_variant(False, True, True),
+    }
+    return resolved_base_hash, variants
+
+
+def _hash_presented_surface_with_vi(
+    vi_input: _ReplayVIInput,
+    aspect_x: int,
+    aspect_y: int,
+    max_width: int,
+    max_height: int,
+) -> tuple[int, int, int, dict[str, int], dict[str, int]]:
+    if (
+        vi_input.source_width <= 0
+        or vi_input.source_height <= 0
+        or len(vi_input.source_pixels) == 0
+    ):
+        return FNV_OFFSET, 0, 0, {}, {}
+
+    required_pixels = vi_input.source_width * vi_input.source_height
+    if len(vi_input.source_pixels) < required_pixels:
+        return FNV_OFFSET, 0, 0, {}, {}
+
+    vi_state = _resolve_vi_state(vi_input, max_width, max_height)
+    if vi_state.output_width == 0 or vi_state.output_height == 0:
+        return FNV_OFFSET, 0, 0, {}, {}
+
+    output_width = vi_state.output_width
+    output_height = vi_state.output_height
+    source_scaled = vi_state.output_width * max(1, aspect_y)
+    target_scaled = vi_state.output_height * max(1, aspect_x)
+    if source_scaled > target_scaled:
+        output_height = (
+            vi_state.output_width * max(1, aspect_y)
+            + max(1, aspect_x)
+            - 1
+        ) // max(1, aspect_x)
+    elif source_scaled < target_scaled:
+        output_width = (
+            vi_state.output_height * max(1, aspect_x)
+            + max(1, aspect_y)
+            - 1
+        ) // max(1, aspect_y)
+
+    output_width = _clamp_u32(output_width, 1, max(1, max_width))
+    output_height = _clamp_u32(output_height, 1, max(1, max_height))
+    output_pixels = [0 for _ in range(output_width * output_height)]
+
+    source_pixel_count = len(vi_input.source_pixels)
+    source_line_stride = (
+        vi_state.source_line_stride
+        if vi_state.source_line_stride != 0
+        else max(1, vi_state.source_width)
+    )
+    vi_bytes_per_pixel = 2 if vi_state.vi_type == VI_TYPE_16BPP else 4
+    source_bytes_per_pixel = _bytes_per_pixel_from_surface_size(vi_input.source_size)
+    if source_bytes_per_pixel == 0:
+        source_bytes_per_pixel = vi_bytes_per_pixel
+    if source_bytes_per_pixel == 0:
+        return FNV_OFFSET, 0, 0, {}, {}
+    source_line_stride_bytes = source_line_stride * vi_bytes_per_pixel
+    source_line_stride_samples = max(1, source_line_stride_bytes // source_bytes_per_pixel)
+
+    hash_decode = FNV_OFFSET
+    hash_filter = FNV_OFFSET
+    hash_gdither = FNV_OFFSET
+    hash_final = FNV_OFFSET
+
+    for y in range(output_height):
+        for x in range(output_width):
+            base_x = min(
+                vi_state.output_width - 1,
+                (x * vi_state.output_width) // max(1, output_width),
+            )
+            base_y = min(
+                vi_state.output_height - 1,
+                (y * vi_state.output_height) // max(1, output_height),
+            )
+
+            source_x = 0
+            source_y = 0
+            sample_index = 0
+            sample_valid = True
+
+            if vi_state.use_registers:
+                pixel_advance_fp = vi_state.pixel_advance << 8
+                sample_x_fp = vi_state.x_start + pixel_advance_fp + base_x * vi_state.x_step
+                if vi_state.interlaced:
+                    field_base_y = base_y * 2 + vi_state.interlace_field
+                    sample_y_fp = vi_state.y_start + field_base_y * vi_state.y_step
+                else:
+                    sample_y_fp = vi_state.y_start + base_y * vi_state.y_step
+                sample_x_limit = source_line_stride << 10
+                if sample_x_fp >= sample_x_limit:
+                    sample_valid = False
+                source_x = sample_x_fp >> 10
+                source_y = sample_y_fp >> 10
+                if sample_valid:
+                    linear_byte_offset = (
+                        vi_state.source_base_byte_offset
+                        + source_y * source_line_stride_bytes
+                        + source_x * vi_bytes_per_pixel
+                    )
+                    linear_offset = linear_byte_offset // source_bytes_per_pixel
+                    if linear_offset >= source_pixel_count:
+                        sample_valid = False
+                    else:
+                        sample_index = linear_offset
+            else:
+                source_x = min(
+                    vi_state.source_width - 1,
+                    (base_x * vi_state.source_width) // max(1, vi_state.output_width),
+                )
+                source_y = min(
+                    vi_state.source_height - 1,
+                    (base_y * vi_state.source_height) // max(1, vi_state.output_height),
+                )
+                if vi_state.interlaced:
+                    source_y = min(
+                        vi_state.source_height - 1,
+                        source_y * 2 + vi_state.interlace_field,
+                    )
+                sample_index = _surface_index(vi_input.source_width, source_x, source_y)
+
+            decoded_pixel = 0
+            filtered_pixel = 0
+            if sample_valid:
+                decoded_pixel = _apply_vi_type_decode(
+                    vi_input.source_pixels[sample_index],
+                    vi_state.vi_type,
+                )
+                filtered_pixel = decoded_pixel
+                dedither_active = (
+                    vi_state.dedither_enabled
+                    and vi_state.vi_type == VI_TYPE_16BPP
+                    and vi_state.aa_mode in (0, 3)
+                )
+                needs_neighborhood = dedither_active or vi_state.aa_mode != 3 or vi_state.divot_enabled
+                if needs_neighborhood:
+                    left_index = sample_index
+                    right_index = sample_index
+                    up_index = sample_index
+                    down_index = sample_index
+                    up_left_index = sample_index
+                    up_right_index = sample_index
+                    down_left_index = sample_index
+                    down_right_index = sample_index
+
+                    if vi_state.use_registers:
+                        stride64 = source_line_stride_samples
+                        has_left = source_x > 0 and sample_index > 0
+                        has_right = source_x + 1 < source_line_stride and sample_index + 1 < source_pixel_count
+                        has_up = source_y > 0 and sample_index >= stride64
+                        has_down = sample_index + stride64 < source_pixel_count
+                        if has_left:
+                            left_index = sample_index - 1
+                        if has_right:
+                            right_index = sample_index + 1
+                        if has_up:
+                            up_index = sample_index - stride64
+                        if has_down:
+                            down_index = sample_index + stride64
+                        if has_up and has_left:
+                            up_left_index = sample_index - stride64 - 1
+                        if has_up and has_right:
+                            up_right_index = sample_index - stride64 + 1
+                        if has_down and has_left:
+                            down_left_index = sample_index + stride64 - 1
+                        if has_down and has_right:
+                            down_right_index = sample_index + stride64 + 1
+                    else:
+                        source_x_left = source_x - 1 if source_x > 0 else source_x
+                        source_x_right = min(vi_state.source_width - 1, source_x + 1)
+                        source_y_up = source_y - 1 if source_y > 0 else source_y
+                        source_y_down = min(vi_state.source_height - 1, source_y + 1)
+                        left_index = _surface_index(vi_input.source_width, source_x_left, source_y)
+                        right_index = _surface_index(vi_input.source_width, source_x_right, source_y)
+                        up_index = _surface_index(vi_input.source_width, source_x, source_y_up)
+                        down_index = _surface_index(vi_input.source_width, source_x, source_y_down)
+                        up_left_index = _surface_index(vi_input.source_width, source_x_left, source_y_up)
+                        up_right_index = _surface_index(vi_input.source_width, source_x_right, source_y_up)
+                        down_left_index = _surface_index(vi_input.source_width, source_x_left, source_y_down)
+                        down_right_index = _surface_index(vi_input.source_width, source_x_right, source_y_down)
+
+                    left_pixel = _apply_vi_type_decode(vi_input.source_pixels[left_index], vi_state.vi_type)
+                    right_pixel = _apply_vi_type_decode(vi_input.source_pixels[right_index], vi_state.vi_type)
+                    up_pixel = _apply_vi_type_decode(vi_input.source_pixels[up_index], vi_state.vi_type)
+                    down_pixel = _apply_vi_type_decode(vi_input.source_pixels[down_index], vi_state.vi_type)
+
+                    if dedither_active:
+                        up_left_pixel = _apply_vi_type_decode(vi_input.source_pixels[up_left_index], vi_state.vi_type)
+                        up_right_pixel = _apply_vi_type_decode(vi_input.source_pixels[up_right_index], vi_state.vi_type)
+                        down_left_pixel = _apply_vi_type_decode(vi_input.source_pixels[down_left_index], vi_state.vi_type)
+                        down_right_pixel = _apply_vi_type_decode(
+                            vi_input.source_pixels[down_right_index],
+                            vi_state.vi_type,
+                        )
+                        filtered_pixel = _apply_dedither_to_pixel(
+                            filtered_pixel,
+                            left_pixel,
+                            right_pixel,
+                            up_pixel,
+                            down_pixel,
+                            up_left_pixel,
+                            up_right_pixel,
+                            down_left_pixel,
+                            down_right_pixel,
+                        )
+                    elif vi_state.aa_mode != 3:
+                        filtered_pixel = _filter_aa_pixel(
+                            filtered_pixel,
+                            left_pixel,
+                            right_pixel,
+                            up_pixel,
+                            down_pixel,
+                            vi_state.aa_mode,
+                        )
+
+                    if vi_state.divot_enabled and source_line_stride > 1:
+                        filtered_pixel = _apply_divot_to_pixel(left_pixel, filtered_pixel, right_pixel)
+
+            gamma_dither_pixel = filtered_pixel
+            if vi_state.gamma_dither_enabled:
+                gamma_dither_pixel = _apply_gamma_dither_to_pixel(gamma_dither_pixel, x, y)
+            pixel = gamma_dither_pixel
+            if vi_state.gamma_enabled:
+                pixel = _apply_gamma_to_pixel(pixel)
+            output_pixels[_surface_index(output_width, x, y)] = pixel & 0xFFFFFFFF
+            hash_decode = _fnv_update_pixel(hash_decode, decoded_pixel)
+            hash_filter = _fnv_update_pixel(hash_filter, filtered_pixel)
+            hash_gdither = _fnv_update_pixel(hash_gdither, gamma_dither_pixel)
+            hash_final = _fnv_update_pixel(hash_final, pixel)
+
+    base_hash, variants = _hash_output_pixels_with_variants(
+        output_pixels,
+        output_width,
+        output_height,
+        base_hash=hash_final,
+    )
+    return (
+        base_hash,
+        output_width,
+        output_height,
+        variants,
+        {
+            "vi_hash_decode": hash_decode,
+            "vi_hash_filter": hash_filter,
+            "vi_hash_gdither": hash_gdither,
+        },
+    )
 
 
 def _decode_fill_color(fill_color: int, color_size: int) -> int:
@@ -5162,9 +5872,19 @@ def _hash_presented_surface(
     max_height: int,
     declared_present_width: int = 0,
     declared_present_height: int = 0,
-) -> tuple[int, int, int, dict[str, int]]:
+    vi_input: Optional[_ReplayVIInput] = None,
+) -> tuple[int, int, int, dict[str, int], dict[str, int]]:
     if surface.width <= 0 or surface.height <= 0 or len(surface.pixels) == 0:
-        return FNV_OFFSET, 0, 0, {}
+        return FNV_OFFSET, 0, 0, {}, {}
+
+    if vi_input is not None:
+        return _hash_presented_surface_with_vi(
+            vi_input,
+            aspect_x,
+            aspect_y,
+            max_width,
+            max_height,
+        )
 
     # Replay traces do not include VI register stream; when the trace already
     # declares a present size, treat it as the target blit domain.
@@ -5192,34 +5912,12 @@ def _hash_presented_surface(
             pixel = surface.pixels[_surface_index(surface.width, source_x, source_y)]
             output_pixels[_surface_index(output_width, x, y)] = pixel & 0xFFFFFFFF
 
-    def hash_variant(flip_x: bool, flip_y: bool, swap_rb: bool) -> int:
-        h = FNV_OFFSET
-        for y in range(output_height):
-            src_y = output_height - 1 - y if flip_y else y
-            row_base = src_y * output_width
-            for x in range(output_width):
-                src_x = output_width - 1 - x if flip_x else x
-                pixel = output_pixels[row_base + src_x]
-                if swap_rb:
-                    pixel = (
-                        (pixel & 0xFF00FF00)
-                        | ((pixel & 0x00FF0000) >> 16)
-                        | ((pixel & 0x000000FF) << 16)
-                    )
-                h = _fnv_update_int(h, (pixel >> 0) & 0xFF, 1)
-                h = _fnv_update_int(h, (pixel >> 8) & 0xFF, 1)
-                h = _fnv_update_int(h, (pixel >> 16) & 0xFF, 1)
-                h = _fnv_update_int(h, (pixel >> 24) & 0xFF, 1)
-        return h
-
-    base_hash = hash_variant(False, False, False)
-    variants = {
-        "flip_y": hash_variant(False, True, False),
-        "flip_x": hash_variant(True, False, False),
-        "swap_rb": hash_variant(False, False, True),
-        "swap_rb_flip_y": hash_variant(False, True, True),
-    }
-    return base_hash, output_width, output_height, variants
+    base_hash, variants = _hash_output_pixels_with_variants(
+        output_pixels,
+        output_width,
+        output_height,
+    )
+    return base_hash, output_width, output_height, variants, {}
 
 
 def _execute_submission_plan(
@@ -5229,6 +5927,7 @@ def _execute_submission_plan(
     aspect_y: int,
     declared_present_width: int = 0,
     declared_present_height: int = 0,
+    present_hints: Optional[_ReplayPresentHints] = None,
     max_width: int = 2048,
     max_height: int = 2048,
 ) -> ExecutorReplaySummary:
@@ -5291,21 +5990,55 @@ def _execute_submission_plan(
             last_surface_address = work.color_image_address
 
     summary.surface_count = len(surfaces)
-    if last_surface_address in surfaces:
+    present_surface_address = last_surface_address
+    if (
+        present_hints is not None
+        and present_hints.selected_surface_address > 0
+        and present_hints.selected_surface_address in surfaces
+    ):
+        present_surface_address = present_hints.selected_surface_address
+
+    if present_surface_address in surfaces:
+        present_surface = surfaces[present_surface_address]
+        surface_hash = FNV_OFFSET
+        for pixel in present_surface.pixels:
+            surface_hash = _fnv_update_pixel(surface_hash, pixel)
+        summary.selected_surface_hash = surface_hash
+        vi_input: Optional[_ReplayVIInput] = None
+        if present_hints is not None and present_hints.vi_registers is not None:
+            source_size = (
+                present_hints.selected_surface_size
+                if present_hints.selected_surface_size >= 0
+                else present_surface.size
+            )
+            vi_input = _ReplayVIInput(
+                source_address_valid=present_hints.vi_origin_matched_surface > 0,
+                source_address=present_surface_address,
+                source_width=present_surface.width,
+                source_height=present_surface.height,
+                source_size=source_size,
+                source_pixels=present_surface.pixels,
+                registers=present_hints.vi_registers,
+            )
         (
             summary.present_hash,
             summary.present_width,
             summary.present_height,
             summary.present_hash_variants,
+            vi_stage_hashes,
         ) = _hash_presented_surface(
-            surfaces[last_surface_address],
+            present_surface,
             aspect_x,
             aspect_y,
             max_width,
             max_height,
             declared_present_width=declared_present_width,
             declared_present_height=declared_present_height,
+            vi_input=vi_input,
         )
+        summary.vi_hash_decode = int(vi_stage_hashes.get("vi_hash_decode", -1))
+        summary.vi_hash_filter = int(vi_stage_hashes.get("vi_hash_filter", -1))
+        summary.vi_hash_gdither = int(vi_stage_hashes.get("vi_hash_gdither", -1))
     return summary
 
 
@@ -5444,6 +6177,43 @@ def replay_frame(
     submission_batch_hash = _hash_submission_plan(computed_submission_batches)
     exec_aspect_x = frame.executor_present_aspect_x if frame.executor_present_aspect_x > 0 else 4
     exec_aspect_y = frame.executor_present_aspect_y if frame.executor_present_aspect_y > 0 else 3
+    present_hints: Optional[_ReplayPresentHints] = None
+    if (
+        frame.forensics_present_surface >= 0
+        or frame.forensics_vi_valid >= 0
+        or frame.forensics_present_select >= 0
+    ):
+        vi_registers: Optional[_ReplayVIRegisters] = None
+        has_vi_register_snapshot = (
+            frame.forensics_vi_status >= 0
+            and frame.forensics_vi_width >= 0
+            and frame.forensics_vi_vcurrent >= 0
+            and frame.forensics_vi_vsync >= 0
+            and frame.forensics_vi_hstart >= 0
+            and frame.forensics_vi_vstart >= 0
+            and frame.forensics_vi_xscale >= 0
+            and frame.forensics_vi_yscale >= 0
+            and frame.forensics_vi_origin >= 0
+        )
+        if has_vi_register_snapshot:
+            vi_registers = _ReplayVIRegisters(
+                valid=frame.forensics_vi_valid > 0,
+                status=frame.forensics_vi_status,
+                origin=frame.forensics_vi_origin,
+                width=frame.forensics_vi_width,
+                v_current_line=frame.forensics_vi_vcurrent,
+                v_sync=frame.forensics_vi_vsync,
+                h_start=frame.forensics_vi_hstart,
+                v_start=frame.forensics_vi_vstart,
+                x_scale=frame.forensics_vi_xscale,
+                y_scale=frame.forensics_vi_yscale,
+            )
+        present_hints = _ReplayPresentHints(
+            selected_surface_address=frame.forensics_present_surface if frame.forensics_present_surface > 0 else 0,
+            selected_surface_size=frame.forensics_selected_surface_size,
+            vi_origin_matched_surface=frame.forensics_vi_origin_match,
+            vi_registers=vi_registers,
+        )
     executor_summary = _execute_submission_plan(
         computed_render_work,
         computed_submission_batches,
@@ -5451,6 +6221,7 @@ def replay_frame(
         exec_aspect_y,
         declared_present_width=frame.executor_present_width if frame.executor_present_width > 0 else 0,
         declared_present_height=frame.executor_present_height if frame.executor_present_height > 0 else 0,
+        present_hints=present_hints,
     )
     check = FrameCheck(
         frame_id=frame.frame_id,
@@ -5502,6 +6273,8 @@ def replay_frame(
         forensics_present_height=frame.forensics_present_height,
         forensics_present_surface=frame.forensics_present_surface,
         forensics_present_select=frame.forensics_present_select,
+        forensics_selected_surface_hash=frame.forensics_selected_surface_hash,
+        computed_selected_surface_hash=executor_summary.selected_surface_hash,
         forensics_vi_valid=frame.forensics_vi_valid,
         forensics_vi_origin=frame.forensics_vi_origin,
         forensics_vi_origin_match=frame.forensics_vi_origin_match,
@@ -5513,6 +6286,12 @@ def replay_frame(
         forensics_vi_out_w=frame.forensics_vi_out_w,
         forensics_vi_out_h=frame.forensics_vi_out_h,
         forensics_vi_stride=frame.forensics_vi_stride,
+        forensics_vi_hash_decode=frame.forensics_vi_hash_decode,
+        forensics_vi_hash_filter=frame.forensics_vi_hash_filter,
+        forensics_vi_hash_gdither=frame.forensics_vi_hash_gdither,
+        computed_vi_hash_decode=executor_summary.vi_hash_decode,
+        computed_vi_hash_filter=executor_summary.vi_hash_filter,
+        computed_vi_hash_gdither=executor_summary.vi_hash_gdither,
         declared_unknown_rdp_opcode_count=frame.unknown_rdp_opcode_count,
         computed_unknown_rdp_opcode_count=unknown_rdp_opcode_count,
         declared_first_unknown_rdp_packet_id=frame.first_unknown_rdp_packet_id,
@@ -5605,6 +6384,16 @@ def replay_frame(
             f"declared=0x{frame.executor_present_hash:016x} "
             f"forensics=0x{frame.forensics_present_hash:016x}"
         )
+    if (
+        frame.forensics_selected_surface_hash >= 0
+        and executor_summary.selected_surface_hash >= 0
+        and frame.forensics_selected_surface_hash != executor_summary.selected_surface_hash
+    ):
+        check.errors.append(
+            "selected_surface_hash mismatch: "
+            f"forensics=0x{frame.forensics_selected_surface_hash:016x} "
+            f"replay=0x{executor_summary.selected_surface_hash:016x}"
+        )
 
     if frame.executor_present_hash >= 0 and frame.executor_present_hash != executor_summary.present_hash:
         check.errors.append(
@@ -5626,13 +6415,41 @@ def replay_frame(
                 f"vi_use_regs={frame.forensics_vi_use_regs} "
                 f"vi_src={frame.forensics_vi_src_w}x{frame.forensics_vi_src_h} "
                 f"vi_out={frame.forensics_vi_out_w}x{frame.forensics_vi_out_h} "
-                f"vi_stride={frame.forensics_vi_stride}"
+                f"vi_stride={frame.forensics_vi_stride} "
+                f"vi_status=0x{(frame.forensics_vi_status & 0xFFFFFFFF):08x} "
+                f"vi_width={frame.forensics_vi_width} "
+                f"vi_vcurrent={frame.forensics_vi_vcurrent} "
+                f"vi_vsync={frame.forensics_vi_vsync} "
+                f"vi_hstart=0x{(frame.forensics_vi_hstart & 0xFFFFFFFF):08x} "
+                f"vi_vstart=0x{(frame.forensics_vi_vstart & 0xFFFFFFFF):08x} "
+                f"vi_xscale=0x{(frame.forensics_vi_xscale & 0xFFFFFFFF):08x} "
+                f"vi_yscale=0x{(frame.forensics_vi_yscale & 0xFFFFFFFF):08x} "
+                f"selected_surface_hash=0x{(frame.forensics_selected_surface_hash & 0xFFFFFFFFFFFFFFFF):016x} "
+                f"vi_hash_decode=0x{(frame.forensics_vi_hash_decode & 0xFFFFFFFFFFFFFFFF):016x} "
+                f"vi_hash_filter=0x{(frame.forensics_vi_hash_filter & 0xFFFFFFFFFFFFFFFF):016x} "
+                f"vi_hash_gdither=0x{(frame.forensics_vi_hash_gdither & 0xFFFFFFFFFFFFFFFF):016x}"
             )
             if executor_summary.present_hash == frame.forensics_present_hash:
                 check.errors.append(
                     "executor_present_hash provenance: computed matches frame-forensics present hash "
                     "(declared frame trace hash likely omits VI present path)"
                 )
+            vi_stage_pairs = (
+                ("vi_hash_decode", frame.forensics_vi_hash_decode, executor_summary.vi_hash_decode),
+                ("vi_hash_filter", frame.forensics_vi_hash_filter, executor_summary.vi_hash_filter),
+                ("vi_hash_gdither", frame.forensics_vi_hash_gdither, executor_summary.vi_hash_gdither),
+            )
+            for stage_name, forensic_hash, replay_hash in vi_stage_pairs:
+                if forensic_hash < 0 or replay_hash < 0:
+                    continue
+                if forensic_hash == replay_hash:
+                    check.errors.append(
+                        f"{stage_name} match: forensics=0x{forensic_hash:016x} replay=0x{replay_hash:016x}"
+                    )
+                else:
+                    check.errors.append(
+                        f"{stage_name} mismatch: forensics=0x{forensic_hash:016x} replay=0x{replay_hash:016x}"
+                    )
         variant_match = [
             name
             for name, value in executor_summary.present_hash_variants.items()
@@ -5872,6 +6689,8 @@ def _check_to_json(check: FrameCheck) -> dict:
         "forensics_present_height": check.forensics_present_height,
         "forensics_present_surface": check.forensics_present_surface,
         "forensics_present_select": check.forensics_present_select,
+        "forensics_selected_surface_hash": check.forensics_selected_surface_hash,
+        "computed_selected_surface_hash": check.computed_selected_surface_hash,
         "forensics_vi_valid": check.forensics_vi_valid,
         "forensics_vi_origin": check.forensics_vi_origin,
         "forensics_vi_origin_match": check.forensics_vi_origin_match,
@@ -5883,6 +6702,12 @@ def _check_to_json(check: FrameCheck) -> dict:
         "forensics_vi_out_w": check.forensics_vi_out_w,
         "forensics_vi_out_h": check.forensics_vi_out_h,
         "forensics_vi_stride": check.forensics_vi_stride,
+        "forensics_vi_hash_decode": check.forensics_vi_hash_decode,
+        "forensics_vi_hash_filter": check.forensics_vi_hash_filter,
+        "forensics_vi_hash_gdither": check.forensics_vi_hash_gdither,
+        "computed_vi_hash_decode": check.computed_vi_hash_decode,
+        "computed_vi_hash_filter": check.computed_vi_hash_filter,
+        "computed_vi_hash_gdither": check.computed_vi_hash_gdither,
         "declared_unknown_rdp_opcode_count": check.declared_unknown_rdp_opcode_count,
         "computed_unknown_rdp_opcode_count": check.computed_unknown_rdp_opcode_count,
         "declared_first_unknown_rdp_packet_id": check.declared_first_unknown_rdp_packet_id,

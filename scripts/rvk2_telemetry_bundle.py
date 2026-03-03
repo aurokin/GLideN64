@@ -214,6 +214,10 @@ def _build_signals(
     vi_out_w = _u64(last_record, "vi_out_w")
     vi_out_h = _u64(last_record, "vi_out_h")
     vi_stride = _u64(last_record, "vi_stride")
+    selected_surface_hash = _u64(last_record, "selected_surface_hash")
+    vi_hash_decode = _u64(last_record, "vi_hash_decode")
+    vi_hash_filter = _u64(last_record, "vi_hash_filter")
+    vi_hash_gdither = _u64(last_record, "vi_hash_gdither")
 
     work_fill = _u64(last_record, "work_fill")
     work_texrect = _u64(last_record, "work_texrect")
@@ -260,6 +264,10 @@ def _build_signals(
         "vi_out_w": vi_out_w,
         "vi_out_h": vi_out_h,
         "vi_stride": vi_stride,
+        "selected_surface_hash": selected_surface_hash,
+        "vi_hash_decode": vi_hash_decode,
+        "vi_hash_filter": vi_hash_filter,
+        "vi_hash_gdither": vi_hash_gdither,
     }
 
     geometry_signal = {
@@ -312,6 +320,8 @@ def _build_signals(
             suspected_gaps.append("replay present-hash mismatches include frame-forensics VI context")
         if int(replay_error_kinds.get("executor_present_hash provenance", 0) or 0) > 0:
             suspected_gaps.append("packet-trace present hash diverges from frame-forensics present hash provenance")
+        if int(replay_error_kinds.get("selected_surface_hash mismatch", 0) or 0) > 0:
+            suspected_gaps.append("selected surface hash diverges before VI post-processing (raster/source divergence likely)")
 
     if vi_valid == 1 and vi_use_regs == 0:
         suspected_gaps.append("VI registers are valid but VI register path is not active for present")
@@ -416,6 +426,14 @@ def _build_replay_forensics_correlation(
             "present_hash_mismatch_vi_reject_nonzero": 0,
             "present_hash_mismatch_vi_use_regs_zero": 0,
             "declared_vs_forensics_hash_drift_warnings": 0,
+            "present_hash_mismatch_vi_hash_decode_match": 0,
+            "present_hash_mismatch_vi_hash_filter_match": 0,
+            "present_hash_mismatch_vi_hash_gdither_match": 0,
+            "present_hash_mismatch_vi_hash_decode_mismatch": 0,
+            "present_hash_mismatch_vi_hash_filter_mismatch": 0,
+            "present_hash_mismatch_vi_hash_gdither_mismatch": 0,
+            "present_hash_mismatch_selected_surface_hash_match": 0,
+            "present_hash_mismatch_selected_surface_hash_mismatch": 0,
         }
 
     frames = replay.get("frames", [])
@@ -424,6 +442,14 @@ def _build_replay_forensics_correlation(
 
     mismatch_frame_ids: List[int] = []
     drift_warning_count = 0
+    vi_hash_decode_match = 0
+    vi_hash_filter_match = 0
+    vi_hash_gdither_match = 0
+    vi_hash_decode_mismatch = 0
+    vi_hash_filter_mismatch = 0
+    vi_hash_gdither_mismatch = 0
+    selected_surface_hash_match = 0
+    selected_surface_hash_mismatch = 0
     for frame in frames:
         if not isinstance(frame, dict):
             continue
@@ -439,6 +465,44 @@ def _build_replay_forensics_correlation(
                     break
         if has_present_mismatch and frame_id >= 0:
             mismatch_frame_ids.append(frame_id)
+            forensics_surface_hash = frame.get("forensics_selected_surface_hash")
+            computed_surface_hash = frame.get("computed_selected_surface_hash")
+            if (
+                isinstance(forensics_surface_hash, int)
+                and isinstance(computed_surface_hash, int)
+                and forensics_surface_hash >= 0
+                and computed_surface_hash >= 0
+            ):
+                if forensics_surface_hash == computed_surface_hash:
+                    selected_surface_hash_match += 1
+                else:
+                    selected_surface_hash_mismatch += 1
+            for suffix in ("decode", "filter", "gdither"):
+                forensics_key = f"forensics_vi_hash_{suffix}"
+                computed_key = f"computed_vi_hash_{suffix}"
+                forensics_hash = frame.get(forensics_key)
+                computed_hash = frame.get(computed_key)
+                if (
+                    not isinstance(forensics_hash, int)
+                    or not isinstance(computed_hash, int)
+                    or forensics_hash < 0
+                    or computed_hash < 0
+                ):
+                    continue
+                if forensics_hash == computed_hash:
+                    if suffix == "decode":
+                        vi_hash_decode_match += 1
+                    elif suffix == "filter":
+                        vi_hash_filter_match += 1
+                    else:
+                        vi_hash_gdither_match += 1
+                else:
+                    if suffix == "decode":
+                        vi_hash_decode_mismatch += 1
+                    elif suffix == "filter":
+                        vi_hash_filter_mismatch += 1
+                    else:
+                        vi_hash_gdither_mismatch += 1
         if isinstance(warnings, list):
             for message in warnings:
                 if isinstance(message, str) and message.startswith(
@@ -473,6 +537,14 @@ def _build_replay_forensics_correlation(
         "present_hash_mismatch_vi_reject_nonzero": vi_reject_nonzero,
         "present_hash_mismatch_vi_use_regs_zero": vi_use_regs_zero,
         "declared_vs_forensics_hash_drift_warnings": drift_warning_count,
+        "present_hash_mismatch_vi_hash_decode_match": vi_hash_decode_match,
+        "present_hash_mismatch_vi_hash_filter_match": vi_hash_filter_match,
+        "present_hash_mismatch_vi_hash_gdither_match": vi_hash_gdither_match,
+        "present_hash_mismatch_vi_hash_decode_mismatch": vi_hash_decode_mismatch,
+        "present_hash_mismatch_vi_hash_filter_mismatch": vi_hash_filter_mismatch,
+        "present_hash_mismatch_vi_hash_gdither_mismatch": vi_hash_gdither_mismatch,
+        "present_hash_mismatch_selected_surface_hash_match": selected_surface_hash_match,
+        "present_hash_mismatch_selected_surface_hash_mismatch": selected_surface_hash_mismatch,
     }
 
 
@@ -491,8 +563,17 @@ def _selected_forensics_fields(record: Dict[str, Any]) -> Dict[str, Any]:
         "selected_surface_size",
         "selected_surface_w",
         "selected_surface_h",
+        "selected_surface_hash",
         "vi_valid",
         "vi_origin",
+        "vi_status",
+        "vi_width",
+        "vi_vcurrent",
+        "vi_vsync",
+        "vi_hstart",
+        "vi_vstart",
+        "vi_xscale",
+        "vi_yscale",
         "vi_origin_match",
         "vi_reject",
         "vi_type",
@@ -502,6 +583,9 @@ def _selected_forensics_fields(record: Dict[str, Any]) -> Dict[str, Any]:
         "vi_out_w",
         "vi_out_h",
         "vi_stride",
+        "vi_hash_decode",
+        "vi_hash_filter",
+        "vi_hash_gdither",
         "tx_samples",
         "tx_tmem",
         "tx_rdram",
