@@ -1193,21 +1193,24 @@ inline u32 applyTextureLUTModeColor(
 	const u8 index = static_cast<u8>((_rgba >> 24U) & 0xFFU);
 	const u16 tlut = static_cast<u16>(activeTMEMWords()[(0x100U + static_cast<u32>(index)) & 0x1FFU] & 0xFFFFULL);
 	if (lutMode == 3U) {
-		const u8 i = static_cast<u8>((tlut >> 8U) & 0xFFU);
-		const u8 a = static_cast<u8>(tlut & 0xFFU);
+		// IA16 TLUT entries follow A:I byte order.
+		const u8 a = static_cast<u8>((tlut >> 8U) & 0xFFU);
+		const u8 i = static_cast<u8>(tlut & 0xFFU);
 		return (static_cast<u32>(i) << 24U)
 			| (static_cast<u32>(i) << 16U)
 			| (static_cast<u32>(i) << 8U)
 			| static_cast<u32>(a);
 	}
 
+	// RGBA16 TLUT entries in TMEM use swapped 16-bit word order.
+	const u16 tlutRgba = static_cast<u16>((tlut << 8U) | (tlut >> 8U));
 	const auto expand5 = [](u16 _v) -> u8 {
 		return static_cast<u8>((static_cast<u32>(_v) * 255U + 15U) / 31U);
 	};
-	const u8 r = expand5(static_cast<u16>((tlut >> 11U) & 0x1FU));
-	const u8 g = expand5(static_cast<u16>((tlut >> 6U) & 0x1FU));
-	const u8 b = expand5(static_cast<u16>((tlut >> 1U) & 0x1FU));
-	const u8 a = (tlut & 0x1U) != 0U ? 255U : 0U;
+	const u8 r = expand5(static_cast<u16>((tlutRgba >> 11U) & 0x1FU));
+	const u8 g = expand5(static_cast<u16>((tlutRgba >> 6U) & 0x1FU));
+	const u8 b = expand5(static_cast<u16>((tlutRgba >> 1U) & 0x1FU));
+	const u8 a = (tlutRgba & 0x1U) != 0U ? 255U : 0U;
 	return (static_cast<u32>(r) << 24U)
 		| (static_cast<u32>(g) << 16U)
 		| (static_cast<u32>(b) << 8U)
