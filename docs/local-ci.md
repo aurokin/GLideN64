@@ -41,6 +41,16 @@ Deep telemetry artifacts (Paper Mario intro) are emitted under:
   - `paper_mario_intro.candidate.frame-forensics.active.summary.txt`
   - `paper_mario_intro.candidate.trace.tsv`
   - `paper_mario_intro.candidate.launch.log`
+  - `paper_mario_intro.candidate.command-census.json`
+  - `paper_mario_intro.candidate.command-census.md`
+  - `paper_mario_intro.deviation/`
+    - `diff.png`
+    - `mask_raw.png`
+    - `mask.png`
+    - `overlay.png`
+    - `boxes.json`
+    - `summary.json`
+    - `playbook_snippet.md`
   - `paper_mario_intro.telemetry.bundle.json`
 
 Key deep-telemetry provenance fields:
@@ -55,6 +65,19 @@ Key deep-telemetry provenance fields:
 Deep telemetry replay defaults:
 - `REALITYVK_GATE_SMOKE_DEEP_TELEMETRY_REPLAY_STATEFUL=1` (carry state across frames for lower-noise mismatch classification)
 - `REALITYVK_GATE_SMOKE_DEEP_TELEMETRY_REUSE_REPLAY_REPORT=1` (reuse parity-generated replay report in gate smoke check)
+
+Deep telemetry deviation/census defaults:
+- `REALITYVK_PM_DEEP_TELEMETRY_DIFF_PLAYBOOK=1`
+- `REALITYVK_PM_DEEP_TELEMETRY_COMMAND_CENSUS=1`
+
+Diff playbook tuning knobs:
+- `REALITYVK_PM_DEEP_TELEMETRY_DIFF_THRESHOLD` (default `20`)
+- `REALITYVK_PM_DEEP_TELEMETRY_DIFF_MIN_AREA` (default `256`)
+- `REALITYVK_PM_DEEP_TELEMETRY_DIFF_MAX_BOXES` (default `32`)
+- `REALITYVK_PM_DEEP_TELEMETRY_DIFF_DILATE` (default `1`)
+
+Command census tuning knob:
+- `REALITYVK_PM_DEEP_TELEMETRY_COMMAND_FOCUS_WINDOW` (default `1`, frames around replay first-failure)
 
 ## Core Validation Commands
 

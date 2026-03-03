@@ -113,6 +113,12 @@
 - Deep mode now supports stateful replay (`REALITYVK_PM_DEEP_TELEMETRY_REPLAY_STATEFUL=1`).
 - Gate can reuse parity-generated replay JSON to avoid duplicate replay passes in deep mode.
 
+6. Drive fixes from one-run deviation artifacts.
+- Deep telemetry now auto-emits:
+  - `paper_mario_intro.deviation/overlay.png` + `boxes.json` + `summary.json` for pixel-localized mismatch boxes.
+  - `paper_mario_intro.candidate.command-census.json` for triangle/texrect/fill command-family evidence.
+- Rule: every new hypothesis must point to one mismatch box and one command-family clue before executor edits.
+
 ### Immediate Signals (latest deep bundle)
 
 - `coverage_ratio_vs_reference=0.7229095423` (geometry/visibility deficit persists).
@@ -127,6 +133,31 @@
   - `vi_hash_filter` mismatch
   - `vi_hash_gdither` mismatch
 - Interpretation: mismatch origin is now localized pre-VI (source surface/raster reconstruction), not only VI post-processing.
+
+### Ground-Truth Deviation Playbook Loop (Paper Mario Intro)
+
+1. Run one canonical deep telemetry capture.
+- Command: `REALITYVK_PM_DEEP_TELEMETRY=1 ./scripts/paper_mario_parity.sh`
+
+2. Triage mismatch shape first, then command mix.
+- Read `paper_mario_intro.deviation/overlay.png` and `boxes.json`.
+- Read `paper_mario_intro.candidate.command-census.md`.
+
+3. Use command census to split upstream vs raster hypotheses.
+- `texrect/fill present + triangles absent` in focus frame: prioritize RSP/DL submission/microcode path.
+- `triangles present + missing geometry` in focus frame: prioritize triangle raster, scissor, Z, blend/alpha, or wrong color-image target.
+
+4. Use pre-VI proof to keep scope locked.
+- If `selected_surface_hash` mismatch is present with `vi_hash_*` mismatch, continue treating divergence as pre-VI origin.
+- Do not start VI tuning until selected-surface parity is stable.
+
+5. Instrument next where evidence is strongest.
+- Add primitive-indexed bbox/hash telemetry around first failed frame and mismatch box coordinates.
+- Prioritize command/state checkpoints around replay first-failed frame (`command-census` focus frame).
+
+6. Validate by shrinking structural mismatch, not speckle.
+- Primary success metric: `summary.json` box count/area drops over iterations.
+- Secondary metric: `coverage_ratio_vs_reference` and `luma_ratio_vs_reference` trend upward.
 
 ## Progress Log
 
