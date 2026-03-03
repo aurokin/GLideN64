@@ -46,25 +46,40 @@ def _parse_int(value: str) -> Optional[int]:
 
 def _parse_forensics(path: Optional[Path]) -> Dict[str, Any]:
     if path is None or not path.is_file():
-        return {"record_count": 0, "last_record": {}}
+        return {"record_count": 0, "records": [], "records_by_frame": {}, "last_record": {}}
 
     lines = [line.strip() for line in path.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()]
     if not lines:
-        return {"record_count": 0, "last_record": {}}
+        return {"record_count": 0, "records": [], "records_by_frame": {}, "last_record": {}}
 
-    record: Dict[str, Any] = {}
-    for token in lines[-1].split("\t"):
-        if "=" not in token:
+    records: List[Dict[str, Any]] = []
+    records_by_frame: Dict[int, Dict[str, Any]] = {}
+    for line in lines:
+        record: Dict[str, Any] = {}
+        for token in line.split("\t"):
+            if "=" not in token:
+                continue
+            key, raw = token.split("=", 1)
+            key = key.strip()
+            raw = raw.strip()
+            if not key:
+                continue
+            parsed = _parse_int(raw)
+            record[key] = parsed if parsed is not None else raw
+        if not record:
             continue
-        key, raw = token.split("=", 1)
-        key = key.strip()
-        raw = raw.strip()
-        if not key:
-            continue
-        parsed = _parse_int(raw)
-        record[key] = parsed if parsed is not None else raw
+        records.append(record)
+        frame_id_value = record.get("frame")
+        if isinstance(frame_id_value, int):
+            records_by_frame[frame_id_value] = record
 
-    return {"record_count": len(lines), "last_record": record}
+    last_record = records[-1] if records else {}
+    return {
+        "record_count": len(records),
+        "records": records,
+        "records_by_frame": records_by_frame,
+        "last_record": last_record,
+    }
 
 
 def _u64(record: Dict[str, Any], key: str) -> int:
@@ -339,6 +354,128 @@ def _build_signals(
     }
 
 
+def _summarize_forensics_records(records: List[Dict[str, Any]]) -> Dict[str, Any]:
+    if not records:
+        return {
+            "active_record_count": 0,
+            "vi_valid_rate": None,
+            "vi_use_register_rate": None,
+            "vi_reject_rate": None,
+            "vi_origin_match_rate": None,
+            "vi_source_invalid_rate": None,
+            "present_select_share": {},
+        }
+
+    active_records = [
+        rec
+        for rec in records
+        if _u64(rec, "present_w") > 0 and _u64(rec, "present_h") > 0
+    ]
+    total = len(active_records) if active_records else len(records)
+    source = active_records if active_records else records
+
+    vi_valid = sum(1 for rec in source if _u64(rec, "vi_valid") != 0)
+    vi_use_regs = sum(1 for rec in source if _u64(rec, "vi_use_regs") != 0)
+    vi_reject = sum(1 for rec in source if _u64(rec, "vi_reject") != 0)
+    vi_origin_match = sum(1 for rec in source if _u64(rec, "vi_origin_match") != 0)
+    vi_src_samples = sum(_u64(rec, "vi_src_samples") for rec in source)
+    vi_src_invalid = sum(_u64(rec, "vi_src_invalid") for rec in source)
+
+    present_select_counts: Dict[str, int] = {}
+    for rec in source:
+        key = f"s{_u64(rec, 'present_select')}"
+        present_select_counts[key] = present_select_counts.get(key, 0) + 1
+
+    present_select_share: Dict[str, float] = {}
+    for key, count in sorted(present_select_counts.items()):
+        ratio = _ratio(count, total)
+        if ratio is not None:
+            present_select_share[key] = ratio
+
+    return {
+        "active_record_count": len(active_records),
+        "vi_valid_rate": _ratio(vi_valid, total),
+        "vi_use_register_rate": _ratio(vi_use_regs, total),
+        "vi_reject_rate": _ratio(vi_reject, total),
+        "vi_origin_match_rate": _ratio(vi_origin_match, total),
+        "vi_source_invalid_rate": _ratio(vi_src_invalid, vi_src_samples),
+        "present_select_share": present_select_share,
+    }
+
+
+def _build_replay_forensics_correlation(
+    replay: Optional[Dict[str, Any]],
+    records_by_frame: Dict[int, Dict[str, Any]],
+) -> Dict[str, Any]:
+    if replay is None:
+        return {
+            "present_hash_mismatch_frames": 0,
+            "present_hash_mismatch_with_forensics": 0,
+            "missing_forensics_for_present_mismatch": 0,
+            "present_hash_mismatch_by_select": {},
+            "present_hash_mismatch_vi_reject_nonzero": 0,
+            "present_hash_mismatch_vi_use_regs_zero": 0,
+            "declared_vs_forensics_hash_drift_warnings": 0,
+        }
+
+    frames = replay.get("frames", [])
+    if not isinstance(frames, list):
+        frames = []
+
+    mismatch_frame_ids: List[int] = []
+    drift_warning_count = 0
+    for frame in frames:
+        if not isinstance(frame, dict):
+            continue
+        frame_id_raw = frame.get("frame_id")
+        frame_id = int(frame_id_raw) if isinstance(frame_id_raw, int) else -1
+        errors = frame.get("errors", [])
+        warnings = frame.get("warnings", [])
+        has_present_mismatch = False
+        if isinstance(errors, list):
+            for message in errors:
+                if isinstance(message, str) and message.startswith("executor_present_hash mismatch:"):
+                    has_present_mismatch = True
+                    break
+        if has_present_mismatch and frame_id >= 0:
+            mismatch_frame_ids.append(frame_id)
+        if isinstance(warnings, list):
+            for message in warnings:
+                if isinstance(message, str) and message.startswith(
+                    "declared_executor_present_hash differs from frame-forensics present hash:"
+                ):
+                    drift_warning_count += 1
+                    break
+
+    by_select: Dict[str, int] = {}
+    mismatch_with_forensics = 0
+    vi_reject_nonzero = 0
+    vi_use_regs_zero = 0
+    missing_forensics = 0
+    for frame_id in mismatch_frame_ids:
+        rec = records_by_frame.get(frame_id)
+        if rec is None:
+            missing_forensics += 1
+            continue
+        mismatch_with_forensics += 1
+        select_key = f"s{_u64(rec, 'present_select')}"
+        by_select[select_key] = by_select.get(select_key, 0) + 1
+        if _u64(rec, "vi_reject") != 0:
+            vi_reject_nonzero += 1
+        if _u64(rec, "vi_use_regs") == 0:
+            vi_use_regs_zero += 1
+
+    return {
+        "present_hash_mismatch_frames": len(mismatch_frame_ids),
+        "present_hash_mismatch_with_forensics": mismatch_with_forensics,
+        "missing_forensics_for_present_mismatch": missing_forensics,
+        "present_hash_mismatch_by_select": dict(sorted(by_select.items())),
+        "present_hash_mismatch_vi_reject_nonzero": vi_reject_nonzero,
+        "present_hash_mismatch_vi_use_regs_zero": vi_use_regs_zero,
+        "declared_vs_forensics_hash_drift_warnings": drift_warning_count,
+    }
+
+
 def _selected_forensics_fields(record: Dict[str, Any]) -> Dict[str, Any]:
     keys = [
         "frame",
@@ -436,6 +573,17 @@ def main() -> int:
     forensics_data = _parse_forensics(forensics)
     replay_summary = _summarize_replay(replay)
     launch_summary = _parse_launch_log(launch_log)
+    forensics_records = forensics_data.get("records", [])
+    if not isinstance(forensics_records, list):
+        forensics_records = []
+    forensics_records_by_frame = forensics_data.get("records_by_frame", {})
+    if not isinstance(forensics_records_by_frame, dict):
+        forensics_records_by_frame = {}
+    forensics_rollup = _summarize_forensics_records(forensics_records)
+    replay_forensics_correlation = _build_replay_forensics_correlation(
+        replay,
+        forensics_records_by_frame,
+    )
     signal_summary = _build_signals(
         forensics_data.get("last_record", {}),
         replay_summary,
@@ -476,7 +624,9 @@ def main() -> int:
         "forensics": {
             "record_count": int(forensics_data.get("record_count", 0) or 0),
             "last_frame_selected_fields": _selected_forensics_fields(forensics_data.get("last_record", {})),
+            "summary": forensics_rollup,
         },
+        "replay_forensics_correlation": replay_forensics_correlation,
         "launch_log_summary": launch_summary,
         "signals": {
             "present": signal_summary["present"],
