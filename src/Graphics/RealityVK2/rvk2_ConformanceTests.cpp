@@ -1,8 +1,10 @@
+#include <array>
 #include <cstdlib>
 #include <cstring>
 #include <cstdio>
 #include <vector>
 
+#include "N64.h"
 #include "rvk2_Executor.h"
 #include "rvk2_RasterPipeline.h"
 #include "rvk2_RenderPlan.h"
@@ -553,14 +555,14 @@ void testCombinerExtendedSelectorConformance()
 	base.convertState = 0x99AABBCCDDEEFF00ULL;
 	base.blendParams = 0x00402080U;
 
-	constexpr u64 kCycle1ColorAMask = 0xFULL << (32U + 20U);
-	constexpr u64 kCycle1ColorBMask = 0xFULL << 28U;
-	constexpr u64 kCycle1ColorCMask = 0x1FULL << (32U + 15U);
-	constexpr u64 kCycle1ColorDMask = 0x7ULL << 15U;
-	constexpr u64 kCycle1AlphaAMask = 0x7ULL << (32U + 12U);
-	constexpr u64 kCycle1AlphaBMask = 0x7ULL << 12U;
-	constexpr u64 kCycle1AlphaCMask = 0x7ULL << (32U + 9U);
-	constexpr u64 kCycle1AlphaDMask = 0x7ULL << 9U;
+	constexpr u64 kCycle1ColorAMask = 0xFULL << (32U + 5U);
+	constexpr u64 kCycle1ColorBMask = 0xFULL << 24U;
+	constexpr u64 kCycle1ColorCMask = 0x1FULL << 32U;
+	constexpr u64 kCycle1ColorDMask = 0x7ULL << 6U;
+	constexpr u64 kCycle1AlphaAMask = 0x7ULL << 21U;
+	constexpr u64 kCycle1AlphaBMask = 0x7ULL << 3U;
+	constexpr u64 kCycle1AlphaCMask = 0x7ULL << 18U;
+	constexpr u64 kCycle1AlphaDMask = 0x7ULL << 0U;
 	constexpr u64 kCycle1SelectorMask =
 		kCycle1ColorAMask
 		| kCycle1ColorBMask
@@ -572,26 +574,26 @@ void testCombinerExtendedSelectorConformance()
 		| kCycle1AlphaDMask;
 	base.combineMux &= ~kCycle1SelectorMask;
 	base.combineMux |=
-		(1ULL << (32U + 20U))   // color A: TEXEL0
-		| (3ULL << 28U)         // color B: PRIMITIVE
-		| (13ULL << (32U + 15U)) // color C: LOD_FRACTION
-		| (5ULL << 15U)         // color D: ENVIRONMENT
-		| (1ULL << (32U + 12U)) // alpha A: TEXEL0
-		| (3ULL << 12U)         // alpha B: PRIMITIVE
-		| (6ULL << (32U + 9U))  // alpha C: PRIM_LOD_FRAC
-		| (5ULL << 9U);         // alpha D: ENVIRONMENT
+		(1ULL << (32U + 5U))    // color A: TEXEL0
+		| (3ULL << 24U)         // color B: PRIMITIVE
+		| (13ULL << 32U)        // color C: LOD_FRACTION
+		| (5ULL << 6U)          // color D: ENVIRONMENT
+		| (1ULL << 21U)         // alpha A: TEXEL0
+		| (3ULL << 3U)          // alpha B: PRIMITIVE
+		| (6ULL << 18U)         // alpha C: PRIM_LOD_FRAC
+		| (5ULL << 0U);         // alpha D: ENVIRONMENT
 
 	rvk2::RenderWorkPacket lodVariant = base;
 	lodVariant.sourcePacketId = 45ULL;
 	lodVariant.combineMux &= ~kCycle1ColorCMask;
-	lodVariant.combineMux |= (14ULL << (32U + 15U)); // PRIM_LOD_FRAC
+	lodVariant.combineMux |= (14ULL << 32U); // PRIM_LOD_FRAC
 
 	rvk2::RenderWorkPacket k5Variant = base;
 	k5Variant.sourcePacketId = 46ULL;
 	k5Variant.combineMux &= ~(kCycle1ColorAMask | kCycle1ColorCMask);
 	k5Variant.combineMux |=
-		(15ULL << (32U + 20U))   // color A: K5
-		| (14ULL << (32U + 15U)); // color C: PRIM_LOD_FRAC (non-zero lane for A/B sensitivity)
+		(15ULL << (32U + 5U))   // color A: K5
+		| (14ULL << 32U); // color C: PRIM_LOD_FRAC (non-zero lane for A/B sensitivity)
 
 	const std::vector<rvk2::SubmissionBatchPacket> batches{makeBatchForWorkCount(2U)};
 	const rvk2::ExecutorOutput baseOut = executor.executeWithOutput(
@@ -1512,6 +1514,87 @@ void testCopyPhaseDestinationBypassConformance()
 		"cycle1 path should remain destination-sensitive for this blend setup");
 }
 
+void testCopyModeIgnoresTileClampConformance()
+{
+	std::array<u64, 512> savedTMEM{};
+	for (size_t i = 0; i < savedTMEM.size(); ++i)
+		savedTMEM[i] = TMEM[i];
+	u8 * tmem8 = reinterpret_cast<u8 *>(TMEM);
+	for (u32 i = 0U; i < 64U; ++i)
+		tmem8[i] = 0U;
+	tmem8[1] = 0x22U;
+	tmem8[2] = 0xCCU;
+
+	rvk2::Executor executor;
+	rvk2::RenderWorkPacket clampOn = makeTexRectWork(false);
+	clampOn.sourcePacketId = 64ULL;
+	clampOn.colorImageAddress = 0x00910000U;
+	clampOn.colorImageWidth = 8U;
+	clampOn.phase = static_cast<u8>(rvk2::RenderPhase::kCopy);
+	clampOn.cycleType = 2U;
+	clampOn.rectULX = 0U;
+	clampOn.rectULY = 0U;
+	clampOn.rectLRX = 0U;
+	clampOn.rectLRY = 0U;
+	clampOn.texS = 64;
+	clampOn.texT = 0;
+	clampOn.texDSDX = 0;
+	clampOn.texDTDY = 0;
+	clampOn.tileFormat = 4U;
+	clampOn.tileSize = 1U;
+	clampOn.textureImageFormat = 4U;
+	clampOn.textureImageSize = 1U;
+	clampOn.tileTmem = 0U;
+	clampOn.tileLine = 1U;
+	clampOn.tileULS = 0x0000U;
+	clampOn.tileULT = 0x0000U;
+	clampOn.tileLRS = 0x0004U;
+	clampOn.tileLRT = 0x0004U;
+	clampOn.tileMasks = 2U;
+	clampOn.tileMaskt = 0U;
+	clampOn.tileCms = 2U;
+	clampOn.tileCmt = 0U;
+
+	rvk2::RenderWorkPacket clampOff = clampOn;
+	clampOff.sourcePacketId = 65ULL;
+	clampOff.tileCms = 0U;
+
+	rvk2::SubmissionBatchPacket batch = makeSingleBatch();
+	batch.phase = static_cast<u8>(rvk2::RenderPhase::kCopy);
+	batch.cycleType = 2U;
+	const std::vector<rvk2::SubmissionBatchPacket> batches{batch};
+	const rvk2::ExecutorOutput clampOnOut =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{clampOn}, batches);
+	const rvk2::ExecutorOutput clampOffOut =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{clampOff}, batches);
+
+	expectTrue(
+		clampOnOut.summary.colorWriteCount > 0ULL,
+		"copy-mode tile-clamp conformance scene should write pixels");
+	expectTrue(
+		clampOnOut.summary.textureTmemSampleCount > 0ULL,
+		"copy-mode tile-clamp conformance should sample TMEM");
+	expectEq(
+		clampOnOut.summary.colorWriteCount,
+		clampOffOut.summary.colorWriteCount,
+		"copy-mode tile clamp toggle should preserve write coverage");
+	expectEq(
+		clampOnOut.summary.presentHash,
+		clampOffOut.summary.presentHash,
+		"copy mode should ignore tile clamp bit during texture coordinate mapping");
+	expectEq(
+		clampOnOut.summary.textureTmemSampleCount,
+		clampOffOut.summary.textureTmemSampleCount,
+		"copy-mode tile clamp toggle should preserve TMEM sample count");
+	expectEq(
+		clampOnOut.summary.textureRdramSampleCount,
+		clampOffOut.summary.textureRdramSampleCount,
+		"copy-mode tile clamp toggle should preserve RDRAM sample count");
+
+	for (size_t i = 0; i < savedTMEM.size(); ++i)
+		TMEM[i] = savedTMEM[i];
+}
+
 void testCycle2PhaseDistinctConformance()
 {
 	rvk2::Executor executor;
@@ -1547,10 +1630,9 @@ void testCycle2PhaseDistinctConformance()
 		cycle1Out.summary.colorWriteCount,
 		cycle2Out.summary.colorWriteCount,
 		"cycle1/cycle2 should preserve covered pixel count");
-	expectEq(
-		cycle1Out.summary.combinerCycle2SelectorOpCount,
-		0ULL,
-		"cycle1 phase should not execute cycle2 combiner selector path");
+	expectTrue(
+		cycle1Out.summary.combinerCycle2SelectorOpCount > 0ULL,
+		"cycle1 phase should execute cycle2 combiner selector path");
 	expectTrue(
 		cycle2Out.summary.combinerCycle2SelectorOpCount > 0ULL,
 		"cycle2 phase should execute cycle2 combiner selector path");
@@ -1639,12 +1721,15 @@ void testCycle2CombinerSelectorIsolationConformance()
 		std::vector<rvk2::RenderWorkPacket>{background, cycle1Variant},
 		twoWorkBatches);
 	expectEq(
-		cycle1VariantOut.summary.presentHash,
-		cycle1BaseOut.summary.presentHash,
-		"cycle2-only selector transition should not alter cycle1 present hash");
+		cycle1VariantOut.summary.colorWriteCount,
+		cycle1BaseOut.summary.colorWriteCount,
+		"cycle2 selector transition should preserve cycle1 write coverage");
 	expectTrue(
-		presentFramesEqual(cycle1VariantOut, cycle1BaseOut),
-		"cycle2-only selector transition should not alter cycle1 presented pixels");
+		cycle1VariantOut.summary.presentHash != cycle1BaseOut.summary.presentHash,
+		"cycle2 selector transition should alter cycle1 present hash");
+	expectTrue(
+		!presentFramesEqual(cycle1VariantOut, cycle1BaseOut),
+		"cycle2 selector transition should alter cycle1 presented pixels");
 }
 
 void testCycle2TexelNextPixelHazardConformance()
@@ -1729,6 +1814,221 @@ void testCycle2TexelNextPixelHazardConformance()
 	expectTrue(
 		!presentFramesEqual(tex1Out, tex0Out),
 		"cycle2 TEX1/TEX0 transition should alter presented pixels under next-pixel hazard semantics");
+}
+
+void testCycle1Texel1NextPixelHazardConformance()
+{
+	rvk2::Executor executor;
+	rvk2::RenderWorkPacket background = makeFillWork(263ULL, 0x00B4D000U, 0x304860FFU);
+	background.rectLRX = 7U;
+	background.rectLRY = 3U;
+
+	rvk2::RenderWorkPacket base = makeTexRectWork(false);
+	base.sourcePacketId = 264ULL;
+	base.colorImageAddress = background.colorImageAddress;
+	base.colorImageWidth = 8U;
+	base.rectULX = 0U;
+	base.rectULY = 0U;
+	base.rectLRX = 7U;
+	base.rectLRY = 3U;
+	base.phase = static_cast<u8>(rvk2::RenderPhase::kCycle1);
+	base.cycleType = 0U;
+	base.otherModes = 0ULL;
+
+	constexpr u64 kCycle1SelectorMask =
+		(0xFULL << (32U + 5U))
+		| (0xFULL << 24U)
+		| (0x1FULL << 32U)
+		| (0x7ULL << 6U)
+		| (0x7ULL << 21U)
+		| (0x7ULL << 3U)
+		| (0x7ULL << 18U)
+		| 0x7ULL;
+	constexpr u64 kCycle1Tex1Selectors =
+		(0ULL << (32U + 5U))
+		| (0ULL << 24U)
+		| (0ULL << 32U)
+		| (2ULL << 6U)          // color D: TEXEL1
+		| (0ULL << 21U)
+		| (0ULL << 3U)
+		| (0ULL << 18U)
+		| 2ULL;                 // alpha D: TEXEL1
+	constexpr u64 kCycle1Tex0Selectors =
+		(0ULL << (32U + 5U))
+		| (0ULL << 24U)
+		| (0ULL << 32U)
+		| (1ULL << 6U)          // color D: TEXEL0
+		| (0ULL << 21U)
+		| (0ULL << 3U)
+		| (0ULL << 18U)
+		| 1ULL;                 // alpha D: TEXEL0
+
+	rvk2::RenderWorkPacket tex1Variant = base;
+	tex1Variant.combineMux = (tex1Variant.combineMux & ~kCycle1SelectorMask) | kCycle1Tex1Selectors;
+	rvk2::RenderWorkPacket tex0Variant = base;
+	tex0Variant.combineMux = (tex0Variant.combineMux & ~kCycle1SelectorMask) | kCycle1Tex0Selectors;
+
+	const std::vector<rvk2::SubmissionBatchPacket> twoWorkBatches{makeBatchForWorkCount(2U)};
+	const rvk2::ExecutorOutput tex1Out = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, tex1Variant},
+		twoWorkBatches);
+	const rvk2::ExecutorOutput tex0Out = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, tex0Variant},
+		twoWorkBatches);
+
+	expectTrue(
+		tex1Out.summary.colorWriteCount > 0ULL,
+		"cycle1 TEX1 next-pixel hazard baseline should write pixels");
+	expectEq(
+		tex1Out.summary.colorWriteCount,
+		tex0Out.summary.colorWriteCount,
+		"cycle1 TEX1/TEX0 transition should preserve write coverage");
+	expectTrue(
+		tex1Out.summary.presentHash != tex0Out.summary.presentHash,
+		"cycle1 TEX1 should diverge from TEX0 under next-pixel hazard semantics");
+	expectTrue(
+		!presentFramesEqual(tex1Out, tex0Out),
+		"cycle1 TEX1 should alter presented pixels under next-pixel hazard semantics");
+}
+
+void testCycle2Texel0AliasTexel1HazardConformance()
+{
+	std::array<u64, 512> savedTMEM{};
+	for (size_t i = 0; i < savedTMEM.size(); ++i)
+		savedTMEM[i] = TMEM[i];
+	u8 * tmem8 = reinterpret_cast<u8 *>(TMEM);
+	for (u32 i = 0U; i < 4096U; ++i)
+		tmem8[i] = static_cast<u8>((i * 37U + 11U) & 0xFFU);
+
+	rvk2::Executor executor;
+	rvk2::RenderWorkPacket background = makeFillWork(265ULL, 0x00B4E000U, 0x244060FFU);
+	background.rectLRX = 7U;
+	background.rectLRY = 3U;
+
+	rvk2::RenderWorkPacket base = makeTexRectWork(false);
+	base.sourcePacketId = 266ULL;
+	base.colorImageAddress = background.colorImageAddress;
+	base.colorImageWidth = 8U;
+	base.rectULX = 0U;
+	base.rectULY = 0U;
+	base.rectLRX = 7U;
+	base.rectLRY = 3U;
+	base.phase = static_cast<u8>(rvk2::RenderPhase::kCycle2);
+	base.cycleType = 1U;
+	base.tileFormat = 3U;
+	base.tileSize = 1U;
+	base.textureImageFormat = 3U;
+	base.textureImageSize = 1U;
+	base.otherModes = 0ULL;
+	base.otherModes |= (1ULL << 6U);  // image_read_en
+	base.otherModes |= (1ULL << 14U); // force_blend
+	// Cycle-1 blender pass-through.
+	base.otherModes &= ~(
+		(0x3ULL << 30U)
+		| (0x3ULL << 26U)
+		| (0x3ULL << 22U)
+		| (0x3ULL << 18U));
+	base.otherModes |= (2ULL << 26U); // A = 1.0
+	base.otherModes |= (3ULL << 18U); // B = 0.0
+	// Cycle-2 blender uses combiner alpha to blend memory against blend color.
+	base.otherModes &= ~(
+		(0x3ULL << 28U)
+		| (0x3ULL << 24U)
+		| (0x3ULL << 20U)
+		| (0x3ULL << 16U));
+	base.otherModes |= (1ULL << 28U); // P = memory color
+	base.otherModes |= (2ULL << 20U); // M = blend color
+	base.blendColor = 0xB04080FFU;
+	constexpr u64 kCycle1SelectorMask =
+		(0xFULL << (32U + 20U))
+		| (0xFULL << 28U)
+		| (0x1FULL << (32U + 15U))
+		| (0x7ULL << 15U)
+		| (0x7ULL << (32U + 12U))
+		| (0x7ULL << 12U)
+		| (0x7ULL << (32U + 9U))
+		| (0x7ULL << 9U);
+	constexpr u64 kCycle2SelectorMask =
+		(0xFULL << (32U + 5U))
+		| (0xFULL << 24U)
+		| (0x1FULL << 32U)
+		| (0x7ULL << 6U)
+		| (0x7ULL << 21U)
+		| (0x7ULL << 3U)
+		| (0x7ULL << 18U)
+		| 0x7ULL;
+	constexpr u64 kCycle1Tex0Selectors =
+		(0ULL << (32U + 20U))
+		| (0ULL << 28U)
+		| (0ULL << (32U + 15U))
+		| (1ULL << 15U)         // color D: TEXEL0
+		| (0ULL << (32U + 12U))
+		| (0ULL << 12U)
+		| (0ULL << (32U + 9U))
+		| (1ULL << 9U);         // alpha D: TEXEL0
+	constexpr u64 kCycle2Tex0Selectors =
+		(0ULL << (32U + 5U))
+		| (0ULL << 24U)
+		| (0ULL << 32U)
+		| (1ULL << 6U)          // color D: TEXEL0
+		| (0ULL << 21U)
+		| (0ULL << 3U)
+		| (0ULL << 18U)
+		| 1ULL;                 // alpha D: TEXEL0
+	base.combineMux =
+		(base.combineMux & ~(kCycle1SelectorMask | kCycle2SelectorMask))
+		| kCycle1Tex0Selectors
+		| kCycle2Tex0Selectors;
+
+	rvk2::RenderWorkPacket noTile1 = base;
+	noTile1.tile1Valid = false;
+
+	rvk2::RenderWorkPacket withTile1 = base;
+	withTile1.tile1Valid = true;
+	withTile1.tile1Index = static_cast<u8>((withTile1.tile + 1U) & 0x7U);
+	withTile1.tile1Format = 3U;
+	withTile1.tile1Size = 1U;
+	withTile1.tile1Line = 0x22U;
+	withTile1.tile1Tmem = 0x180U;
+	withTile1.tile1Palette = 0xFU;
+	withTile1.tile1Cmt = 2U;
+	withTile1.tile1Cms = 1U;
+	withTile1.tile1Maskt = 3U;
+	withTile1.tile1Masks = 2U;
+	withTile1.tile1Shiftt = 1U;
+	withTile1.tile1Shifts = 4U;
+	withTile1.tile1ULS = 0x0020U;
+	withTile1.tile1ULT = 0x0040U;
+	withTile1.tile1LRS = 0x01E0U;
+	withTile1.tile1LRT = 0x00E0U;
+
+	const std::vector<rvk2::SubmissionBatchPacket> twoWorkBatches{makeBatchForWorkCount(2U)};
+	const rvk2::ExecutorOutput noTile1Out = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, noTile1},
+		twoWorkBatches);
+	const rvk2::ExecutorOutput withTile1Out = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, withTile1},
+		twoWorkBatches);
+
+	expectTrue(
+		noTile1Out.summary.colorWriteCount > 0ULL,
+		"cycle2 TEX0 alias baseline should write pixels");
+	expectTrue(
+		noTile1Out.summary.textureTmemSampleCount > 0ULL,
+		"cycle2 TEX0 alias baseline should sample TMEM");
+	expectEq(
+		noTile1Out.summary.colorWriteCount,
+		withTile1Out.summary.colorWriteCount,
+		"cycle2 TEX0 tile1 toggle should preserve write coverage");
+	expectTrue(
+		noTile1Out.summary.presentHash != withTile1Out.summary.presentHash,
+		"cycle2 TEX0 should alias TEX1 in second cycle");
+	expectTrue(
+		!presentFramesEqual(noTile1Out, withTile1Out),
+		"cycle2 TEX0 alias toggle should alter presented pixels");
+
+	for (size_t i = 0; i < savedTMEM.size(); ++i)
+		TMEM[i] = savedTMEM[i];
 }
 
 void testCycle2ShadeAlphaNextPixelHazardConformance()
@@ -1831,11 +2131,11 @@ void testCycle1CombinedFeedbackHazardConformance()
 	combinedHazard.combineMux = 0ULL;
 	// Direct variant: D=TEX0 (no feedback dependency).
 	rvk2::RenderWorkPacket texelDirect = work;
-	constexpr u64 kCycle1ColorDMask = 0x7ULL << 15U;
-	constexpr u64 kCycle1AlphaDMask = 0x7ULL << 9U;
+	constexpr u64 kCycle1ColorDMask = 0x7ULL << 6U;
+	constexpr u64 kCycle1AlphaDMask = 0x7ULL << 0U;
 	texelDirect.combineMux &= ~(kCycle1ColorDMask | kCycle1AlphaDMask);
-	texelDirect.combineMux |= (1ULL << 15U); // color D = TEX0
-	texelDirect.combineMux |= (1ULL << 9U);  // alpha D = TEX0
+	texelDirect.combineMux |= (1ULL << 6U); // color D = TEX0
+	texelDirect.combineMux |= (1ULL << 0U);  // alpha D = TEX0
 
 	const std::vector<rvk2::SubmissionBatchPacket> oneWorkBatch{makeBatchForWorkCount(1U)};
 	const rvk2::ExecutorOutput hazardOut = executor.executeWithOutput(
@@ -1882,14 +2182,14 @@ void testCycle1Texel1SecondaryTileConformance()
 	base.cycleType = 0U;
 	base.otherModes = 0ULL;
 
-	constexpr u64 kCycle1ColorAMask = 0xFULL << (32U + 20U);
-	constexpr u64 kCycle1ColorBMask = 0xFULL << 28U;
-	constexpr u64 kCycle1ColorCMask = 0x1FULL << (32U + 15U);
-	constexpr u64 kCycle1ColorDMask = 0x7ULL << 15U;
-	constexpr u64 kCycle1AlphaAMask = 0x7ULL << (32U + 12U);
-	constexpr u64 kCycle1AlphaBMask = 0x7ULL << 12U;
-	constexpr u64 kCycle1AlphaCMask = 0x7ULL << (32U + 9U);
-	constexpr u64 kCycle1AlphaDMask = 0x7ULL << 9U;
+	constexpr u64 kCycle1ColorAMask = 0xFULL << (32U + 5U);
+	constexpr u64 kCycle1ColorBMask = 0xFULL << 24U;
+	constexpr u64 kCycle1ColorCMask = 0x1FULL << 32U;
+	constexpr u64 kCycle1ColorDMask = 0x7ULL << 6U;
+	constexpr u64 kCycle1AlphaAMask = 0x7ULL << 21U;
+	constexpr u64 kCycle1AlphaBMask = 0x7ULL << 3U;
+	constexpr u64 kCycle1AlphaCMask = 0x7ULL << 18U;
+	constexpr u64 kCycle1AlphaDMask = 0x7ULL << 0U;
 	constexpr u64 kCycle1SelectorMask =
 		kCycle1ColorAMask
 		| kCycle1ColorBMask
@@ -1901,14 +2201,14 @@ void testCycle1Texel1SecondaryTileConformance()
 		| kCycle1AlphaDMask;
 	base.combineMux &= ~kCycle1SelectorMask;
 	base.combineMux |=
-		(0ULL << (32U + 20U))
-		| (0ULL << 28U)
-		| (0ULL << (32U + 15U))
-		| (2ULL << 15U)         // color D: TEXEL1
-		| (0ULL << (32U + 12U))
-		| (0ULL << 12U)
-		| (0ULL << (32U + 9U))
-		| (2ULL << 9U);         // alpha D: TEXEL1
+		(0ULL << (32U + 5U))
+		| (0ULL << 24U)
+		| (0ULL << 32U)
+		| (2ULL << 6U)          // color D: TEXEL1
+		| (0ULL << 21U)
+		| (0ULL << 3U)
+		| (0ULL << 18U)
+		| 2ULL;                 // alpha D: TEXEL1
 
 	base.tile1Valid = true;
 	base.tile1Index = static_cast<u8>((base.tile + 1U) & 0x7U);
@@ -2130,25 +2430,25 @@ void testFillSeedsCoverageForImageReadBlendConformance()
 	blend.otherModes |= (1ULL << 6U);  // image_read_en
 	blend.otherModes |= (1ULL << 14U); // force_blend
 	blend.otherModes &= ~(
-		(0x3ULL << 30U)
-		| (0x3ULL << 26U)
-		| (0x3ULL << 22U)
-		| (0x3ULL << 18U));
-	blend.otherModes |= (2ULL << 30U); // P = blend color
-	blend.otherModes |= (2ULL << 26U); // A = 1.0
-	blend.otherModes |= (1ULL << 22U); // M = memory color
-	blend.otherModes |= (1ULL << 18U); // B = memory coverage
+		(0x3ULL << 28U)
+		| (0x3ULL << 24U)
+		| (0x3ULL << 20U)
+		| (0x3ULL << 16U));
+	blend.otherModes |= (2ULL << 28U); // P = blend color
+	blend.otherModes |= (2ULL << 24U); // A = 1.0 (shade alpha)
+	blend.otherModes |= (1ULL << 20U); // M = memory color
+	blend.otherModes |= (1ULL << 16U); // B = memory coverage
 	blend.blendColor = 0x000000FFU;
 	blend.primColor = 0xFFFFFFFFU;
 
-	constexpr u64 kCycle1ColorAMask = 0xFULL << (32U + 20U);
-	constexpr u64 kCycle1ColorBMask = 0xFULL << 28U;
-	constexpr u64 kCycle1ColorCMask = 0x1FULL << (32U + 15U);
-	constexpr u64 kCycle1ColorDMask = 0x7ULL << 15U;
-	constexpr u64 kCycle1AlphaAMask = 0x7ULL << (32U + 12U);
-	constexpr u64 kCycle1AlphaBMask = 0x7ULL << 12U;
-	constexpr u64 kCycle1AlphaCMask = 0x7ULL << (32U + 9U);
-	constexpr u64 kCycle1AlphaDMask = 0x7ULL << 9U;
+	constexpr u64 kCycle1ColorAMask = 0xFULL << (32U + 5U);
+	constexpr u64 kCycle1ColorBMask = 0xFULL << 24U;
+	constexpr u64 kCycle1ColorCMask = 0x1FULL << 32U;
+	constexpr u64 kCycle1ColorDMask = 0x7ULL << 6U;
+	constexpr u64 kCycle1AlphaAMask = 0x7ULL << 21U;
+	constexpr u64 kCycle1AlphaBMask = 0x7ULL << 3U;
+	constexpr u64 kCycle1AlphaCMask = 0x7ULL << 18U;
+	constexpr u64 kCycle1AlphaDMask = 0x7ULL << 0U;
 	constexpr u64 kCycle1SelectorMask =
 		kCycle1ColorAMask
 		| kCycle1ColorBMask
@@ -2160,14 +2460,14 @@ void testFillSeedsCoverageForImageReadBlendConformance()
 		| kCycle1AlphaDMask;
 	blend.combineMux &= ~kCycle1SelectorMask;
 	blend.combineMux |=
-		(0ULL << (32U + 20U))
-		| (0ULL << 28U)
-		| (0ULL << (32U + 15U))
-		| (3ULL << 15U) // color D: PRIMITIVE
-		| (0ULL << (32U + 12U))
-		| (0ULL << 12U)
-		| (0ULL << (32U + 9U))
-		| (3ULL << 9U); // alpha D: PRIMITIVE
+		(0ULL << (32U + 5U))
+		| (0ULL << 24U)
+		| (0ULL << 32U)
+		| (3ULL << 6U) // color D: PRIMITIVE
+		| (0ULL << 21U)
+		| (0ULL << 3U)
+		| (0ULL << 18U)
+		| 3ULL; // alpha D: PRIMITIVE
 
 	rvk2::RenderWorkPacket unseededBlend = blend;
 	unseededBlend.sourcePacketId = 77ULL;
@@ -3386,9 +3686,12 @@ int main()
 	testScissorModeFieldAndEdgeConformance();
 	testScissorDitherIndexConformance();
 	testCopyPhaseDestinationBypassConformance();
+	testCopyModeIgnoresTileClampConformance();
 	testCycle2PhaseDistinctConformance();
 	testCycle2CombinerSelectorIsolationConformance();
 	testCycle2TexelNextPixelHazardConformance();
+	testCycle1Texel1NextPixelHazardConformance();
+	testCycle2Texel0AliasTexel1HazardConformance();
 	testCycle2ShadeAlphaNextPixelHazardConformance();
 	testCycle1CombinedFeedbackHazardConformance();
 	testCycle1Texel1SecondaryTileConformance();

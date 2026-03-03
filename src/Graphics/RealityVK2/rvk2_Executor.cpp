@@ -506,51 +506,72 @@ inline s32 wrapCoordPositive(s32 _value, s32 _period)
 	return wrapped;
 }
 
-inline s32 applyTileAxisTransform(
+struct TileAxisSampleCoord
+{
+	s32 texel = 0;
+	u8 frac = 0U;
+};
+
+inline s32 applyTileAxisShiftCoord5(
+	s32 _coord5,
+	u8 _shift)
+{
+	if (_shift != 0U) {
+		s64 shifted = static_cast<s64>(_coord5);
+		const u8 effectiveShift = static_cast<u8>(std::min<u32>(_shift, 15U));
+		if (effectiveShift <= 10U)
+			shifted >>= effectiveShift;
+		else
+			shifted <<= static_cast<u8>(16U - effectiveShift);
+		return clampS32FromS64(shifted);
+	}
+	return _coord5;
+}
+
+inline TileAxisSampleCoord applyTileAxisTransform(
 	s32 _coord5,
 	u8 _shift,
 	u8 _mask,
 	u8 _cm,
 	u16 _lo,
-	u16 _hi)
+	u16 _hi,
+	bool _clampAllowed)
 {
-	s32 texel = _coord5 >> 5U;
-	if (_shift != 0U) {
-		const u8 effectiveShift = static_cast<u8>(std::min<u32>(_shift, 15U));
-		if (effectiveShift <= 10U)
-			texel >>= effectiveShift;
-		else
-			texel <<= static_cast<u8>(16U - effectiveShift);
-	}
+	const s32 shiftedCoord5 = applyTileAxisShiftCoord5(_coord5, _shift);
+	TileAxisSampleCoord mapped{};
+	mapped.texel = shiftedCoord5 >> 5U;
+	mapped.frac = static_cast<u8>(static_cast<u32>(shiftedCoord5) & 0x1FU);
+
+	const s32 loTexel = static_cast<s32>(_lo >> 2U);
+	const s32 hiTexel = static_cast<s32>(_hi >> 2U);
+	const s32 tileBase = std::min(loTexel, hiTexel);
+	const s32 tileTop = std::max(loTexel, hiTexel);
+	s32 localTexel = mapped.texel - tileBase;
 
 	const bool mirror = (_cm & 0x1U) != 0U;
-	const bool clamp = (_cm & 0x2U) != 0U;
-	if (_mask != 0U) {
+	const bool clamp = ((_cm & 0x2U) != 0U) && _clampAllowed;
+	if (clamp) {
+		const s32 maxLocal = std::max<s32>(0, tileTop - tileBase);
+		if (localTexel < 0)
+			localTexel = 0;
+		else if (localTexel > maxLocal)
+			localTexel = maxLocal;
+	}
+	else if (_mask != 0U) {
 		const s32 period = 1 << std::min<u32>(_mask, 15U);
-		if (clamp)
-			texel = std::max<s32>(0, std::min<s32>(period - 1, texel));
-		else if (mirror) {
+		if (mirror) {
 			const s32 mirrorPeriod = period << 1U;
-			s32 wrapped = wrapCoordPositive(texel, mirrorPeriod);
+			s32 wrapped = wrapCoordPositive(localTexel, mirrorPeriod);
 			if (wrapped >= period)
 				wrapped = (mirrorPeriod - 1) - wrapped;
-			texel = wrapped;
+			localTexel = wrapped;
 		}
 		else
-			texel = wrapCoordPositive(texel, period);
+			localTexel = wrapCoordPositive(localTexel, period);
 	}
 
-	if (clamp) {
-		const s32 loTexel = static_cast<s32>(_lo >> 2U);
-		const s32 hiTexel = static_cast<s32>(_hi >> 2U);
-		const s32 low = std::min(loTexel, hiTexel);
-		const s32 high = std::max(loTexel, hiTexel);
-		if (texel < low)
-			texel = low;
-		if (texel > high)
-			texel = high;
-	}
-	return texel;
+	mapped.texel = tileBase + localTexel;
+	return mapped;
 }
 
 inline void mixTextureSeed(u64 & _seed, u64 _value)
@@ -1007,9 +1028,6 @@ inline bool computeTextureSourceCoord(
 		sourceT += static_cast<s32>(_work.tmemLoadULT >> 2U);
 	}
 
-	if (sourceS < 0 || sourceT < 0)
-		return false;
-
 	_outSourceS = sourceS;
 	_outSourceT = sourceT;
 	return true;
@@ -1049,13 +1067,13 @@ inline bool readTextureBitsAt(
 	if (!computeTextureSourceCoord(_work, _s, _t, sourceS, sourceT))
 		return false;
 
-	const u64 bitAddress =
-		static_cast<u64>(_work.textureImageAddress & 0x00FFFFFFU)
-		+ static_cast<u64>(sourceT) * static_cast<u64>(rowBits)
-		+ static_cast<u64>(sourceS) * static_cast<u64>(texelBits);
+	const s64 bitAddress =
+		static_cast<s64>(_work.textureImageAddress & 0x00FFFFFFU)
+		+ static_cast<s64>(sourceT) * static_cast<s64>(rowBits)
+		+ static_cast<s64>(sourceS) * static_cast<s64>(texelBits);
 
 	const u32 byteAddress = static_cast<u32>(bitAddress >> 3U);
-	const u32 bitShift = static_cast<u32>(bitAddress & 0x7U);
+	const u32 bitShift = static_cast<u32>(bitAddress & 0x7LL);
 
 	switch (texelBits) {
 	case 4U: {
@@ -1202,10 +1220,6 @@ inline bool sampleCITextureFromTMEM(
 	const s32 tileBaseT = static_cast<s32>(_work.tileULT >> 2U);
 	const s32 texelS = _s - tileBaseS;
 	const s32 texelT = _t - tileBaseT;
-	if (texelS < 0 || texelT < 0) {
-		_outRejectReason = 3U;
-		return false;
-	}
 
 	const u8 lutMode = decodeTextureLUTMode(_work);
 	const u32 tMemMask = lutMode == 0U ? 0x1FFU : 0xFFU;
@@ -1496,44 +1510,50 @@ inline u32 pseudoTexel(
 	const s32 tRaw = _work.texRectFlip
 		? static_cast<s32>(_work.texT) + ((dx * static_cast<s32>(_work.texDTDY)) >> 5)
 		: static_cast<s32>(_work.texT) + ((dy * static_cast<s32>(_work.texDTDY)) >> 5);
-	const s32 s = applyTileAxisTransform(
+	const bool clampAllowed =
+		_work.phase != static_cast<u8>(rvk2::RenderPhase::kCopy);
+	const TileAxisSampleCoord sCoord = applyTileAxisTransform(
 		sRaw,
 		_work.tileShifts,
 		_work.tileMasks,
 		_work.tileCms,
 		_work.tileULS,
-		_work.tileLRS);
-	const s32 t = applyTileAxisTransform(
+		_work.tileLRS,
+		clampAllowed);
+	const TileAxisSampleCoord tCoord = applyTileAxisTransform(
 		tRaw,
 		_work.tileShiftt,
 		_work.tileMaskt,
 		_work.tileCmt,
 		_work.tileULT,
-		_work.tileLRT);
+		_work.tileLRT,
+		clampAllowed);
 	const u8 filterMode = decodeTextureFilterMode(_work);
 	if (filterMode == 0U)
-		return samplePseudoTexelColor(_work, s, t, 0, false, _x, _y, _sourceBits);
+		return samplePseudoTexelColor(_work, sCoord.texel, tCoord.texel, 0, false, _x, _y, _sourceBits);
 
-	const s32 sNext = applyTileAxisTransform(
+	const TileAxisSampleCoord sNextCoord = applyTileAxisTransform(
 		sRaw + 32,
 		_work.tileShifts,
 		_work.tileMasks,
 		_work.tileCms,
 		_work.tileULS,
-		_work.tileLRS);
-	const s32 tNext = applyTileAxisTransform(
+		_work.tileLRS,
+		clampAllowed);
+	const TileAxisSampleCoord tNextCoord = applyTileAxisTransform(
 		tRaw + 32,
 		_work.tileShiftt,
 		_work.tileMaskt,
 		_work.tileCmt,
 		_work.tileULT,
-		_work.tileLRT);
-	const u32 fracS = static_cast<u32>(sRaw) & 0x1FU;
-	const u32 fracT = static_cast<u32>(tRaw) & 0x1FU;
-	const u32 c00 = samplePseudoTexelColor(_work, s, t, 0, false, _x, _y, _sourceBits);
-	const u32 c10 = samplePseudoTexelColor(_work, sNext, t, 0, false, _x, _y, _sourceBits);
-	const u32 c01 = samplePseudoTexelColor(_work, s, tNext, 0, false, _x, _y, _sourceBits);
-	const u32 c11 = samplePseudoTexelColor(_work, sNext, tNext, 0, false, _x, _y, _sourceBits);
+		_work.tileLRT,
+		clampAllowed);
+	const u32 fracS = static_cast<u32>(sCoord.frac);
+	const u32 fracT = static_cast<u32>(tCoord.frac);
+	const u32 c00 = samplePseudoTexelColor(_work, sCoord.texel, tCoord.texel, 0, false, _x, _y, _sourceBits);
+	const u32 c10 = samplePseudoTexelColor(_work, sNextCoord.texel, tCoord.texel, 0, false, _x, _y, _sourceBits);
+	const u32 c01 = samplePseudoTexelColor(_work, sCoord.texel, tNextCoord.texel, 0, false, _x, _y, _sourceBits);
+	const u32 c11 = samplePseudoTexelColor(_work, sNextCoord.texel, tNextCoord.texel, 0, false, _x, _y, _sourceBits);
 	return applyTextureFilterMode(filterMode, c00, c10, c01, c11, fracS, fracT);
 }
 
@@ -2278,16 +2298,17 @@ inline u32 applySyntheticCombiner(
 	rvk2::ExecutorSummary * _summary = nullptr)
 {
 	(void)_dstColor;
+	const bool useCycle2Selectors =
+		_cycle2Selectors || _work.phase == static_cast<u8>(rvk2::RenderPhase::kCycle1);
 	if (_summary != nullptr) {
 		++_summary->combinerOpCount;
-		if (_cycle2Selectors)
+		if (useCycle2Selectors)
 			++_summary->combinerCycle2SelectorOpCount;
 	}
-	const bool useCycle2Selectors = _cycle2Selectors;
 	const CombinerCycleSelectors selectors = decodeCombinerCycleSelectors(
 		_work.combineMux,
 		useCycle2Selectors);
-	const ColorRGBA tex0 = unpackRGBA(_texel0Color);
+	const ColorRGBA tex0Current = unpackRGBA(_texel0Color);
 	const ColorRGBA tex1Current = unpackRGBA(_texel1Color);
 	const ColorRGBA tex0Next = unpackRGBA(_texel0NextColor);
 	const ColorRGBA shade = unpackRGBA(_shadeColor);
@@ -2322,11 +2343,16 @@ inline u32 applySyntheticCombiner(
 	const u8 primLodFrac = _work.primColorLodFrac;
 	const u8 k4 = clampU8FromS32(static_cast<s32>(_work.convertK4));
 	const u8 k5 = clampU8FromS32(static_cast<s32>(_work.convertK5));
-	ColorRGBA texel0 = tex0;
+	ColorRGBA texel0 = tex0Current;
 	ColorRGBA texel1 = tex1Current;
+	if (_work.phase == static_cast<u8>(rvk2::RenderPhase::kCycle1)) {
+		// RH#001: in 1-cycle mode, TEX1 reads next pixel TEX0.
+		texel1 = tex0Next;
+	}
 	if (useCycle2Selectors && _work.phase == static_cast<u8>(rvk2::RenderPhase::kCycle2)) {
-		// 2-cycle combiner hazard approximation:
-		// in cycle2, TEX1 may source the next pixel's TEX0.
+		// RH#002: in cycle2 second pass, TEX0 aliases current TEX1 and
+		// TEX1 aliases next pixel TEX0.
+		texel0 = tex1Current;
 		texel1 = tex0Next;
 	}
 
@@ -2559,11 +2585,12 @@ inline u32 applySyntheticBlender(
 	const ColorRGBA fogState = unpackRGBA(_work.fogColor);
 	const bool aaEnable = isAAEnabled(_work);
 	const bool imageReadEnabled = isImageReadEnabled(_work);
-	const bool useCycle2Selectors =
-		_cycle2Selectors && _work.phase == static_cast<u8>(rvk2::RenderPhase::kCycle2);
+	const bool decodeCycle2Selectors =
+		_work.phase == static_cast<u8>(rvk2::RenderPhase::kCycle1)
+		|| (_cycle2Selectors && _work.phase == static_cast<u8>(rvk2::RenderPhase::kCycle2));
 	const BlendMuxSelectors selectors = decodeBlendMuxSelectors(
 		_work,
-		useCycle2Selectors);
+		decodeCycle2Selectors);
 	if (_summary != nullptr) {
 		++_summary->blenderOpCount;
 		++_summary->blendAlphaASelectorCount[selectors.m1b & 0x3U];
@@ -2651,7 +2678,9 @@ inline u32 applySyntheticBlender(
 	const u8 inputCoverageAlpha = static_cast<u8>(
 		(static_cast<u32>(coverage.input) * 255U + 3U) / 7U);
 	const u8 shadeAlphaInput =
-		(useCycle2Selectors && (selectors.m1b & 0x3U) == 2U)
+		(_cycle2Selectors
+			&& _work.phase == static_cast<u8>(rvk2::RenderPhase::kCycle2)
+			&& (selectors.m1b & 0x3U) == 2U)
 		? _shadeAlphaNext
 		: _shadeAlpha;
 	u8 alphaA = selectAlphaA(
@@ -2938,44 +2967,50 @@ inline u32 evaluateTriangleTextureColor(
 	const s32 sRaw = evalCoefficientAtPixel(_work.triangleTexS, _work.triangleTexDSDX, dsdy, _x, _y);
 	const s32 tRaw = evalCoefficientAtPixel(_work.triangleTexT, _work.triangleTexDTDX, dtdy, _x, _y);
 	const s32 w = evalCoefficientAtPixel(_work.triangleTexW, _work.triangleTexDWDX, dwdy, _x, _y);
-	const s32 s = applyTileAxisTransform(
+	const bool clampAllowed =
+		_work.phase != static_cast<u8>(rvk2::RenderPhase::kCopy);
+	const TileAxisSampleCoord sCoord = applyTileAxisTransform(
 		sRaw,
 		_work.tileShifts,
 		_work.tileMasks,
 		_work.tileCms,
 		_work.tileULS,
-		_work.tileLRS);
-	const s32 t = applyTileAxisTransform(
+		_work.tileLRS,
+		clampAllowed);
+	const TileAxisSampleCoord tCoord = applyTileAxisTransform(
 		tRaw,
 		_work.tileShiftt,
 		_work.tileMaskt,
 		_work.tileCmt,
 		_work.tileULT,
-		_work.tileLRT);
+		_work.tileLRT,
+		clampAllowed);
 	const u8 filterMode = decodeTextureFilterMode(_work);
 	if (filterMode == 0U)
-		return samplePseudoTexelColor(_work, s, t, w, true, _x, _y, _sourceBits);
+		return samplePseudoTexelColor(_work, sCoord.texel, tCoord.texel, w, true, _x, _y, _sourceBits);
 
-	const s32 sNext = applyTileAxisTransform(
+	const TileAxisSampleCoord sNextCoord = applyTileAxisTransform(
 		sRaw + 32,
 		_work.tileShifts,
 		_work.tileMasks,
 		_work.tileCms,
 		_work.tileULS,
-		_work.tileLRS);
-	const s32 tNext = applyTileAxisTransform(
+		_work.tileLRS,
+		clampAllowed);
+	const TileAxisSampleCoord tNextCoord = applyTileAxisTransform(
 		tRaw + 32,
 		_work.tileShiftt,
 		_work.tileMaskt,
 		_work.tileCmt,
 		_work.tileULT,
-		_work.tileLRT);
-	const u32 fracS = static_cast<u32>(sRaw) & 0x1FU;
-	const u32 fracT = static_cast<u32>(tRaw) & 0x1FU;
-	const u32 c00 = samplePseudoTexelColor(_work, s, t, w, true, _x, _y, _sourceBits);
-	const u32 c10 = samplePseudoTexelColor(_work, sNext, t, w, true, _x, _y, _sourceBits);
-	const u32 c01 = samplePseudoTexelColor(_work, s, tNext, w, true, _x, _y, _sourceBits);
-	const u32 c11 = samplePseudoTexelColor(_work, sNext, tNext, w, true, _x, _y, _sourceBits);
+		_work.tileLRT,
+		clampAllowed);
+	const u32 fracS = static_cast<u32>(sCoord.frac);
+	const u32 fracT = static_cast<u32>(tCoord.frac);
+	const u32 c00 = samplePseudoTexelColor(_work, sCoord.texel, tCoord.texel, w, true, _x, _y, _sourceBits);
+	const u32 c10 = samplePseudoTexelColor(_work, sNextCoord.texel, tCoord.texel, w, true, _x, _y, _sourceBits);
+	const u32 c01 = samplePseudoTexelColor(_work, sCoord.texel, tNextCoord.texel, w, true, _x, _y, _sourceBits);
+	const u32 c11 = samplePseudoTexelColor(_work, sNextCoord.texel, tNextCoord.texel, w, true, _x, _y, _sourceBits);
 	return applyTextureFilterMode(filterMode, c00, c10, c01, c11, fracS, fracT);
 }
 
@@ -3303,7 +3338,10 @@ void writeRect(
 	const DebugStageViewMode stageViewMode = debugStageViewMode();
 	const bool imageReadEnabledWork = isImageReadEnabled(_work);
 	const bool cycle2Work = _work.phase == static_cast<u8>(rvk2::RenderPhase::kCycle2);
-	const BlendMuxSelectors stageBlendSelectors = decodeBlendMuxSelectors(_work, cycle2Work);
+	const bool decodeCycle2BlendSelectors =
+		_work.phase == static_cast<u8>(rvk2::RenderPhase::kCycle1)
+		|| cycle2Work;
+	const BlendMuxSelectors stageBlendSelectors = decodeBlendMuxSelectors(_work, decodeCycle2BlendSelectors);
 	WriteBounds bounds{};
 	if (!computeWriteBounds(_work, _config.maxSurfaceWidth, _config.maxSurfaceHeight, bounds))
 		return;
@@ -3523,7 +3561,10 @@ void writeTriangle(
 	const DebugStageViewMode stageViewMode = debugStageViewMode();
 	const bool imageReadEnabledWork = isImageReadEnabled(_work);
 	const bool cycle2Work = _work.phase == static_cast<u8>(rvk2::RenderPhase::kCycle2);
-	const BlendMuxSelectors stageBlendSelectors = decodeBlendMuxSelectors(_work, cycle2Work);
+	const bool decodeCycle2BlendSelectors =
+		_work.phase == static_cast<u8>(rvk2::RenderPhase::kCycle1)
+		|| cycle2Work;
+	const BlendMuxSelectors stageBlendSelectors = decodeBlendMuxSelectors(_work, decodeCycle2BlendSelectors);
 	WriteBounds bounds{};
 	if (!computeWriteBounds(_work, _config.maxSurfaceWidth, _config.maxSurfaceHeight, bounds))
 		return;
