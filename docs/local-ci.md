@@ -112,6 +112,16 @@ python3 scripts/rvk2_packet_trace_replay.py \
 When deep telemetry smoke is enabled, `local_gate.sh` auto-wires replay to
 `paper_mario_intro.candidate.frame-forensics.tsv` if present.
 
+## Archive Compare
+
+```bash
+python3 scripts/rvk2_archive_compare.py \
+  --index build/parity-runs/paper-mario/archive/index.tsv \
+  --scenario paper_mario_intro \
+  --json-out build/parity-runs/paper-mario/archive/compare.latest.json \
+  --md-out build/parity-runs/paper-mario/archive/compare.latest.md
+```
+
 ## Runtime/Trace Invariants
 
 - Runtime path is `rvk2` only.

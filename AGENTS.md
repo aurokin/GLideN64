@@ -26,8 +26,16 @@ Co-Authored-By: Codex GPT-5 <codex@openai.com>
 - Test policy: Vulkan smoke + upstream `GLideN64` comparison only.
 - Keep candidate captures deterministic: `dumpfb-preset` path.
 - Keep deep telemetry centered on `paper_mario_intro`.
+- Local-only workflow is expected for now; hardcoded local path defaults are not treated as a blocker.
 - Keep docs condensed: update canonical files, delete stale docs.
 - Do not reintroduce non-Vulkan or non-Mupen compatibility paths.
+
+## Local Environment Assumptions
+- Candidate plugin default: `build/release-vulkan-smoke/plugin/Release/mupen64plus-video-RealityVK.so`.
+- Candidate core default: `/home/auro/code/mupen/mupen64plus-core/projects/unix/libmupen64plus.so.2`.
+- Reference plugin default: `/home/auro/code/gliden64-upstream/build-release/plugin/Release/mupen64plus-video-GLideN64.so`.
+- Reference core default: `/home/auro/code/mupen/mupen64plus-core-upstream/projects/unix/libmupen64plus.so.2`.
+- Override paths with `REALITYVK_PM_*` env vars when needed.
 
 ## Smoke Policy
 - Quick smoke (default for fast iteration):
@@ -54,8 +62,21 @@ REALITYVK_PM_VISUAL_GATE=0 \
 - Archive root: `build/parity-runs/paper-mario/archive`.
 - Archive index: `build/parity-runs/paper-mario/archive/index.tsv`.
 - Latest archive symlink: `build/parity-runs/paper-mario/archive/paper_mario_intro.latest`.
-- Compare latest run against previous index row before and after each fix lane.
-- Minimum comparison fields: `rmse`, `mae`, `candidate_non_black_ratio`, `candidate_mean_luma`, telemetry bundle `suspected_gaps`.
+- Compare latest run against previous index row before and after each fix lane:
+```bash
+python3 scripts/rvk2_archive_compare.py \
+  --index build/parity-runs/paper-mario/archive/index.tsv \
+  --scenario paper_mario_intro
+```
+- For durable reports, emit artifacts:
+```bash
+python3 scripts/rvk2_archive_compare.py \
+  --index build/parity-runs/paper-mario/archive/index.tsv \
+  --scenario paper_mario_intro \
+  --json-out build/parity-runs/paper-mario/archive/compare.latest.json \
+  --md-out build/parity-runs/paper-mario/archive/compare.latest.md
+```
+- Minimum comparison fields: `rmse`, `mae`, `candidate_non_black_ratio`, `candidate_mean_luma`, `missing_without_write_ratio`, telemetry bundle `suspected_gaps`.
 - Use archived evidence for conclusions; do not rely only on on-screen screenshots.
 
 ## Replay Interpretation Rule
