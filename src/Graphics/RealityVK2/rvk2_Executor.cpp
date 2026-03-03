@@ -5057,31 +5057,65 @@ ExecutorOutput Executor::executeWithOutput(
 					surface.coverage.resize(static_cast<size_t>(surface.width) * static_cast<size_t>(surface.height), 0U);
 				if (surface.hiddenCoverage.empty())
 					surface.hiddenCoverage.resize(static_cast<size_t>(surface.width) * static_cast<size_t>(surface.height), 0U);
-				if (allowSurfaceHistoryBootstrap
-					&& allowCrossSurfaceBootstrap
-					&& m_lastSelectedSurface.valid
-					&& m_lastSelectedSurface.address != work.colorImageAddress
-					&& m_lastSelectedSurface.format == work.colorImageFormat
-					&& m_lastSelectedSurface.size == work.colorImageSize
-					&& m_lastSelectedSurface.width == surface.width
-					&& m_lastSelectedSurface.height >= surface.height) {
-					const size_t pixelCount =
-						static_cast<size_t>(surface.width) * static_cast<size_t>(surface.height);
-					if (m_lastSelectedSurface.pixels.size() >= pixelCount) {
-						const bool hasPrevCoverage = m_lastSelectedSurface.coverage.size() >= pixelCount;
-						const bool hasPrevHidden = m_lastSelectedSurface.hiddenCoverage.size() >= pixelCount;
-						for (size_t i = 0U; i < pixelCount; ++i) {
-							if ((surface.pixels[i] & 0x00FFFFFFU) != 0U)
-								continue;
-							const u32 previousPixel = m_lastSelectedSurface.pixels[i];
-							if ((previousPixel & 0x00FFFFFFU) == 0U)
-								continue;
-							surface.pixels[i] = previousPixel;
-							if (hasPrevCoverage && surface.coverage[i] == 0U)
-								surface.coverage[i] = static_cast<u8>(m_lastSelectedSurface.coverage[i] & 0x7U);
-							if (hasPrevHidden && surface.hiddenCoverage[i] == 0U)
-								surface.hiddenCoverage[i] = static_cast<u8>(m_lastSelectedSurface.hiddenCoverage[i] & 0x1U);
+				if (allowSurfaceHistoryBootstrap && allowCrossSurfaceBootstrap) {
+					const auto mergeSurfaceFromCache =
+						[&](const ExecutorCachedSurface & _cached) {
+							if (!_cached.valid
+								|| _cached.address == work.colorImageAddress
+								|| _cached.format != work.colorImageFormat
+								|| _cached.size != work.colorImageSize
+								|| _cached.width != surface.width
+								|| _cached.height < surface.height) {
+								return;
+							}
+							const size_t pixelCount =
+								static_cast<size_t>(surface.width) * static_cast<size_t>(surface.height);
+							if (_cached.pixels.size() < pixelCount)
+								return;
+							const bool hasPrevCoverage = _cached.coverage.size() >= pixelCount;
+							const bool hasPrevHidden = _cached.hiddenCoverage.size() >= pixelCount;
+							for (size_t i = 0U; i < pixelCount; ++i) {
+								if ((surface.pixels[i] & 0x00FFFFFFU) != 0U)
+									continue;
+								const u32 previousPixel = _cached.pixels[i];
+								if ((previousPixel & 0x00FFFFFFU) == 0U)
+									continue;
+								surface.pixels[i] = previousPixel;
+								if (hasPrevCoverage && surface.coverage[i] == 0U)
+									surface.coverage[i] = static_cast<u8>(_cached.coverage[i] & 0x7U);
+								if (hasPrevHidden && surface.hiddenCoverage[i] == 0U)
+									surface.hiddenCoverage[i] = static_cast<u8>(_cached.hiddenCoverage[i] & 0x1U);
+							}
+						};
+
+					mergeSurfaceFromCache(m_lastSelectedSurface);
+
+					std::vector<const ExecutorCachedSurface *> historyCandidates;
+					historyCandidates.reserve(m_surfaceHistory.size());
+					for (const auto & historyEntry : m_surfaceHistory) {
+						const ExecutorCachedSurface & cached = historyEntry.second;
+						if (!cached.valid || cached.address == work.colorImageAddress)
+							continue;
+						if (m_lastSelectedSurface.valid
+							&& cached.address == m_lastSelectedSurface.address) {
+							continue;
 						}
+						historyCandidates.push_back(&cached);
+					}
+					std::sort(
+						historyCandidates.begin(),
+						historyCandidates.end(),
+						[](const ExecutorCachedSurface * _a, const ExecutorCachedSurface * _b) {
+							if (_a == nullptr || _b == nullptr)
+								return _a != nullptr;
+							if (_a->lastTouched != _b->lastTouched)
+								return _a->lastTouched > _b->lastTouched;
+							return _a->address < _b->address;
+						});
+					for (const ExecutorCachedSurface * cached : historyCandidates) {
+						if (cached == nullptr)
+							continue;
+						mergeSurfaceFromCache(*cached);
 					}
 				}
 
