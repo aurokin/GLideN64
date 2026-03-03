@@ -591,6 +591,10 @@
     - `other_modes=0x00000CFF00504340` (`57/57`),
     - `tile_line=50`, `texture_image_width=200` (`56/57`).
   - Interpretation: remaining mismatch is concentrated in one texrect render-state cluster, so next fix lane should target this exact state class instead of broad texture subsystem toggles.
+- Present-handoff override probe:
+  - Added diagnostic toggle: `REALITYVK_RVK2_DEBUG_PREFER_LIVE_SURFACE_OVER_HISTORY=1`.
+  - Result (`paper_mario_intro`, bootstrap + cross-surface): unchanged versus current best (`rmse=0.367523`, `candidate_non_black_ratio=0.744787`).
+  - Interpretation: for this capture frame, forcing a live-surface preference over history selection does not change the visual outcome; residual gap remains in the dominant texrect state cluster.
 
 ## Debug Support Matrix (maps steps to findings)
 

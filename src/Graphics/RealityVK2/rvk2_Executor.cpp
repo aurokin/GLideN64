@@ -436,6 +436,18 @@ bool debugDisableVIHistoryPresentSelection()
 	return enabled;
 }
 
+bool debugPreferLiveSurfaceOverHistory()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_PREFER_LIVE_SURFACE_OVER_HISTORY");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
 bool debugEnableSurfaceHistoryBootstrap()
 {
 	static const bool enabled = []() -> bool {
@@ -5306,9 +5318,30 @@ ExecutorOutput Executor::executeWithOutput(
 			it = surfaces.find(presentSurfaceAddress);
 		}
 	}
-	const auto historyIt = allowVIHistorySelection
+	auto historyIt = allowVIHistorySelection
 		? m_surfaceHistory.find(presentSurfaceAddress)
 		: m_surfaceHistory.end();
+	if (debugPreferLiveSurfaceOverHistory()
+		&& it == surfaces.end()
+		&& historyIt != m_surfaceHistory.end()) {
+		u32 fallbackAddress = 0U;
+		if (chooseMostWrittenSurfaceAddress(
+				surfaces,
+				surfaceColorWrites,
+				surfaceWorkCounts,
+				fallbackAddress)
+			&& fallbackAddress != 0U
+			&& fallbackAddress != presentSurfaceAddress) {
+			presentSurfaceAddress = fallbackAddress;
+			it = surfaces.find(presentSurfaceAddress);
+			historyIt = allowVIHistorySelection
+				? m_surfaceHistory.find(presentSurfaceAddress)
+				: m_surfaceHistory.end();
+			viOriginMatchedSurface = false;
+			summary.viOriginMatchedSurface = 0U;
+			summary.presentSelectionReason = kExecutorPresentSelectionMostWrittenFallback;
+		}
+	}
 	if (it == surfaces.end() && historyIt == m_surfaceHistory.end())
 		summary.presentSelectionReason = kExecutorPresentSelectionNoSurface;
 	summary.selectedPresentSurfaceAddress = presentSurfaceAddress;
