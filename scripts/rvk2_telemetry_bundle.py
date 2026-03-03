@@ -442,12 +442,16 @@ def _build_signals(
         texrect_focus = int(focus_families.get("texrect", 0) or 0) if isinstance(focus_families, dict) else 0
         fillrect_focus = int(focus_families.get("fillrect", 0) or 0) if isinstance(focus_families, dict) else 0
         set_color_focus = int(focus_families.get("set_color_image", 0) or 0) if isinstance(focus_families, dict) else 0
+        focus_color_unique_targets = int(
+            command_census.get("focus_frame_set_color_image_unique_target_count", 0) or 0
+        )
 
         command_signal = {
             "replay_first_failed_frame": command_census.get("replay_first_failed_frame"),
             "replay_stateful_frames": command_census.get("replay_stateful_frames"),
             "focus_frame_id": command_census.get("focus_frame_id"),
             "focus_reason": command_census.get("focus_reason"),
+            "focus_frame_set_color_image_unique_target_count": focus_color_unique_targets,
             "triangles_total": tri_total,
             "texrect_total": texrect_total,
             "fillrect_total": fillrect_total,
@@ -465,7 +469,7 @@ def _build_signals(
             )
         if tri_focus == 0 and texrect_focus > 0:
             suspected_gaps.append("focus frame has texrect traffic without triangles (UI-only render symptom)")
-        if set_color_focus > 1:
+        if focus_color_unique_targets > 1:
             suspected_gaps.append("focus frame changes color-image target multiple times (verify VI source buffer selection)")
         if tri_total > 0 and texrect_total > 0 and write_tri == 0:
             suspected_gaps.append("triangles are present in command stream but no triangle writes were produced")

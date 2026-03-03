@@ -192,6 +192,7 @@ def _iter_window_frame_ids(frame_ids: Iterable[int], focus_frame: int, window: i
 def _derive_leads(
     overall_families: Counter[str],
     focus_families: Counter[str],
+    focus_unique_color_targets: int,
     replay_first_failed_frame: Optional[int],
     replay_stateful_frames: Optional[bool],
     focus_frame: Optional[int],
@@ -213,9 +214,9 @@ def _derive_leads(
         leads.append(
             f"Focus frame {focus_frame} has texrect traffic without triangle traffic; this matches a UI-only render symptom."
         )
-    if set_color_focus > 1 and focus_frame is not None:
+    if focus_unique_color_targets > 1 and focus_frame is not None:
         leads.append(
-            f"Focus frame {focus_frame} changes color image {set_color_focus} times; verify VI is presenting the intended target buffer."
+            f"Focus frame {focus_frame} touches {focus_unique_color_targets} color-image targets; verify VI is presenting the intended target buffer."
         )
     if set_color_total > 0 and tri_total > 0 and texrect_total > 0:
         leads.append("Mixed triangle+texrect traffic is present; prioritize raster/depth/blend state and render-target selection over upstream command drop theories.")
@@ -253,6 +254,9 @@ def _write_markdown(path: Path, payload: Dict[str, Any]) -> None:
         lines.append(f"- Focus frame: `{payload.get('focus_frame_id')}`")
     if payload.get("focus_reason"):
         lines.append(f"- Focus reason: `{payload.get('focus_reason')}`")
+    focus_unique_target_count = payload.get("focus_frame_set_color_image_unique_target_count")
+    if isinstance(focus_unique_target_count, int):
+        lines.append(f"- Focus frame color-image targets: `{focus_unique_target_count}`")
     lines.append("")
     lines.append("## Overall Family Counts")
     lines.append("")
@@ -457,6 +461,10 @@ def main() -> int:
 
     focus_tally = frame_tallies.get(focus_frame) if focus_frame is not None else None
     focus_frame_summary = _frame_summary(focus_frame, focus_tally) if focus_frame is not None else None
+    focus_color_events: List[ColorImageEvent] = (
+        set_color_image_events_by_frame.get(focus_frame, []) if focus_frame is not None else []
+    )
+    focus_color_unique_targets = sorted({event.address for event in focus_color_events})
 
     window_frame_ids: List[int] = []
     window_opcode_counts: Counter[int] = Counter()
@@ -481,6 +489,7 @@ def main() -> int:
     leads = _derive_leads(
         overall_family_counts,
         focus_tally.family_counts if focus_tally is not None else Counter(),
+        len(focus_color_unique_targets),
         replay_first_failed_frame,
         replay_stateful_frames if isinstance(replay_stateful_frames, bool) else None,
         focus_frame,
@@ -512,6 +521,9 @@ def main() -> int:
         "replay_stateful_frames": replay_stateful_frames,
         "focus_frame_id": focus_frame,
         "focus_reason": focus_reason,
+        "focus_frame_set_color_image_event_count": int(len(focus_color_events)),
+        "focus_frame_set_color_image_unique_target_count": int(len(focus_color_unique_targets)),
+        "focus_frame_set_color_image_unique_targets": [int(address) for address in focus_color_unique_targets],
         "focus_window": int(args.focus_window),
         "overall": {
             "rdp_opcode_counts": _counter_to_map(overall_opcode_counts),
