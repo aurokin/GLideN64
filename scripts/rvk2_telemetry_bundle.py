@@ -214,6 +214,7 @@ def _build_signals(
     metrics: Optional[Dict[str, Any]],
     command_census: Optional[Dict[str, Any]],
     diff_playbook_summary: Optional[Dict[str, Any]],
+    missing_region_focus: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
     tx_samples = _u64(last_record, "tx_samples")
     tx_tmem = _u64(last_record, "tx_tmem")
@@ -243,6 +244,7 @@ def _build_signals(
     selected_surface_live_writes = _u64(last_record, "selected_surface_live_writes")
     selected_surface_live_works = _u64(last_record, "selected_surface_live_works")
     selected_surface_from_history = _u64(last_record, "selected_surface_from_history")
+    selected_surface_history_age = _u64(last_record, "selected_surface_history_age")
     vi_hash_decode = _u64(last_record, "vi_hash_decode")
     vi_hash_filter = _u64(last_record, "vi_hash_filter")
     vi_hash_gdither = _u64(last_record, "vi_hash_gdither")
@@ -310,6 +312,7 @@ def _build_signals(
         "selected_surface_live_writes": selected_surface_live_writes,
         "selected_surface_live_works": selected_surface_live_works,
         "selected_surface_from_history": selected_surface_from_history,
+        "selected_surface_history_age": selected_surface_history_age,
         "vi_hash_decode": vi_hash_decode,
         "vi_hash_filter": vi_hash_filter,
         "vi_hash_gdither": vi_hash_gdither,
@@ -433,9 +436,17 @@ def _build_signals(
         suspected_gaps.append("VI resolver rejected current frame state (see vi_reject code)")
     if vi_valid == 1 and vi_origin_match == 0:
         suspected_gaps.append("VI origin did not match selected present surface")
-    if selected_surface_from_history != 0:
-        suspected_gaps.append("present selected surface came from history cache (potential stale-buffer presentation)")
-    if writes > 0 and selected_surface_live_writes == 0 and selected_surface_from_history != 0:
+    if selected_surface_from_history != 0 and vi_origin_match == 0:
+        suspected_gaps.append("present selected surface came from history cache without VI-origin match (potential stale-buffer presentation)")
+    if selected_surface_from_history != 0 and selected_surface_history_age > 2:
+        suspected_gaps.append("present selected history surface is older than 2 executor frames (stale-buffer risk)")
+        hard_faults.append("present-surface handoff fault: selected history surface older than 2 executor frames")
+    if (
+        writes > 0
+        and selected_surface_live_writes == 0
+        and selected_surface_from_history != 0
+        and vi_origin_match == 0
+    ):
         suspected_gaps.append("presented surface had no live writes in this frame (buffer handoff mismatch candidate)")
         hard_faults.append("present-surface handoff fault: selected history surface with zero live writes in an active frame")
 
@@ -510,22 +521,77 @@ def _build_signals(
         if tri_total > 0 and texrect_total > 0 and write_tri == 0:
             suspected_gaps.append("triangles are present in command stream but no triangle writes were produced")
 
+    missing_region_signal: Dict[str, Any] = {}
+    if isinstance(missing_region_focus, dict):
+        counts = missing_region_focus.get("counts", {})
+        bucket_hits = missing_region_focus.get("texture_bucket_hits", {})
+        frame_id = missing_region_focus.get("frame_id")
+        tri_total = int(counts.get("work_triangle_total", 0) or 0) if isinstance(counts, dict) else 0
+        tri_hit = int(counts.get("work_triangle_hit", 0) or 0) if isinstance(counts, dict) else 0
+        tex_total = int(counts.get("work_texrect_total", 0) or 0) if isinstance(counts, dict) else 0
+        tex_hit = int(counts.get("work_texrect_hit", 0) or 0) if isinstance(counts, dict) else 0
+        missing_region_signal = {
+            "frame_id": frame_id,
+            "triangle_total": tri_total,
+            "triangle_hit": tri_hit,
+            "triangle_hit_ratio": _ratio(tri_hit, tri_total),
+            "texrect_total": tex_total,
+            "texrect_hit": tex_hit,
+            "texrect_hit_ratio": _ratio(tex_hit, tex_total),
+            "texture_bucket_hits": bucket_hits if isinstance(bucket_hits, dict) else {},
+            "source_boxes": missing_region_focus.get("source_boxes", []),
+        }
+        tri_hit_ratio = _ratio(tri_hit, tri_total)
+        tex_hit_ratio = _ratio(tex_hit, tex_total)
+        if tex_hit_ratio is not None and tex_hit_ratio > 0.90 and tri_hit_ratio is not None and tri_hit_ratio < 0.40:
+            suspected_gaps.append(
+                "missing-region focus is dominated by texrect-intersecting work; prioritize texrect texture decode/addressing lane"
+            )
+        if tri_hit_ratio is not None and tri_hit_ratio > 0.70 and tex_hit_ratio is not None and tex_hit_ratio < 0.50:
+            suspected_gaps.append(
+                "missing-region focus is dominated by triangle-intersecting work; prioritize triangle raster/texture lane"
+            )
+
     deviation_signal: Dict[str, Any] = {}
     if isinstance(diff_playbook_summary, dict):
+        mode = str(diff_playbook_summary.get("mode", "absdiff") or "absdiff")
         metrics_payload = diff_playbook_summary.get("metrics", {})
         first_raw = metrics_payload.get("first_mismatch_raw") if isinstance(metrics_payload, dict) else None
         first_dilated = metrics_payload.get("first_mismatch") if isinstance(metrics_payload, dict) else None
         percent_changed = float(metrics_payload.get("percent_changed", 0.0) or 0.0) if isinstance(metrics_payload, dict) else 0.0
+        pixels_analyzed = int(metrics_payload.get("pixels_analyzed", 0) or 0) if isinstance(metrics_payload, dict) else 0
+        pixels_ignored_raw = int(metrics_payload.get("pixels_ignored_raw", 0) or 0) if isinstance(metrics_payload, dict) else 0
+        missing_non_black = int(metrics_payload.get("missing_non_black_pixels", 0) or 0) if isinstance(metrics_payload, dict) else 0
+        extra_non_black = int(metrics_payload.get("extra_non_black_pixels", 0) or 0) if isinstance(metrics_payload, dict) else 0
+        missing_non_black_ratio = _ratio(missing_non_black, pixels_analyzed)
+        extra_non_black_ratio = _ratio(extra_non_black, pixels_analyzed)
         box_count = int(diff_playbook_summary.get("box_count", 0) or 0)
         deviation_signal = {
+            "mode": mode,
             "threshold": diff_playbook_summary.get("threshold"),
             "min_area": diff_playbook_summary.get("min_area"),
             "dilate": diff_playbook_summary.get("dilate"),
             "box_count": box_count,
+            "pixels_analyzed": pixels_analyzed,
+            "pixels_ignored_raw": pixels_ignored_raw,
             "percent_changed": percent_changed,
+            "missing_non_black_pixels": missing_non_black,
+            "missing_non_black_ratio": missing_non_black_ratio,
+            "extra_non_black_pixels": extra_non_black,
+            "extra_non_black_ratio": extra_non_black_ratio,
             "first_mismatch_raw": first_raw,
             "first_mismatch": first_dilated,
         }
+        if mode == "missing_non_black" and missing_non_black_ratio is not None and missing_non_black_ratio > 0.20:
+            suspected_gaps.append(
+                "deviation playbook reports >20% analyzed pixels where reference is non-black and candidate is black (missing geometry/texture draw likely)"
+            )
+        if mode == "extra_non_black" and extra_non_black_ratio is not None and extra_non_black_ratio > 0.10:
+            suspected_gaps.append(
+                "deviation playbook reports >10% analyzed pixels where candidate is non-black and reference is black (overdraw/present source mismatch likely)"
+            )
+        if pixels_ignored_raw > 0:
+            suspected_gaps.append("deviation playbook ignored configured hotspot region(s); review ignored boxes when comparing runs")
         if box_count == 0 and percent_changed == 0.0:
             suspected_gaps.append("image diff playbook found no structural mismatch (check threshold or capture mismatch)")
 
@@ -539,6 +605,7 @@ def _build_signals(
         "depth": depth_signal,
         "visibility": visibility_signal,
         "command": command_signal,
+        "missing_region": missing_region_signal,
         "deviation": deviation_signal,
         "suspected_gaps": suspected_gaps,
         "hard_faults": hard_faults,
@@ -748,6 +815,7 @@ def _selected_forensics_fields(record: Dict[str, Any]) -> Dict[str, Any]:
         "selected_surface_live_writes",
         "selected_surface_live_works",
         "selected_surface_from_history",
+        "selected_surface_history_age",
         "vi_valid",
         "vi_origin",
         "vi_status",
@@ -837,6 +905,7 @@ def main() -> int:
     parser.add_argument("--diff-playbook-summary")
     parser.add_argument("--diff-playbook-boxes")
     parser.add_argument("--diff-playbook-snippet")
+    parser.add_argument("--missing-region-focus")
     parser.add_argument("--command-census")
     parser.add_argument("--packet-replay-exit", type=int, default=-1)
     parser.add_argument("--forensics-summary-exit", type=int, default=-1)
@@ -862,6 +931,7 @@ def main() -> int:
     diff_playbook_summary_path = Path(args.diff_playbook_summary) if args.diff_playbook_summary else None
     diff_playbook_boxes_path = Path(args.diff_playbook_boxes) if args.diff_playbook_boxes else None
     diff_playbook_snippet_path = Path(args.diff_playbook_snippet) if args.diff_playbook_snippet else None
+    missing_region_focus_path = Path(args.missing_region_focus) if args.missing_region_focus else None
     command_census_path = Path(args.command_census) if args.command_census else None
 
     metrics = _load_json(metrics_path)
@@ -871,6 +941,7 @@ def main() -> int:
     diff_playbook_summary = _load_json(diff_playbook_summary_path)
     diff_playbook_boxes = _load_json_any(diff_playbook_boxes_path)
     diff_playbook_snippet = _load_text(diff_playbook_snippet_path)
+    missing_region_focus = _load_json(missing_region_focus_path)
     command_census = _load_json(command_census_path)
 
     forensics_data = _parse_forensics(forensics)
@@ -895,6 +966,7 @@ def main() -> int:
         metrics,
         command_census,
         diff_playbook_summary,
+        missing_region_focus,
     )
 
     payload = {
@@ -927,6 +999,7 @@ def main() -> int:
             "diff_playbook_summary": _file_meta(diff_playbook_summary_path),
             "diff_playbook_boxes": _file_meta(diff_playbook_boxes_path),
             "diff_playbook_snippet": _file_meta(diff_playbook_snippet_path),
+            "missing_region_focus": _file_meta(missing_region_focus_path),
             "command_census": _file_meta(command_census_path),
         },
         "metrics": metrics,
@@ -936,6 +1009,7 @@ def main() -> int:
             "boxes": diff_playbook_boxes if isinstance(diff_playbook_boxes, list) else [],
             "snippet": diff_playbook_snippet,
         },
+        "missing_region_focus": missing_region_focus,
         "command_census": command_census,
         "packet_replay_summary": replay_summary,
         "forensics": {
@@ -952,6 +1026,7 @@ def main() -> int:
             "depth": signal_summary["depth"],
             "visibility": signal_summary["visibility"],
             "command": signal_summary["command"],
+            "missing_region": signal_summary["missing_region"],
             "deviation": signal_summary["deviation"],
         },
         "suspected_gaps": signal_summary["suspected_gaps"],

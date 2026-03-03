@@ -91,6 +91,7 @@ struct ExecutorSummary {
 	u64 selectedPresentSurfaceWorkCount = 0ULL;
 	u64 selectedPresentSurfaceLiveWriteCount = 0ULL;
 	u64 selectedPresentSurfaceLiveWorkCount = 0ULL;
+	u64 selectedPresentSurfaceHistoryAge = 0ULL;
 	u64 selectedPresentSurfaceHash = 1469598103934665603ULL;
 	u8 selectedPresentSurfaceSize = 0U;
 	u8 selectedPresentSurfaceFromHistory = 0U;

@@ -43,6 +43,7 @@ Deep telemetry artifacts (Paper Mario intro) are emitted under:
   - `paper_mario_intro.candidate.launch.log`
   - `paper_mario_intro.candidate.command-census.json`
   - `paper_mario_intro.candidate.command-census.md`
+  - `paper_mario_intro.candidate.missing-region-focus.json`
   - `paper_mario_intro.deviation/`
     - `diff.png`
     - `mask_raw.png`
@@ -71,10 +72,14 @@ Deep telemetry deviation/census defaults:
 - `REALITYVK_PM_DEEP_TELEMETRY_COMMAND_CENSUS=1`
 
 Diff playbook tuning knobs:
+- `REALITYVK_PM_DEEP_TELEMETRY_DIFF_MODE` (default `missing_non_black`; options: `absdiff`, `missing_non_black`, `extra_non_black`)
 - `REALITYVK_PM_DEEP_TELEMETRY_DIFF_THRESHOLD` (default `20`)
 - `REALITYVK_PM_DEEP_TELEMETRY_DIFF_MIN_AREA` (default `256`)
 - `REALITYVK_PM_DEEP_TELEMETRY_DIFF_MAX_BOXES` (default `32`)
 - `REALITYVK_PM_DEEP_TELEMETRY_DIFF_DILATE` (default `1`)
+- `REALITYVK_PM_DEEP_TELEMETRY_DIFF_REF_NONBLACK_THRESHOLD` (default `8`)
+- `REALITYVK_PM_DEEP_TELEMETRY_DIFF_TEST_NONBLACK_THRESHOLD` (default `8`)
+- `REALITYVK_PM_DEEP_TELEMETRY_DIFF_IGNORE_BOXES` (default `238,245,482,380`; semicolon-separated `x0,y0,x1,y1` boxes)
 
 Command census tuning knob:
 - `REALITYVK_PM_DEEP_TELEMETRY_COMMAND_FOCUS_WINDOW` (default `1`, frames around replay first-failure)

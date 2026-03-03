@@ -2232,6 +2232,7 @@ inline u32 bitsPerPixelFromSurfaceSize(u8 _size)
 }
 
 constexpr size_t kExecutorSurfaceHistoryLimit = 6U;
+constexpr u64 kExecutorVIHistorySelectionMaxAge = 2ULL;
 
 bool expectedSurfaceSizeFromVIStatus(const rvk2::ExecutorConfig & _config, u8 & _outSurfaceSize)
 {
@@ -5000,6 +5001,38 @@ ExecutorOutput Executor::executeWithOutput(
 		const u16 preferredSurfaceWidth = static_cast<u16>(std::min<u32>(
 			std::max<u32>(1U, m_config.viWidth),
 			static_cast<u32>(m_config.maxSurfaceWidth)));
+		const auto tryHistoryVIOriginSelection = [&](bool _requireRecentHistory) {
+			if (m_surfaceHistory.empty())
+				return false;
+			u32 historyMatchedAddress = presentSurfaceAddress;
+			bool historyExact = false;
+			if (!chooseHistorySurfaceForVIOrigin(
+					m_surfaceHistory,
+					viOriginAddress,
+					historyMatchedAddress,
+					historyExact,
+					preferSurfaceSize,
+					preferredSurfaceSize,
+					preferSurfaceWidth,
+					preferredSurfaceWidth))
+				return false;
+			const auto historyMatchedIt = m_surfaceHistory.find(historyMatchedAddress);
+			if (historyMatchedIt == m_surfaceHistory.end())
+				return false;
+			const u64 historyAge = frameStamp >= historyMatchedIt->second.lastTouched
+				? (frameStamp - historyMatchedIt->second.lastTouched)
+				: 0ULL;
+			if (_requireRecentHistory && historyAge > kExecutorVIHistorySelectionMaxAge)
+				return false;
+			presentSurfaceAddress = historyMatchedAddress;
+			viOriginMatchedSurface = true;
+			summary.selectedPresentSurfaceHistoryAge = historyAge;
+			summary.presentSelectionReason =
+				historyExact
+					? kExecutorPresentSelectionVIOriginExact
+					: kExecutorPresentSelectionVIOriginRange;
+			return true;
+		};
 		u32 matchedSurfaceAddress = presentSurfaceAddress;
 		bool exactMatch = false;
 		if (chooseSurfaceForVIOrigin(
@@ -5019,54 +5052,38 @@ ExecutorOutput Executor::executeWithOutput(
 					: kExecutorPresentSelectionVIOriginRange;
 		}
 		else if (frameHasLiveSurfaceWrites) {
-			if (presentSurfaceAddress == 0U || surfaces.find(presentSurfaceAddress) == surfaces.end()) {
-				u32 fallbackAddress = 0U;
-				if (chooseMostWrittenSurfaceAddress(
-						surfaces,
-						surfaceColorWrites,
-						surfaceWorkCounts,
-						fallbackAddress)) {
-					presentSurfaceAddress = fallbackAddress;
-					summary.presentSelectionReason = kExecutorPresentSelectionMostWrittenFallback;
-				}
-				else {
-					u32 nearestAddress = presentSurfaceAddress;
-					bool nearestExact = false;
-					if (chooseNearestSurfaceForVIOrigin(
+			if (!tryHistoryVIOriginSelection(true)) {
+				if (presentSurfaceAddress == 0U || surfaces.find(presentSurfaceAddress) == surfaces.end()) {
+					u32 fallbackAddress = 0U;
+					if (chooseMostWrittenSurfaceAddress(
 							surfaces,
-							viOriginAddress,
-							nearestAddress,
-							nearestExact,
-							preferSurfaceSize,
-							preferredSurfaceSize,
-							preferSurfaceWidth,
-							preferredSurfaceWidth)) {
-						presentSurfaceAddress = nearestAddress;
-						summary.presentSelectionReason = kExecutorPresentSelectionVIOriginNearest;
+							surfaceColorWrites,
+							surfaceWorkCounts,
+							fallbackAddress)) {
+						presentSurfaceAddress = fallbackAddress;
+						summary.presentSelectionReason = kExecutorPresentSelectionMostWrittenFallback;
+					}
+					else {
+						u32 nearestAddress = presentSurfaceAddress;
+						bool nearestExact = false;
+						if (chooseNearestSurfaceForVIOrigin(
+								surfaces,
+								viOriginAddress,
+								nearestAddress,
+								nearestExact,
+								preferSurfaceSize,
+								preferredSurfaceSize,
+								preferSurfaceWidth,
+								preferredSurfaceWidth)) {
+							presentSurfaceAddress = nearestAddress;
+							summary.presentSelectionReason = kExecutorPresentSelectionVIOriginNearest;
+						}
 					}
 				}
 			}
 		}
-		else if (!m_surfaceHistory.empty()) {
-			u32 historyMatchedAddress = presentSurfaceAddress;
-			bool historyExact = false;
-			if (chooseHistorySurfaceForVIOrigin(
-					m_surfaceHistory,
-					viOriginAddress,
-					historyMatchedAddress,
-					historyExact,
-					preferSurfaceSize,
-					preferredSurfaceSize,
-					preferSurfaceWidth,
-					preferredSurfaceWidth)) {
-				presentSurfaceAddress = historyMatchedAddress;
-				viOriginMatchedSurface = true;
-				summary.presentSelectionReason =
-					historyExact
-						? kExecutorPresentSelectionVIOriginExact
-						: kExecutorPresentSelectionVIOriginRange;
-			}
-			else {
+		else if (!tryHistoryVIOriginSelection(false)) {
+			if (!m_surfaceHistory.empty()) {
 				u32 nearestAddress = presentSurfaceAddress;
 				bool nearestExact = false;
 				if (chooseNearestSurfaceForVIOrigin(
@@ -5097,21 +5114,21 @@ ExecutorOutput Executor::executeWithOutput(
 					}
 				}
 			}
-		}
-		else {
-			u32 nearestAddress = presentSurfaceAddress;
-			bool nearestExact = false;
-			if (chooseNearestSurfaceForVIOrigin(
-					surfaces,
-					viOriginAddress,
-					nearestAddress,
-					nearestExact,
-					preferSurfaceSize,
-					preferredSurfaceSize,
-					preferSurfaceWidth,
-					preferredSurfaceWidth)) {
-				presentSurfaceAddress = nearestAddress;
-				summary.presentSelectionReason = kExecutorPresentSelectionVIOriginNearest;
+			else {
+				u32 nearestAddress = presentSurfaceAddress;
+				bool nearestExact = false;
+				if (chooseNearestSurfaceForVIOrigin(
+						surfaces,
+						viOriginAddress,
+						nearestAddress,
+						nearestExact,
+						preferSurfaceSize,
+						preferredSurfaceSize,
+						preferSurfaceWidth,
+						preferredSurfaceWidth)) {
+					presentSurfaceAddress = nearestAddress;
+					summary.presentSelectionReason = kExecutorPresentSelectionVIOriginNearest;
+				}
 			}
 		}
 	}
@@ -5152,6 +5169,7 @@ ExecutorOutput Executor::executeWithOutput(
 
 	if (it != surfaces.end()) {
 		summary.selectedPresentSurfaceFromHistory = 0U;
+		summary.selectedPresentSurfaceHistoryAge = 0ULL;
 		summary.selectedPresentSurfaceWidth = it->second.width;
 		summary.selectedPresentSurfaceHeight = it->second.height;
 		summary.selectedPresentSurfaceSize = it->second.size;
@@ -5187,6 +5205,9 @@ ExecutorOutput Executor::executeWithOutput(
 	else if (historyIt != m_surfaceHistory.end()) {
 		summary.selectedPresentSurfaceFromHistory = 1U;
 		const ExecutorCachedSurface & cached = historyIt->second;
+		summary.selectedPresentSurfaceHistoryAge = frameStamp >= cached.lastTouched
+			? (frameStamp - cached.lastTouched)
+			: 0ULL;
 		summary.selectedPresentSurfaceWidth = cached.width;
 		summary.selectedPresentSurfaceHeight = cached.height;
 		summary.selectedPresentSurfaceSize = cached.size;
@@ -5225,6 +5246,9 @@ ExecutorOutput Executor::executeWithOutput(
 		m_lastSelectedSurface.lastTouched = frameStamp;
 	}
 	else if (m_lastSelectedSurface.valid) {
+		summary.selectedPresentSurfaceHistoryAge = frameStamp >= m_lastSelectedSurface.lastTouched
+			? (frameStamp - m_lastSelectedSurface.lastTouched)
+			: 0ULL;
 		summary.selectedPresentSurfaceWidth = m_lastSelectedSurface.width;
 		summary.selectedPresentSurfaceHeight = m_lastSelectedSurface.height;
 		summary.selectedPresentSurfaceSize = m_lastSelectedSurface.size;

@@ -529,6 +529,18 @@
     - `texel_raw` baseline: `rmse=0.389317` (prior `0.413381`).
     - `f2s0l` isolation: `rmse=0.489039` (prior `0.491245`).
     - `f3s1` isolation: unchanged (`rmse=0.506866`).
+- Deviation playbook now supports blink-aware structural modes:
+  - Added `missing_non_black` mode (`reference non-black && candidate black`) and `extra_non_black` mode (`candidate non-black && reference black`).
+  - Deep telemetry default now uses `missing_non_black` with an ignore box over the blinking `Press Start` hotspot (`238,245,482,380` at 720x540).
+  - New metrics include analyzed/ignored pixel counts plus missing/extra non-black counts and ratios.
+  - Current structural lead from one-frame analysis: dominant missing region remains top-left screen coverage (not center blink noise); RDP scissor is full-screen across render work, so clipping is not the primary culprit.
+- Added missing-region focus census (`scripts/rvk2_missing_region_focus.py`) and deep-telemetry integration:
+  - Maps deviation boxes from post-VI capture space back to source-space and intersects them with render-work bounds in the capture frame.
+  - Current `paper_mario_intro` result (`frame 126`, source box `x=[3..259], y=[0..186]`):
+    - texrect hits: `57/59` (`96.6%`)
+    - triangle hits: `10/53` (`18.9%`)
+    - dominant intersecting bucket: `texrect:f0s3` (`56` hits), with minor `texrect:f3s1` (`1` hit).
+  - Interpretation: highest-priority forward fix lane is texrect-side `f0s3` texture decode/addressing/presentation behavior inside the missing top-left region.
 
 ## Debug Support Matrix (maps steps to findings)
 

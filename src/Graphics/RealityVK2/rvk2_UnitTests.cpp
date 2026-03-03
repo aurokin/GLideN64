@@ -2197,7 +2197,7 @@ void testExecutorPreviousSurfaceFallback()
 		"Executor no-work frame should preserve previous present hash");
 }
 
-void testExecutorVIOriginLiveSurfacePreferredOverHistory()
+void testExecutorVIOriginRecentHistorySelection()
 {
 	auto makeFillWork = [](
 		u64 _packetId,
@@ -2263,23 +2263,127 @@ void testExecutorVIOriginLiveSurfacePreferredOverHistory()
 		executor.executeWithOutput(secondWorkPackets, batches);
 	expectTrue(
 		!secondOut.presentFrame.pixels.empty(),
-		"Executor live-surface selection frame should produce present pixels");
+		"Executor recent-history selection frame should produce present pixels");
 	expectEq(
 		secondOut.presentFrame.pixels[0],
-		fillB.fillColor,
-		"Executor should prefer current live surface writes over history when VI origin points to previous buffer");
+		fillA.fillColor,
+		"Executor should select recent history surface when VI origin points to previous buffer");
 	expectEq(
 		secondOut.summary.selectedPresentSurfaceAddress,
-		fillB.colorImageAddress,
-		"Executor should keep selected address on the current frame surface");
+		fillA.colorImageAddress,
+		"Executor should keep selected address on VI-origin-matched history surface");
 	expectEq(
 		secondOut.summary.presentSelectionReason,
-		static_cast<u8>(rvk2::kExecutorPresentSelectionLastSurface),
-		"Executor should preserve last-surface reason when current frame writes are available");
+		static_cast<u8>(rvk2::kExecutorPresentSelectionVIOriginRange),
+		"Executor should preserve VI-origin range reason for recent history selection");
 	expectEq(
 		secondOut.summary.viOriginMatchedSurface,
+		static_cast<u8>(1U),
+		"Executor should keep VI-origin match when selecting recent history surface");
+	expectEq(
+		secondOut.summary.selectedPresentSurfaceFromHistory,
+		static_cast<u8>(1U),
+		"Executor should mark recent VI-origin selection as history-backed");
+	expectEq(
+		secondOut.summary.selectedPresentSurfaceHistoryAge,
+		static_cast<u64>(1ULL),
+		"Executor should report one-frame history age for recent VI-origin selection");
+}
+
+void testExecutorVIOriginOldHistoryFallsBackToLiveSurface()
+{
+	auto makeFillWork = [](
+		u64 _packetId,
+		u32 _colorAddress,
+		u32 _fillColor) -> rvk2::RenderWorkPacket {
+		rvk2::RenderWorkPacket work{};
+		work.sourcePacketId = _packetId;
+		work.sourceOpcode = 0x36U;
+		work.opKind = static_cast<u8>(rvk2::RasterOpKind::kFillRect);
+		work.phase = static_cast<u8>(rvk2::RenderPhase::kFill);
+		work.cycleType = 3U;
+		work.rectULX = 0U;
+		work.rectULY = 0U;
+		work.rectLRX = 1U;
+		work.rectLRY = 1U;
+		work.colorImageFormat = 0U;
+		work.colorImageSize = 3U;
+		work.colorImageWidth = 2U;
+		work.colorImageAddress = _colorAddress;
+		work.fillColor = _fillColor;
+		return work;
+	};
+
+	rvk2::SubmissionBatchPacket batch{};
+	batch.batchIndex = 0U;
+	batch.phase = static_cast<u8>(rvk2::RenderPhase::kFill);
+	batch.cycleType = 3U;
+	batch.firstWorkIndex = 0U;
+	batch.lastWorkIndex = 0U;
+	batch.workCount = 1U;
+	const std::vector<rvk2::SubmissionBatchPacket> batches{batch};
+
+	const rvk2::RenderWorkPacket fillA = makeFillWork(1ULL, 0x00100000U, 0xA01020FFU);
+	const rvk2::RenderWorkPacket fillB = makeFillWork(2ULL, 0x00200000U, 0x10A020FFU);
+	const rvk2::RenderWorkPacket fillC = makeFillWork(3ULL, 0x00300000U, 0x30A040FFU);
+	const rvk2::RenderWorkPacket fillD = makeFillWork(4ULL, 0x00400000U, 0x4060D0FFU);
+
+	rvk2::ExecutorConfig config{};
+	config.presentAspectX = 1U;
+	config.presentAspectY = 1U;
+	config.viRegistersValid = true;
+	config.viStatus = 3U;
+	config.viOrigin = fillA.colorImageAddress + 4U;
+	config.viWidth = 2U;
+	config.viVSync = 525U;
+	config.viHStart = (0U << 16U) | 2U;
+	config.viVStart = (0U << 16U) | 4U;
+	config.viXScale = 1024U;
+	config.viYScale = 1024U;
+	rvk2::Executor executor(config);
+
+	const std::vector<rvk2::RenderWorkPacket> frameA{fillA};
+	const std::vector<rvk2::RenderWorkPacket> frameB{fillB};
+	const std::vector<rvk2::RenderWorkPacket> frameC{fillC};
+	const std::vector<rvk2::RenderWorkPacket> frameD{fillD};
+
+	const rvk2::ExecutorOutput outA = executor.executeWithOutput(frameA, batches);
+	const rvk2::ExecutorOutput outB = executor.executeWithOutput(frameB, batches);
+	const rvk2::ExecutorOutput outC = executor.executeWithOutput(frameC, batches);
+	const rvk2::ExecutorOutput outD = executor.executeWithOutput(frameD, batches);
+
+	expectEq(
+		outB.summary.selectedPresentSurfaceAddress,
+		fillA.colorImageAddress,
+		"Executor should use recent history for first VI-origin lagged frame");
+	expectEq(
+		outC.summary.selectedPresentSurfaceAddress,
+		fillA.colorImageAddress,
+		"Executor should continue using history while it remains within age window");
+	expectEq(
+		outD.summary.selectedPresentSurfaceAddress,
+		fillD.colorImageAddress,
+		"Executor should fall back to live surface when VI-origin history candidate is too old");
+	expectEq(
+		outD.presentFrame.pixels[0],
+		fillD.fillColor,
+		"Executor old-history fallback should present live surface color");
+	expectEq(
+		outD.summary.presentSelectionReason,
+		static_cast<u8>(rvk2::kExecutorPresentSelectionLastSurface),
+		"Executor old-history fallback should preserve last-surface selection reason");
+	expectEq(
+		outD.summary.viOriginMatchedSurface,
 		static_cast<u8>(0U),
-		"Executor should clear VI-origin match when selecting current frame surface without direct VI range match");
+		"Executor old-history fallback should clear VI-origin matched flag");
+	expectEq(
+		outD.summary.selectedPresentSurfaceFromHistory,
+		static_cast<u8>(0U),
+		"Executor old-history fallback should report non-history selection");
+	expectTrue(
+		outD.summary.selectedPresentSurfaceHistoryAge == 0ULL || outD.summary.selectedPresentSurfaceHistoryAge == 1ULL,
+		"Executor old-history fallback should not report stale history age for live selection");
+	(void)outA;
 }
 
 void testExecutorSurfaceHistoryEvictionDeterminism()
@@ -3560,7 +3664,8 @@ int main()
 	testExecutorVIOriginPresentationSelection();
 	testExecutorVIOriginWidthPreference();
 	testExecutorPreviousSurfaceFallback();
-	testExecutorVIOriginLiveSurfacePreferredOverHistory();
+	testExecutorVIOriginRecentHistorySelection();
+	testExecutorVIOriginOldHistoryFallsBackToLiveSurface();
 	testExecutorSurfaceHistoryEvictionDeterminism();
 	testExecutorTriangleCoefficientConsumption();
 	testSubmissionPlanSplitClassification();

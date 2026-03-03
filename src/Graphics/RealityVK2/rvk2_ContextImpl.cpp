@@ -251,10 +251,11 @@ void appendFrameForensicsRecord(const rvk2::ExecutorOutput & _output)
 		static_cast<unsigned long long>(summary.viOutputNonBlackCount));
 	std::fprintf(
 		file,
-		"\tselected_surface_live_writes=%llu\tselected_surface_live_works=%llu\tselected_surface_from_history=%u",
+		"\tselected_surface_live_writes=%llu\tselected_surface_live_works=%llu\tselected_surface_from_history=%u\tselected_surface_history_age=%llu",
 		static_cast<unsigned long long>(summary.selectedPresentSurfaceLiveWriteCount),
 		static_cast<unsigned long long>(summary.selectedPresentSurfaceLiveWorkCount),
-		static_cast<u32>(summary.selectedPresentSurfaceFromHistory));
+		static_cast<u32>(summary.selectedPresentSurfaceFromHistory),
+		static_cast<unsigned long long>(summary.selectedPresentSurfaceHistoryAge));
 	for (u32 i = 0U; i < summary.textureFilterModeSampleCount.size(); ++i) {
 		std::fprintf(
 			file,

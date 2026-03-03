@@ -51,6 +51,10 @@ DEEP_TELEMETRY_DIFF_THRESHOLD="${REALITYVK_PM_DEEP_TELEMETRY_DIFF_THRESHOLD:-20}
 DEEP_TELEMETRY_DIFF_MIN_AREA="${REALITYVK_PM_DEEP_TELEMETRY_DIFF_MIN_AREA:-256}"
 DEEP_TELEMETRY_DIFF_MAX_BOXES="${REALITYVK_PM_DEEP_TELEMETRY_DIFF_MAX_BOXES:-32}"
 DEEP_TELEMETRY_DIFF_DILATE="${REALITYVK_PM_DEEP_TELEMETRY_DIFF_DILATE:-1}"
+DEEP_TELEMETRY_DIFF_MODE="${REALITYVK_PM_DEEP_TELEMETRY_DIFF_MODE:-missing_non_black}"
+DEEP_TELEMETRY_DIFF_REF_NONBLACK_THRESHOLD="${REALITYVK_PM_DEEP_TELEMETRY_DIFF_REF_NONBLACK_THRESHOLD:-8}"
+DEEP_TELEMETRY_DIFF_TEST_NONBLACK_THRESHOLD="${REALITYVK_PM_DEEP_TELEMETRY_DIFF_TEST_NONBLACK_THRESHOLD:-8}"
+DEEP_TELEMETRY_DIFF_IGNORE_BOXES="${REALITYVK_PM_DEEP_TELEMETRY_DIFF_IGNORE_BOXES:-238,245,482,380}"
 DEEP_TELEMETRY_COMMAND_CENSUS="${REALITYVK_PM_DEEP_TELEMETRY_COMMAND_CENSUS:-1}"
 DEEP_TELEMETRY_COMMAND_FOCUS_WINDOW="${REALITYVK_PM_DEEP_TELEMETRY_COMMAND_FOCUS_WINDOW:-1}"
 DEEP_TELEMETRY_REQUIRE_LIVE_PRESENT_SURFACE="${REALITYVK_PM_DEEP_TELEMETRY_REQUIRE_LIVE_PRESENT_SURFACE:-1}"
@@ -231,6 +235,21 @@ if ! [[ "${DEEP_TELEMETRY_DIFF_DILATE}" =~ ^[0-9]+$ ]]; then
   exit 2
 fi
 
+if [[ "${DEEP_TELEMETRY_DIFF_MODE}" != "absdiff" && "${DEEP_TELEMETRY_DIFF_MODE}" != "missing_non_black" && "${DEEP_TELEMETRY_DIFF_MODE}" != "extra_non_black" ]]; then
+  echo "ERROR: REALITYVK_PM_DEEP_TELEMETRY_DIFF_MODE must be 'absdiff', 'missing_non_black', or 'extra_non_black'." >&2
+  exit 2
+fi
+
+if ! [[ "${DEEP_TELEMETRY_DIFF_REF_NONBLACK_THRESHOLD}" =~ ^[0-9]+$ ]] || (( DEEP_TELEMETRY_DIFF_REF_NONBLACK_THRESHOLD > 255 )); then
+  echo "ERROR: REALITYVK_PM_DEEP_TELEMETRY_DIFF_REF_NONBLACK_THRESHOLD must be an integer in [0,255]." >&2
+  exit 2
+fi
+
+if ! [[ "${DEEP_TELEMETRY_DIFF_TEST_NONBLACK_THRESHOLD}" =~ ^[0-9]+$ ]] || (( DEEP_TELEMETRY_DIFF_TEST_NONBLACK_THRESHOLD > 255 )); then
+  echo "ERROR: REALITYVK_PM_DEEP_TELEMETRY_DIFF_TEST_NONBLACK_THRESHOLD must be an integer in [0,255]." >&2
+  exit 2
+fi
+
 if ! [[ "${DEEP_TELEMETRY_COMMAND_FOCUS_WINDOW}" =~ ^[0-9]+$ ]]; then
   echo "ERROR: REALITYVK_PM_DEEP_TELEMETRY_COMMAND_FOCUS_WINDOW must be an integer >= 0." >&2
   exit 2
@@ -315,6 +334,7 @@ CANDIDATE_FRAME_FORENSICS_SUMMARY_OUT=""
 CANDIDATE_FRAME_FORENSICS_ACTIVE_SUMMARY_OUT=""
 CANDIDATE_LAUNCH_LOG_OUT=""
 CANDIDATE_DEPTH_SUMMARY_OUT=""
+CANDIDATE_MISSING_REGION_FOCUS_OUT=""
 DEVIATION_OUT_DIR=""
 DIFF_PLAYBOOK_SUMMARY_OUT=""
 DIFF_PLAYBOOK_BOXES_OUT=""
@@ -364,6 +384,7 @@ if [[ "${DEEP_TELEMETRY}" == "1" ]]; then
   CANDIDATE_FRAME_FORENSICS_ACTIVE_SUMMARY_OUT="${TELEMETRY_ROOT}/${SCENARIO_ID}.candidate.frame-forensics.active.summary.txt"
   CANDIDATE_LAUNCH_LOG_OUT="${TELEMETRY_ROOT}/${SCENARIO_ID}.candidate.launch.log"
   CANDIDATE_DEPTH_SUMMARY_OUT="${TELEMETRY_ROOT}/${SCENARIO_ID}.candidate.depth-blit-summary.json"
+  CANDIDATE_MISSING_REGION_FOCUS_OUT="${TELEMETRY_ROOT}/${SCENARIO_ID}.candidate.missing-region-focus.json"
   DEVIATION_OUT_DIR="${TELEMETRY_ROOT}/${SCENARIO_ID}.deviation"
   DIFF_PLAYBOOK_SUMMARY_OUT="${DEVIATION_OUT_DIR}/summary.json"
   DIFF_PLAYBOOK_BOXES_OUT="${DEVIATION_OUT_DIR}/boxes.json"
@@ -381,6 +402,7 @@ if [[ "${DEEP_TELEMETRY}" == "1" ]]; then
     "${CANDIDATE_FRAME_FORENSICS_ACTIVE_SUMMARY_OUT}" \
     "${CANDIDATE_LAUNCH_LOG_OUT}" \
     "${CANDIDATE_DEPTH_SUMMARY_OUT}" \
+    "${CANDIDATE_MISSING_REGION_FOCUS_OUT}" \
     "${COMMAND_CENSUS_OUT}" \
     "${COMMAND_CENSUS_MD_OUT}" \
     "${TELEMETRY_BUNDLE_OUT}"
@@ -737,14 +759,28 @@ if [[ "${DEEP_TELEMETRY}" == "1" ]]; then
 
   if [[ "${DEEP_TELEMETRY_DIFF_PLAYBOOK}" == "1" ]]; then
     echo "==> [telemetry] build deviation playbook artifacts"
+    diff_ignore_args=()
+    if [[ -n "${DEEP_TELEMETRY_DIFF_IGNORE_BOXES}" ]]; then
+      IFS=';' read -r -a diff_ignore_boxes <<< "${DEEP_TELEMETRY_DIFF_IGNORE_BOXES}"
+      for raw_box in "${diff_ignore_boxes[@]}"; do
+        box="${raw_box//[[:space:]]/}"
+        if [[ -n "${box}" ]]; then
+          diff_ignore_args+=(--ignore-box "${box}")
+        fi
+      done
+    fi
     if python3 "${ROOT_DIR}/scripts/rvk2_image_diff_playbook.py" \
       --ref "${REFERENCE_PNG}" \
       --test "${CANDIDATE_PNG}" \
       --outdir "${DEVIATION_OUT_DIR}" \
+      --mode "${DEEP_TELEMETRY_DIFF_MODE}" \
       --threshold "${DEEP_TELEMETRY_DIFF_THRESHOLD}" \
       --min-area "${DEEP_TELEMETRY_DIFF_MIN_AREA}" \
       --max-boxes "${DEEP_TELEMETRY_DIFF_MAX_BOXES}" \
-      --dilate "${DEEP_TELEMETRY_DIFF_DILATE}"; then
+      --dilate "${DEEP_TELEMETRY_DIFF_DILATE}" \
+      --ref-non-black-threshold "${DEEP_TELEMETRY_DIFF_REF_NONBLACK_THRESHOLD}" \
+      --test-non-black-threshold "${DEEP_TELEMETRY_DIFF_TEST_NONBLACK_THRESHOLD}" \
+      "${diff_ignore_args[@]}"; then
       :
     else
       echo "WARN: deviation playbook artifact generation failed." >&2
@@ -774,6 +810,19 @@ if [[ "${DEEP_TELEMETRY}" == "1" ]]; then
     fi
   fi
 
+  if [[ -s "${CANDIDATE_PACKET_TRACE_OUT}" && -s "${DIFF_PLAYBOOK_SUMMARY_OUT}" ]]; then
+    echo "==> [telemetry] missing-region focus census"
+    if python3 "${ROOT_DIR}/scripts/rvk2_missing_region_focus.py" \
+      --packet-trace "${CANDIDATE_PACKET_TRACE_OUT}" \
+      --diff-summary "${DIFF_PLAYBOOK_SUMMARY_OUT}" \
+      --forensics "${CANDIDATE_FRAME_FORENSICS_OUT}" \
+      --output "${CANDIDATE_MISSING_REGION_FOCUS_OUT}"; then
+      :
+    else
+      echo "WARN: missing-region focus census generation failed." >&2
+    fi
+  fi
+
   python3 "${ROOT_DIR}/scripts/rvk2_telemetry_bundle.py" \
     --scenario-id "${SCENARIO_ID}" \
     --output "${TELEMETRY_BUNDLE_OUT}" \
@@ -795,6 +844,7 @@ if [[ "${DEEP_TELEMETRY}" == "1" ]]; then
     --diff-playbook-summary "${DIFF_PLAYBOOK_SUMMARY_OUT}" \
     --diff-playbook-boxes "${DIFF_PLAYBOOK_BOXES_OUT}" \
     --diff-playbook-snippet "${DIFF_PLAYBOOK_SNIPPET_OUT}" \
+    --missing-region-focus "${CANDIDATE_MISSING_REGION_FOCUS_OUT}" \
     --command-census "${COMMAND_CENSUS_OUT}" \
     --packet-replay-exit "${DEEP_REPLAY_EXIT_CODE}" \
     --forensics-summary-exit "${DEEP_FORENSICS_SUMMARY_EXIT_CODE}" \
