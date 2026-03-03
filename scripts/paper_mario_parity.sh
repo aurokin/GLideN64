@@ -632,6 +632,9 @@ if [[ "${DEEP_TELEMETRY}" == "1" ]]; then
       --json-out "${CANDIDATE_PACKET_REPLAY_OUT}"
       --jobs "${DEEP_TELEMETRY_REPLAY_JOBS}"
     )
+    if [[ -s "${CANDIDATE_FRAME_FORENSICS_OUT}" ]]; then
+      replay_args+=(--forensics-file "${CANDIDATE_FRAME_FORENSICS_OUT}")
+    fi
     if [[ "${DEEP_TELEMETRY_REPLAY_STATEFUL}" == "1" ]]; then
       replay_args+=(--stateful-frames)
     fi

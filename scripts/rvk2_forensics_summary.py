@@ -157,6 +157,21 @@ def main() -> int:
     write_texrect = sum_field(records, "write_texrect")
     write_tri = sum_field(records, "write_tri")
     out_writes = sum_field(records, "writes")
+    vi_valid_count = sum(1 for rec in records if rec.get("vi_valid", 0) != 0)
+    vi_use_regs_count = sum(1 for rec in records if rec.get("vi_use_regs", 0) != 0)
+    vi_reject_count = sum(1 for rec in records if rec.get("vi_reject", 0) != 0)
+    vi_origin_match_count = sum(1 for rec in records if rec.get("vi_origin_match", 0) != 0)
+    vi_src_samples = sum_field(records, "vi_src_samples")
+    vi_src_invalid = sum_field(records, "vi_src_invalid")
+    vi_out_nonblack = sum_field(records, "vi_out_nonblack")
+    present_pixel_count = sum(
+        max(0, rec.get("present_w", 0)) * max(0, rec.get("present_h", 0))
+        for rec in records
+    )
+    present_select_counts: Dict[int, int] = {}
+    for rec in records:
+        key = rec.get("present_select", 0)
+        present_select_counts[key] = present_select_counts.get(key, 0) + 1
     stage_cls_writes = [
         sum_field(records, f"stage_cls{i}_writes") for i in range(STAGE_CLASS_BUCKETS)
     ]
@@ -229,6 +244,19 @@ def main() -> int:
     print(f"write_fill_share={fmt_ratio(write_fill, out_writes)}")
     print(f"write_texrect_share={fmt_ratio(write_texrect, out_writes)}")
     print(f"write_triangle_share={fmt_ratio(write_tri, out_writes)}")
+    print(f"vi_valid_rate={fmt_ratio(vi_valid_count, len(records))}")
+    print(f"vi_use_register_rate={fmt_ratio(vi_use_regs_count, len(records))}")
+    print(f"vi_reject_rate={fmt_ratio(vi_reject_count, len(records))}")
+    print(f"vi_origin_match_rate={fmt_ratio(vi_origin_match_count, len(records))}")
+    print(f"vi_source_invalid_rate={fmt_ratio(vi_src_invalid, vi_src_samples)}")
+    print(f"vi_output_nonblack_rate={fmt_ratio(vi_out_nonblack, present_pixel_count)}")
+    print(
+        "present_select_share="
+        + ",".join(
+            f"s{key}:{ratio(count, len(records)):.6f}"
+            for key, count in sorted(present_select_counts.items())
+        )
+    )
     print(
         "stage_texel_to_final_top_classes="
         + format_stage_top(stage_cls_t2f, stage_cls_writes)

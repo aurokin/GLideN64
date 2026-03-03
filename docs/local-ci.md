@@ -69,9 +69,13 @@ REALITYVK_PM_REFRESH_REFERENCE=1 ./scripts/paper_mario_parity.sh
 ```bash
 python3 scripts/rvk2_packet_trace_replay.py \
   --input build/local-gate/rvk2.packet.tsv \
+  --forensics-file build/local-gate/rvk2.frame-forensics.tsv \
   --json-out build/local-gate/rvk2.packet.replay.json \
   --jobs 0 --strict
 ```
+
+When deep telemetry smoke is enabled, `local_gate.sh` auto-wires replay to
+`paper_mario_intro.candidate.frame-forensics.tsv` if present.
 
 ## Runtime/Trace Invariants
 

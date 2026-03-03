@@ -118,12 +118,24 @@
 - `coverage_ratio_vs_reference=0.7229095423` (geometry/visibility deficit persists).
 - `luma_ratio_vs_reference=0.5881004580` (texture/detail deficit persists).
 - Replay failure family remains dominated by hash drift, but present-size mismatch class is removed after replay sizing reconciliation.
-- Stateful replay on early frames (`1..30`) reduced failures to executor present-hash drift (18/30), indicating most prior row/state mismatches were frame-state carry artifacts.
+- Stateful replay on early frames (`1..30`) remains reduced to executor present-hash drift (18/30), indicating most prior row/state mismatches were frame-state carry artifacts.
+- Deep replay now attaches frame-forensics VI context to present-hash mismatches (`forensics_present_hash`, `present_select`, `vi_reject`, `vi_use_regs`) so mismatch provenance is explicit in a single run.
 
 ## Progress Log
 
 ### 2026-03-03
 
+- Deep telemetry upgrade pass completed for Paper Mario intro:
+  - Replay now accepts frame-forensics TSV (`--forensics-file`) and emits present-path provenance on mismatch (`forensics_present_hash`, `vi_*`, `present_select`).
+  - Deep telemetry replay hooks now auto-pass forensics context in `paper_mario_parity.sh` and `local_gate.sh`.
+  - Replay present scaling was aligned to executor full-frame sampling (no synthetic letterbox in replay hash path).
+- Latest single-run deep telemetry (`REALITYVK_PM_DEEP_TELEMETRY=1`, stateful replay):
+  - Replay summary: `frame_count=126`, `failed_count=114`, `warning_count=0`.
+  - Remaining replay failures are now isolated to present hash family:
+    - `executor_present_hash mismatch` (114)
+    - `forensics_present_hash` context emitted on 56 frames
+  - No semantic/raster/render-work/submission mismatch classes remain in this stateful deep run.
+  - Forensics VI signals: `vi_valid_rate=1.0`, `vi_use_register_rate=1.0`, `vi_reject_rate=0.0`, `present_select_share=s3:0.990991,s7:0.009009`.
 - Finding #1 first implementation pass completed:
   - Added RDRAM fallback decode attempt when TMEM decode rejects in `rvk2_Executor`.
   - Added best-effort YUV16 RDRAM texel decode path (U Y0 V Y1 pair unpack) for fallback.

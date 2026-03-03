@@ -160,6 +160,22 @@ class FrameRecord:
     first_truncated_payload_packet_id: int = -1
     first_truncated_payload_opcode: int = -1
     microcode_type: int = -1
+    forensics_present_hash: int = -1
+    forensics_present_width: int = -1
+    forensics_present_height: int = -1
+    forensics_present_surface: int = -1
+    forensics_present_select: int = -1
+    forensics_vi_valid: int = -1
+    forensics_vi_origin: int = -1
+    forensics_vi_origin_match: int = -1
+    forensics_vi_reject: int = -1
+    forensics_vi_type: int = -1
+    forensics_vi_use_regs: int = -1
+    forensics_vi_src_w: int = -1
+    forensics_vi_src_h: int = -1
+    forensics_vi_out_w: int = -1
+    forensics_vi_out_h: int = -1
+    forensics_vi_stride: int = -1
     packets: List[PacketRecord] = field(default_factory=list)
     semantics: List["DrawSemanticRecord"] = field(default_factory=list)
     raster_ops: List["RasterOpRecord"] = field(default_factory=list)
@@ -700,6 +716,22 @@ class FrameCheck:
     computed_executor_present_aspect_x: int
     declared_executor_present_aspect_y: int
     computed_executor_present_aspect_y: int
+    forensics_present_hash: int
+    forensics_present_width: int
+    forensics_present_height: int
+    forensics_present_surface: int
+    forensics_present_select: int
+    forensics_vi_valid: int
+    forensics_vi_origin: int
+    forensics_vi_origin_match: int
+    forensics_vi_reject: int
+    forensics_vi_type: int
+    forensics_vi_use_regs: int
+    forensics_vi_src_w: int
+    forensics_vi_src_h: int
+    forensics_vi_out_w: int
+    forensics_vi_out_h: int
+    forensics_vi_stride: int
     declared_unknown_rdp_opcode_count: int
     computed_unknown_rdp_opcode_count: int
     declared_first_unknown_rdp_packet_id: int
@@ -742,6 +774,70 @@ def _expect_columns(fields: List[str], expected_count: int, line_no: int) -> Non
         raise TraceParseError(
             f"line {line_no}: expected {expected_count} tab-separated columns, got {len(fields)}"
         )
+
+
+def _parse_forensics_int(token: str) -> Optional[int]:
+    text = token.strip()
+    if len(text) == 0:
+        return None
+    try:
+        return int(text, 0)
+    except ValueError:
+        return None
+
+
+def _load_forensics_records(path: Path) -> dict[int, dict[str, int]]:
+    records: dict[int, dict[str, int]] = {}
+    with path.open("r", encoding="utf-8", errors="replace") as handle:
+        for raw_line in handle:
+            line = raw_line.strip()
+            if len(line) == 0:
+                continue
+            parsed: dict[str, int] = {}
+            for token in line.split("\t"):
+                if "=" not in token:
+                    continue
+                key, raw_value = token.split("=", 1)
+                key = key.strip()
+                if len(key) == 0:
+                    continue
+                value = _parse_forensics_int(raw_value)
+                if value is None:
+                    continue
+                parsed[key] = value
+            frame_id = parsed.get("frame")
+            if frame_id is None:
+                continue
+            records[frame_id] = parsed
+    return records
+
+
+def _augment_frames_with_forensics(
+    frames: List[FrameRecord],
+    forensics_records: dict[int, dict[str, int]],
+) -> None:
+    if len(forensics_records) == 0:
+        return
+    for frame in frames:
+        rec = forensics_records.get(frame.frame_id)
+        if rec is None:
+            continue
+        frame.forensics_present_hash = rec.get("present_hash", -1)
+        frame.forensics_present_width = rec.get("present_w", -1)
+        frame.forensics_present_height = rec.get("present_h", -1)
+        frame.forensics_present_surface = rec.get("present_surface", -1)
+        frame.forensics_present_select = rec.get("present_select", -1)
+        frame.forensics_vi_valid = rec.get("vi_valid", -1)
+        frame.forensics_vi_origin = rec.get("vi_origin", -1)
+        frame.forensics_vi_origin_match = rec.get("vi_origin_match", -1)
+        frame.forensics_vi_reject = rec.get("vi_reject", -1)
+        frame.forensics_vi_type = rec.get("vi_type", -1)
+        frame.forensics_vi_use_regs = rec.get("vi_use_regs", -1)
+        frame.forensics_vi_src_w = rec.get("vi_src_w", -1)
+        frame.forensics_vi_src_h = rec.get("vi_src_h", -1)
+        frame.forensics_vi_out_w = rec.get("vi_out_w", -1)
+        frame.forensics_vi_out_h = rec.get("vi_out_h", -1)
+        frame.forensics_vi_stride = rec.get("vi_stride", -1)
 
 
 def parse_packet_trace(path: Path) -> List[FrameRecord]:
@@ -5088,33 +5184,12 @@ def _hash_presented_surface(
     output_width = max(1, min(output_width, max_width))
     output_height = max(1, min(output_height, max_height))
 
-    content_width = output_width
-    content_height = output_height
-    content_source_scaled = surface.width * output_height
-    content_output_scaled = surface.height * output_width
-    if content_source_scaled > content_output_scaled:
-        content_height = max(1, min(output_height, (output_width * surface.height) // surface.width))
-    elif content_source_scaled < content_output_scaled:
-        content_width = max(1, min(output_width, (output_height * surface.width) // surface.height))
-
-    content_x = (output_width - content_width) // 2
-    content_y = (output_height - content_height) // 2
-
     output_pixels = [0 for _ in range(output_width * output_height)]
     for y in range(output_height):
         for x in range(output_width):
-            pixel = 0
-            if (
-                x >= content_x
-                and x < content_x + content_width
-                and y >= content_y
-                and y < content_y + content_height
-            ):
-                content_local_x = x - content_x
-                content_local_y = y - content_y
-                source_x = min(surface.width - 1, (content_local_x * surface.width) // content_width)
-                source_y = min(surface.height - 1, (content_local_y * surface.height) // content_height)
-                pixel = surface.pixels[_surface_index(surface.width, source_x, source_y)]
+            source_x = min(surface.width - 1, (x * surface.width) // output_width)
+            source_y = min(surface.height - 1, (y * surface.height) // output_height)
+            pixel = surface.pixels[_surface_index(surface.width, source_x, source_y)]
             output_pixels[_surface_index(output_width, x, y)] = pixel & 0xFFFFFFFF
 
     def hash_variant(flip_x: bool, flip_y: bool, swap_rb: bool) -> int:
@@ -5422,6 +5497,22 @@ def replay_frame(
         computed_executor_present_aspect_x=executor_summary.present_aspect_x,
         declared_executor_present_aspect_y=frame.executor_present_aspect_y,
         computed_executor_present_aspect_y=executor_summary.present_aspect_y,
+        forensics_present_hash=frame.forensics_present_hash,
+        forensics_present_width=frame.forensics_present_width,
+        forensics_present_height=frame.forensics_present_height,
+        forensics_present_surface=frame.forensics_present_surface,
+        forensics_present_select=frame.forensics_present_select,
+        forensics_vi_valid=frame.forensics_vi_valid,
+        forensics_vi_origin=frame.forensics_vi_origin,
+        forensics_vi_origin_match=frame.forensics_vi_origin_match,
+        forensics_vi_reject=frame.forensics_vi_reject,
+        forensics_vi_type=frame.forensics_vi_type,
+        forensics_vi_use_regs=frame.forensics_vi_use_regs,
+        forensics_vi_src_w=frame.forensics_vi_src_w,
+        forensics_vi_src_h=frame.forensics_vi_src_h,
+        forensics_vi_out_w=frame.forensics_vi_out_w,
+        forensics_vi_out_h=frame.forensics_vi_out_h,
+        forensics_vi_stride=frame.forensics_vi_stride,
         declared_unknown_rdp_opcode_count=frame.unknown_rdp_opcode_count,
         computed_unknown_rdp_opcode_count=unknown_rdp_opcode_count,
         declared_first_unknown_rdp_packet_id=frame.first_unknown_rdp_packet_id,
@@ -5504,10 +5595,44 @@ def replay_frame(
         check.errors.append(
             f"executor_surface_count mismatch: declared={frame.executor_surface_count} computed={executor_summary.surface_count}"
         )
+    if (
+        frame.executor_present_hash >= 0
+        and frame.forensics_present_hash >= 0
+        and frame.executor_present_hash != frame.forensics_present_hash
+    ):
+        check.warnings.append(
+            "declared_executor_present_hash differs from frame-forensics present hash: "
+            f"declared=0x{frame.executor_present_hash:016x} "
+            f"forensics=0x{frame.forensics_present_hash:016x}"
+        )
+
     if frame.executor_present_hash >= 0 and frame.executor_present_hash != executor_summary.present_hash:
         check.errors.append(
             f"executor_present_hash mismatch: declared={frame.executor_present_hash} computed={executor_summary.present_hash}"
         )
+        if frame.forensics_present_hash >= 0:
+            check.errors.append(
+                "forensics_present_hash: "
+                f"value=0x{frame.forensics_present_hash:016x} "
+                f"w={frame.forensics_present_width} "
+                f"h={frame.forensics_present_height} "
+                f"surface=0x{(frame.forensics_present_surface & 0xFFFFFFFF):08x} "
+                f"select={frame.forensics_present_select} "
+                f"vi_valid={frame.forensics_vi_valid} "
+                f"vi_origin=0x{(frame.forensics_vi_origin & 0xFFFFFFFF):08x} "
+                f"vi_origin_match={frame.forensics_vi_origin_match} "
+                f"vi_reject={frame.forensics_vi_reject} "
+                f"vi_type={frame.forensics_vi_type} "
+                f"vi_use_regs={frame.forensics_vi_use_regs} "
+                f"vi_src={frame.forensics_vi_src_w}x{frame.forensics_vi_src_h} "
+                f"vi_out={frame.forensics_vi_out_w}x{frame.forensics_vi_out_h} "
+                f"vi_stride={frame.forensics_vi_stride}"
+            )
+            if executor_summary.present_hash == frame.forensics_present_hash:
+                check.errors.append(
+                    "executor_present_hash provenance: computed matches frame-forensics present hash "
+                    "(declared frame trace hash likely omits VI present path)"
+                )
         variant_match = [
             name
             for name, value in executor_summary.present_hash_variants.items()
@@ -5669,6 +5794,14 @@ def _parse_args() -> argparse.Namespace:
         help="Optional path to write JSON report.",
     )
     parser.add_argument(
+        "--forensics-file",
+        default="",
+        help=(
+            "Optional frame-forensics TSV file. "
+            "When provided, replay emits declared-vs-forensics present diagnostics per frame."
+        ),
+    )
+    parser.add_argument(
         "--jobs",
         type=int,
         default=0,
@@ -5734,6 +5867,22 @@ def _check_to_json(check: FrameCheck) -> dict:
         "computed_executor_present_aspect_x": check.computed_executor_present_aspect_x,
         "declared_executor_present_aspect_y": check.declared_executor_present_aspect_y,
         "computed_executor_present_aspect_y": check.computed_executor_present_aspect_y,
+        "forensics_present_hash": check.forensics_present_hash,
+        "forensics_present_width": check.forensics_present_width,
+        "forensics_present_height": check.forensics_present_height,
+        "forensics_present_surface": check.forensics_present_surface,
+        "forensics_present_select": check.forensics_present_select,
+        "forensics_vi_valid": check.forensics_vi_valid,
+        "forensics_vi_origin": check.forensics_vi_origin,
+        "forensics_vi_origin_match": check.forensics_vi_origin_match,
+        "forensics_vi_reject": check.forensics_vi_reject,
+        "forensics_vi_type": check.forensics_vi_type,
+        "forensics_vi_use_regs": check.forensics_vi_use_regs,
+        "forensics_vi_src_w": check.forensics_vi_src_w,
+        "forensics_vi_src_h": check.forensics_vi_src_h,
+        "forensics_vi_out_w": check.forensics_vi_out_w,
+        "forensics_vi_out_h": check.forensics_vi_out_h,
+        "forensics_vi_stride": check.forensics_vi_stride,
         "declared_unknown_rdp_opcode_count": check.declared_unknown_rdp_opcode_count,
         "computed_unknown_rdp_opcode_count": check.computed_unknown_rdp_opcode_count,
         "declared_first_unknown_rdp_packet_id": check.declared_first_unknown_rdp_packet_id,
@@ -5764,6 +5913,17 @@ def main() -> int:
     except TraceParseError as err:
         print(f"ERROR: {err}", file=sys.stderr)
         return 2
+
+    if args.forensics_file:
+        forensics_path = Path(args.forensics_file)
+        if not forensics_path.is_file():
+            print(f"ERROR: frame forensics file not found: {forensics_path}", file=sys.stderr)
+            return 2
+        try:
+            _augment_frames_with_forensics(frames, _load_forensics_records(forensics_path))
+        except OSError as err:
+            print(f"ERROR: failed to read frame forensics file: {err}", file=sys.stderr)
+            return 2
 
     selected_ids = set(args.frame_id)
     if selected_ids:

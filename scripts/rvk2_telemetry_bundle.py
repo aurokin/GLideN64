@@ -183,6 +183,22 @@ def _build_signals(
     stage_tx_tmem = _u64(last_record, "stage_tx_tmem")
     stage_tx_rdram = _u64(last_record, "stage_tx_rdram")
     stage_tx_synth = _u64(last_record, "stage_tx_synth")
+    present_hash = _u64(last_record, "present_hash")
+    present_w = _u64(last_record, "present_w")
+    present_h = _u64(last_record, "present_h")
+    present_surface = _u64(last_record, "present_surface")
+    present_select = _u64(last_record, "present_select")
+    vi_valid = _u64(last_record, "vi_valid")
+    vi_origin = _u64(last_record, "vi_origin")
+    vi_origin_match = _u64(last_record, "vi_origin_match")
+    vi_reject = _u64(last_record, "vi_reject")
+    vi_type = _u64(last_record, "vi_type")
+    vi_use_regs = _u64(last_record, "vi_use_regs")
+    vi_src_w = _u64(last_record, "vi_src_w")
+    vi_src_h = _u64(last_record, "vi_src_h")
+    vi_out_w = _u64(last_record, "vi_out_w")
+    vi_out_h = _u64(last_record, "vi_out_h")
+    vi_stride = _u64(last_record, "vi_stride")
 
     work_fill = _u64(last_record, "work_fill")
     work_texrect = _u64(last_record, "work_texrect")
@@ -211,6 +227,24 @@ def _build_signals(
         "stage_tx_tmem": stage_tx_tmem,
         "stage_tx_rdram": stage_tx_rdram,
         "stage_tx_synth": stage_tx_synth,
+    }
+    present_signal = {
+        "present_hash": present_hash,
+        "present_width": present_w,
+        "present_height": present_h,
+        "present_surface": present_surface,
+        "present_select": present_select,
+        "vi_valid": vi_valid,
+        "vi_origin": vi_origin,
+        "vi_origin_match": vi_origin_match,
+        "vi_reject": vi_reject,
+        "vi_type": vi_type,
+        "vi_use_regs": vi_use_regs,
+        "vi_src_w": vi_src_w,
+        "vi_src_h": vi_src_h,
+        "vi_out_w": vi_out_w,
+        "vi_out_h": vi_out_h,
+        "vi_stride": vi_stride,
     }
 
     geometry_signal = {
@@ -259,6 +293,17 @@ def _build_signals(
             replay_error_kinds.get("executor_present_height mismatch", 0) or 0
         ) > 0:
             suspected_gaps.append("replay reports present-size mismatches (possible geometry/viewport divergence)")
+        if int(replay_error_kinds.get("forensics_present_hash", 0) or 0) > 0:
+            suspected_gaps.append("replay present-hash mismatches include frame-forensics VI context")
+        if int(replay_error_kinds.get("executor_present_hash provenance", 0) or 0) > 0:
+            suspected_gaps.append("packet-trace present hash diverges from frame-forensics present hash provenance")
+
+    if vi_valid == 1 and vi_use_regs == 0:
+        suspected_gaps.append("VI registers are valid but VI register path is not active for present")
+    if vi_reject != 0:
+        suspected_gaps.append("VI resolver rejected current frame state (see vi_reject code)")
+    if vi_valid == 1 and vi_origin_match == 0:
+        suspected_gaps.append("VI origin did not match selected present surface")
 
     visibility_signal = {}
     if isinstance(metrics, dict):
@@ -285,6 +330,7 @@ def _build_signals(
         suspected_gaps.append("launch log contains no VK readback debug markers")
 
     return {
+        "present": present_signal,
         "texture": texture_signal,
         "geometry": geometry_signal,
         "depth": depth_signal,
@@ -301,6 +347,24 @@ def _selected_forensics_fields(record: Dict[str, Any]) -> Dict[str, Any]:
         "present_hash",
         "present_w",
         "present_h",
+        "present_surface",
+        "present_select",
+        "selected_surface_writes",
+        "selected_surface_works",
+        "selected_surface_size",
+        "selected_surface_w",
+        "selected_surface_h",
+        "vi_valid",
+        "vi_origin",
+        "vi_origin_match",
+        "vi_reject",
+        "vi_type",
+        "vi_use_regs",
+        "vi_src_w",
+        "vi_src_h",
+        "vi_out_w",
+        "vi_out_h",
+        "vi_stride",
         "tx_samples",
         "tx_tmem",
         "tx_rdram",
@@ -415,6 +479,7 @@ def main() -> int:
         },
         "launch_log_summary": launch_summary,
         "signals": {
+            "present": signal_summary["present"],
             "texture": signal_summary["texture"],
             "geometry": signal_summary["geometry"],
             "depth": signal_summary["depth"],
