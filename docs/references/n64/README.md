@@ -1,5 +1,12 @@
 # N64 Reference Corpus
 
+## Canonical Source (Highest Priority)
+
+- `deep-dive-pack/`
+  - `report.md` / `report.pdf`
+  - `docs/links/curated_links.md`
+  - `docs/extracted/`
+
 ## Primary Hardware Documents
 
 - `Nintendo_64_Programming_Manual_NU6-06-0030-001G_HQ.pdf`
@@ -7,18 +14,16 @@
 - `SGI_RDP_Command_Summary.pdf`
 - `allman51eng.zip`
 
-## Local Wiki Snapshots
+## Local Wiki Snapshots (Secondary)
 
 - `n64brew_Reality_Display_Processor_Commands.html`
 - `n64brew_Reality_Display_Processor_Pipeline.html`
 - `n64brew_Reality_Signal_Processor.html`
 - `n64brew_Video_Interface.html`
 
-## Supplemental Pack
+## Conflict Resolution
 
-- `n64_video_core_deep_dive_pack.zip`
-
-Use the primary hardware docs above as normative when sources conflict.
+If sources conflict, trust `deep-dive-pack/`.
 
 ## Source URLs
 
