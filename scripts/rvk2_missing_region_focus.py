@@ -6,7 +6,7 @@ import importlib.util
 import json
 import math
 import sys
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -113,6 +113,120 @@ def _intersects(a: Tuple[float, float, float, float], b: Tuple[int, int, int, in
     return True
 
 
+def _ratio(numer: int, denom: int) -> Optional[float]:
+    if denom <= 0:
+        return None
+    return float(numer) / float(denom)
+
+
+def _segment_ranges(width: int) -> Dict[str, Tuple[int, int]]:
+    if width <= 0:
+        return {}
+    x1 = width // 3
+    x2 = (2 * width) // 3
+    if x1 <= 0:
+        x1 = min(width, 1)
+    if x2 <= x1:
+        x2 = min(width, x1 + 1)
+    return {
+        "left": (0, x1),
+        "center": (x1, x2),
+        "right": (x2, width),
+    }
+
+
+def _normalize_int_bounds(
+    bounds: Tuple[float, float, float, float],
+    width: int,
+    height: int,
+) -> Optional[Tuple[int, int, int, int]]:
+    if width <= 0 or height <= 0:
+        return None
+    x0f, y0f, x1f, y1f = bounds
+    x0 = int(math.floor(min(x0f, x1f)))
+    y0 = int(math.floor(min(y0f, y1f)))
+    x1 = int(math.floor(max(x0f, x1f)))
+    y1 = int(math.floor(max(y0f, y1f)))
+    x0 = max(0, min(width - 1, x0))
+    y0 = max(0, min(height - 1, y0))
+    x1 = max(0, min(width - 1, x1))
+    y1 = max(0, min(height - 1, y1))
+    if x1 < x0 or y1 < y0:
+        return None
+    return (x0, y0, x1, y1)
+
+
+def _mark_mask_bounds(
+    mask: bytearray,
+    bounds: Tuple[float, float, float, float],
+    width: int,
+    height: int,
+) -> int:
+    rect = _normalize_int_bounds(bounds, width, height)
+    if rect is None:
+        return 0
+    x0, y0, x1, y1 = rect
+    painted = 0
+    for y in range(y0, y1 + 1):
+        row = y * width
+        for x in range(x0, x1 + 1):
+            idx = row + x
+            if mask[idx] == 0:
+                mask[idx] = 1
+                painted += 1
+    return painted
+
+
+def _count_mask_segment(mask: bytearray, width: int, height: int, x0: int, x1: int) -> int:
+    if width <= 0 or height <= 0:
+        return 0
+    x0 = max(0, min(width, x0))
+    x1 = max(0, min(width, x1))
+    if x1 <= x0:
+        return 0
+    total = 0
+    for y in range(height):
+        row = y * width
+        total += int(sum(mask[row + x0 : row + x1]))
+    return total
+
+
+def _count_mask_and(mask_a: bytearray, mask_b: bytearray) -> int:
+    if len(mask_a) != len(mask_b):
+        return 0
+    total = 0
+    for idx in range(len(mask_a)):
+        if mask_a[idx] != 0 and mask_b[idx] != 0:
+            total += 1
+    return total
+
+
+def _count_mask_and_segment(
+    mask_a: bytearray,
+    mask_b: bytearray,
+    width: int,
+    height: int,
+    x0: int,
+    x1: int,
+) -> int:
+    if len(mask_a) != len(mask_b):
+        return 0
+    if width <= 0 or height <= 0:
+        return 0
+    x0 = max(0, min(width, x0))
+    x1 = max(0, min(width, x1))
+    if x1 <= x0:
+        return 0
+    total = 0
+    for y in range(height):
+        row = y * width
+        for x in range(x0, x1):
+            idx = row + x
+            if mask_a[idx] != 0 and mask_b[idx] != 0:
+                total += 1
+    return total
+
+
 def _op_kind_name(op_kind: int) -> str:
     if op_kind == 0:
         return "fill"
@@ -121,6 +235,71 @@ def _op_kind_name(op_kind: int) -> str:
     if op_kind == 2:
         return "texrect"
     return f"op{op_kind}"
+
+
+def _phase_name(phase: int) -> str:
+    if phase == 1:
+        return "cycle1"
+    if phase == 2:
+        return "cycle2"
+    if phase == 3:
+        return "copy"
+    if phase == 4:
+        return "fill"
+    return f"phase{phase}"
+
+
+def _compute_effective_write_bounds(
+    work: Any,
+    clip_width: int,
+    clip_height: int,
+) -> Optional[Tuple[float, float, float, float]]:
+    if clip_width <= 0 or clip_height <= 0:
+        return None
+
+    ulx = min(int(work.rect_ulx), int(work.rect_lrx))
+    uly = min(int(work.rect_uly), int(work.rect_lry))
+    lrx = max(int(work.rect_ulx), int(work.rect_lrx))
+    lry = max(int(work.rect_uly), int(work.rect_lry))
+    if lrx < ulx or lry < uly:
+        return None
+
+    default_scissor = (
+        int(work.scissor_xh) == 0
+        and int(work.scissor_yh) == 0
+        and int(work.scissor_xl) == 0
+        and int(work.scissor_yl) == 0
+    )
+    if default_scissor:
+        scissor_x0 = ulx
+        scissor_y0 = uly
+        scissor_x1 = lrx
+        scissor_y1 = lry
+    else:
+        scissor_x0 = min(int(work.scissor_xh), int(work.scissor_xl))
+        scissor_y0 = min(int(work.scissor_yh), int(work.scissor_yl))
+        scissor_x1 = max(int(work.scissor_xh), int(work.scissor_xl))
+        scissor_y1 = max(int(work.scissor_yh), int(work.scissor_yl))
+        # Match executor behavior: lower edge is exclusive.
+        if scissor_y1 == 0:
+            return None
+        scissor_y1 -= 1
+        # Right edge is exclusive for cycle phases and inclusive for copy/fill.
+        inclusive_right_edge = int(work.phase) in (3, 4)
+        if not inclusive_right_edge:
+            if scissor_x1 == 0:
+                return None
+            scissor_x1 -= 1
+
+    max_x = max(0, clip_width - 1)
+    max_y = max(0, clip_height - 1)
+    write_x0 = max(ulx, scissor_x0)
+    write_y0 = max(uly, scissor_y0)
+    write_x1 = min(lrx, min(scissor_x1, max_x))
+    write_y1 = min(lry, min(scissor_y1, max_y))
+    if write_x1 < write_x0 or write_y1 < write_y0:
+        return None
+    return (float(write_x0), float(write_y0), float(write_x1), float(write_y1))
 
 
 def _to_source_box(
@@ -186,6 +365,15 @@ def main() -> int:
         default=24,
         help="max intersecting work samples to emit",
     )
+    parser.add_argument(
+        "--history-frame-window",
+        type=int,
+        default=2,
+        help=(
+            "number of prior render-work frames to include for color-image address history "
+            "(0 analyzes selected frame only)"
+        ),
+    )
     args = parser.parse_args()
 
     packet_trace_path = Path(args.packet_trace)
@@ -219,6 +407,14 @@ def main() -> int:
             "source_boxes": [],
             "counts": {},
             "texture_bucket_hits": {},
+            "texture_bucket_bbox_hits": {},
+            "texture_bucket_write_hits": {},
+            "phase_write_hits": {},
+            "write_coverage": {},
+            "color_image_sequence": {},
+            "history_window": {},
+            "forensics_last_active": {},
+            "address_write_stats": [],
             "work_hit_samples": [],
             "notes": ["no diff boxes available"],
         }
@@ -231,17 +427,21 @@ def main() -> int:
     frames = parser_module.parse_packet_trace(packet_trace_path)
 
     selected_frame = None
+    selected_frame_index = -1
     if args.frame_id > 0:
-        for frame in frames:
+        for idx, frame in enumerate(frames):
             if int(frame.frame_id) == args.frame_id:
                 selected_frame = frame
+                selected_frame_index = idx
                 break
         if selected_frame is None:
             raise SystemExit(f"ERROR: frame {args.frame_id} not found in packet trace")
     else:
-        for frame in reversed(frames):
+        for idx in range(len(frames) - 1, -1, -1):
+            frame = frames[idx]
             if len(frame.render_work) > 0:
                 selected_frame = frame
+                selected_frame_index = idx
                 break
         if selected_frame is None:
             raise SystemExit("ERROR: packet trace has no render-work rows")
@@ -262,52 +462,336 @@ def main() -> int:
         _to_source_box(box, image_width, image_height, source_width, source_height)
         for box in boxes
     ]
+    source_box_count = len(source_boxes)
+    total_pixels = max(0, source_width * source_height)
+    source_box_mask = bytearray(total_pixels)
+    for source_box in source_boxes:
+        _mark_mask_bounds(source_box_mask, source_box, source_width, source_height)
+    source_box_pixels = int(sum(source_box_mask))
+    segment_ranges = _segment_ranges(source_width)
 
     counts: Counter[str] = Counter()
-    bucket_hits: Counter[str] = Counter()
+    bucket_bbox_hits: Counter[str] = Counter()
+    bucket_write_hits: Counter[str] = Counter()
+    phase_write_hits: Counter[str] = Counter()
+    color_image_work_counts: Counter[int] = Counter()
+    color_image_sequence: List[int] = []
+    color_image_switch_count = 0
+    last_color_image_address: Optional[int] = None
+    write_union_mask = bytearray(total_pixels)
+    address_write_masks: Dict[int, bytearray] = {}
+    address_op_masks: Dict[int, Dict[str, bytearray]] = defaultdict(dict)
+    address_stats: Dict[int, Counter[str]] = defaultdict(Counter)
     hit_samples: List[Dict[str, Any]] = []
 
     for work in selected_frame.render_work:
         op_kind = int(work.op_kind)
         op_name = _op_kind_name(op_kind)
+        phase_name = _phase_name(int(work.phase))
+        color_image_address = int(work.color_image_address)
         counts[f"work_{op_name}_total"] += 1
+        color_image_work_counts[color_image_address] += 1
+        if last_color_image_address is None or color_image_address != last_color_image_address:
+            if last_color_image_address is not None:
+                color_image_switch_count += 1
+            if len(color_image_sequence) < 256:
+                color_image_sequence.append(color_image_address)
+            last_color_image_address = color_image_address
+
+        address_counter = address_stats[color_image_address]
+        address_counter["work_total"] += 1
+        address_counter[f"work_{op_name}_total"] += 1
         if op_kind == 1:
             bounds = _triangle_bounds(work)
         else:
             bounds = _rect_bounds(work)
+        write_bounds = _compute_effective_write_bounds(work, source_width, source_height)
+        bbox_hit = any(_intersects(bounds, box) for box in source_boxes)
+        write_hit = write_bounds is not None and any(
+            _intersects(write_bounds, box) for box in source_boxes
+        )
+        if bbox_hit:
+            counts[f"work_{op_name}_bbox_hit"] += 1
+            # Backward-compatible alias for existing telemetry consumers.
+            counts[f"work_{op_name}_hit"] += 1
+            address_counter["bbox_hit_total"] += 1
+            address_counter[f"bbox_hit_{op_name}"] += 1
+        if write_hit:
+            counts[f"work_{op_name}_write_hit"] += 1
+            phase_write_hits[f"{op_name}:{phase_name}"] += 1
+            address_counter["write_hit_total"] += 1
+            address_counter[f"write_hit_{op_name}"] += 1
 
-        hit = any(_intersects(bounds, box) for box in source_boxes)
-        if not hit:
+        if write_bounds is not None and total_pixels > 0:
+            _mark_mask_bounds(write_union_mask, write_bounds, source_width, source_height)
+            address_mask = address_write_masks.get(color_image_address)
+            if address_mask is None:
+                address_mask = bytearray(total_pixels)
+                address_write_masks[color_image_address] = address_mask
+            address_area = _mark_mask_bounds(address_mask, write_bounds, source_width, source_height)
+            if address_area > 0:
+                address_counter["write_area_pixels"] += address_area
+                address_counter[f"write_area_pixels_{op_name}"] += address_area
+            op_mask = address_op_masks[color_image_address].get(op_name)
+            if op_mask is None:
+                op_mask = bytearray(total_pixels)
+                address_op_masks[color_image_address][op_name] = op_mask
+            _mark_mask_bounds(op_mask, write_bounds, source_width, source_height)
+
+        if not bbox_hit and not write_hit:
             continue
 
-        counts[f"work_{op_name}_hit"] += 1
         if bool(work.textured):
             bucket_key = f"{op_name}:f{int(work.tile_format)}s{int(work.tile_size)}"
             if int(work.tile_format) == 2 and int(work.tile_size) == 0:
                 bucket_key += ":ci4"
-            bucket_hits[bucket_key] += 1
+            if bbox_hit:
+                bucket_bbox_hits[bucket_key] += 1
+            if write_hit:
+                bucket_write_hits[bucket_key] += 1
 
         if len(hit_samples) < max(0, int(args.max_hit_samples)):
             hit_samples.append(
                 {
                     "source_packet_id": int(work.source_packet_id),
                     "op_kind": op_name,
+                    "phase": phase_name,
                     "textured": bool(work.textured),
+                    "bbox_hit": bool(bbox_hit),
+                    "write_hit": bool(write_hit),
                     "bbox": [
                         round(float(bounds[0]), 4),
                         round(float(bounds[1]), 4),
                         round(float(bounds[2]), 4),
                         round(float(bounds[3]), 4),
                     ],
+                    "write_bbox": (
+                        None
+                        if write_bounds is None
+                        else [
+                            round(float(write_bounds[0]), 4),
+                            round(float(write_bounds[1]), 4),
+                            round(float(write_bounds[2]), 4),
+                            round(float(write_bounds[3]), 4),
+                        ]
+                    ),
                     "tile_format": int(work.tile_format),
                     "tile_size": int(work.tile_size),
                     "texture_image_format": int(work.texture_image_format),
                     "texture_image_size": int(work.texture_image_size),
                     "tile_tmem": int(work.tile_tmem),
                     "tile_line": int(work.tile_line),
-                    "color_image_address": int(work.color_image_address),
+                    "scissor_mode": int(work.scissor_mode),
+                    "scissor_xh": int(work.scissor_xh),
+                    "scissor_yh": int(work.scissor_yh),
+                    "scissor_xl": int(work.scissor_xl),
+                    "scissor_yl": int(work.scissor_yl),
+                    "color_image_address": color_image_address,
                 }
             )
+
+    history_window = max(0, int(args.history_frame_window))
+    history_frames: List[Any] = []
+    if selected_frame_index >= 0:
+        first_index = max(0, selected_frame_index - history_window)
+        for idx in range(first_index, selected_frame_index + 1):
+            frame = frames[idx]
+            if len(frame.render_work) > 0:
+                history_frames.append(frame)
+
+    history_color_image_sequence: List[int] = []
+    history_color_image_switch_count = 0
+    history_last_color_image_address: Optional[int] = None
+    history_color_image_work_counts: Counter[int] = Counter()
+    history_address_stats: Dict[int, Counter[str]] = defaultdict(Counter)
+    history_address_masks: Dict[int, bytearray] = {}
+    history_address_op_masks: Dict[int, Dict[str, bytearray]] = defaultdict(dict)
+
+    for frame in history_frames:
+        for work in frame.render_work:
+            op_name = _op_kind_name(int(work.op_kind))
+            color_image_address = int(work.color_image_address)
+            history_color_image_work_counts[color_image_address] += 1
+            if history_last_color_image_address is None or color_image_address != history_last_color_image_address:
+                if history_last_color_image_address is not None:
+                    history_color_image_switch_count += 1
+                if len(history_color_image_sequence) < 512:
+                    history_color_image_sequence.append(color_image_address)
+                history_last_color_image_address = color_image_address
+
+            history_counter = history_address_stats[color_image_address]
+            history_counter["work_total"] += 1
+            history_counter[f"work_{op_name}_total"] += 1
+
+            write_bounds = _compute_effective_write_bounds(work, source_width, source_height)
+            if write_bounds is None or total_pixels <= 0:
+                continue
+            mask = history_address_masks.get(color_image_address)
+            if mask is None:
+                mask = bytearray(total_pixels)
+                history_address_masks[color_image_address] = mask
+            painted = _mark_mask_bounds(mask, write_bounds, source_width, source_height)
+            if painted > 0:
+                history_counter["write_area_pixels"] += painted
+                history_counter[f"write_area_pixels_{op_name}"] += painted
+
+            op_mask = history_address_op_masks[color_image_address].get(op_name)
+            if op_mask is None:
+                op_mask = bytearray(total_pixels)
+                history_address_op_masks[color_image_address][op_name] = op_mask
+            _mark_mask_bounds(op_mask, write_bounds, source_width, source_height)
+
+    write_union_pixels = int(sum(write_union_mask))
+    write_union_box_pixels = _count_mask_and(write_union_mask, source_box_mask)
+
+    write_coverage_segments: Dict[str, Dict[str, Any]] = {}
+    for name, (x0, x1) in segment_ranges.items():
+        segment_pixels = max(0, (x1 - x0) * source_height)
+        segment_source_box_pixels = _count_mask_segment(source_box_mask, source_width, source_height, x0, x1)
+        segment_write_pixels = _count_mask_segment(write_union_mask, source_width, source_height, x0, x1)
+        segment_write_box_pixels = _count_mask_and_segment(
+            write_union_mask, source_box_mask, source_width, source_height, x0, x1
+        )
+        write_coverage_segments[name] = {
+            "x0": x0,
+            "x1_exclusive": x1,
+            "pixels": segment_pixels,
+            "source_box_pixels": segment_source_box_pixels,
+            "write_pixels": segment_write_pixels,
+            "write_ratio": _ratio(segment_write_pixels, segment_pixels),
+            "write_source_box_pixels": segment_write_box_pixels,
+            "write_source_box_ratio": _ratio(segment_write_box_pixels, segment_source_box_pixels),
+        }
+
+    address_write_stats: List[Dict[str, Any]] = []
+    for color_image_address, counter in sorted(
+        address_stats.items(),
+        key=lambda item: (-int(item[1].get("write_hit_total", 0) or 0), int(item[0])),
+    ):
+        work_total = int(counter.get("work_total", 0) or 0)
+        work_tri = int(counter.get("work_triangle_total", 0) or 0)
+        work_tex = int(counter.get("work_texrect_total", 0) or 0)
+        work_fill = int(counter.get("work_fill_total", 0) or 0)
+        write_hit_total = int(counter.get("write_hit_total", 0) or 0)
+        write_hit_tri = int(counter.get("write_hit_triangle", 0) or 0)
+        write_hit_tex = int(counter.get("write_hit_texrect", 0) or 0)
+        write_hit_fill = int(counter.get("write_hit_fill", 0) or 0)
+        bbox_hit_total = int(counter.get("bbox_hit_total", 0) or 0)
+        bbox_hit_tri = int(counter.get("bbox_hit_triangle", 0) or 0)
+        bbox_hit_tex = int(counter.get("bbox_hit_texrect", 0) or 0)
+        bbox_hit_fill = int(counter.get("bbox_hit_fill", 0) or 0)
+
+        address_mask = address_write_masks.get(color_image_address, bytearray(total_pixels))
+        address_pixels = int(sum(address_mask))
+        address_box_pixels = _count_mask_and(address_mask, source_box_mask)
+
+        per_op_pixels: Dict[str, int] = {}
+        per_op_box_pixels: Dict[str, int] = {}
+        op_masks = address_op_masks.get(color_image_address, {})
+        for op_name in ("triangle", "texrect", "fill"):
+            mask = op_masks.get(op_name)
+            if mask is None:
+                per_op_pixels[op_name] = 0
+                per_op_box_pixels[op_name] = 0
+            else:
+                per_op_pixels[op_name] = int(sum(mask))
+                per_op_box_pixels[op_name] = _count_mask_and(mask, source_box_mask)
+
+        segment_summary: Dict[str, Dict[str, Any]] = {}
+        for segment_name, (x0, x1) in segment_ranges.items():
+            segment_pixels = max(0, (x1 - x0) * source_height)
+            segment_source_box_pixels = _count_mask_segment(source_box_mask, source_width, source_height, x0, x1)
+            segment_address_pixels = _count_mask_segment(address_mask, source_width, source_height, x0, x1)
+            segment_address_box_pixels = _count_mask_and_segment(
+                address_mask, source_box_mask, source_width, source_height, x0, x1
+            )
+            segment_summary[segment_name] = {
+                "x0": x0,
+                "x1_exclusive": x1,
+                "pixels": segment_pixels,
+                "source_box_pixels": segment_source_box_pixels,
+                "write_pixels": segment_address_pixels,
+                "write_ratio": _ratio(segment_address_pixels, segment_pixels),
+                "write_source_box_pixels": segment_address_box_pixels,
+                "write_source_box_ratio": _ratio(segment_address_box_pixels, segment_source_box_pixels),
+            }
+
+        address_write_stats.append(
+            {
+                "color_image_address": color_image_address,
+                "color_image_address_hex": f"0x{color_image_address:08X}",
+                "work_total": work_total,
+                "work_triangle_total": work_tri,
+                "work_texrect_total": work_tex,
+                "work_fill_total": work_fill,
+                "bbox_hit_total": bbox_hit_total,
+                "bbox_hit_triangle": bbox_hit_tri,
+                "bbox_hit_texrect": bbox_hit_tex,
+                "bbox_hit_fill": bbox_hit_fill,
+                "write_hit_total": write_hit_total,
+                "write_hit_triangle": write_hit_tri,
+                "write_hit_texrect": write_hit_tex,
+                "write_hit_fill": write_hit_fill,
+                "write_hit_ratio": _ratio(write_hit_total, work_total),
+                "bbox_hit_ratio": _ratio(bbox_hit_total, work_total),
+                "write_pixels": address_pixels,
+                "write_ratio": _ratio(address_pixels, total_pixels),
+                "write_source_box_pixels": address_box_pixels,
+                "write_source_box_ratio": _ratio(address_box_pixels, source_box_pixels),
+                "triangle_write_pixels": per_op_pixels.get("triangle", 0),
+                "triangle_write_source_box_pixels": per_op_box_pixels.get("triangle", 0),
+                "triangle_write_source_box_ratio": _ratio(per_op_box_pixels.get("triangle", 0), source_box_pixels),
+                "texrect_write_pixels": per_op_pixels.get("texrect", 0),
+                "texrect_write_source_box_pixels": per_op_box_pixels.get("texrect", 0),
+                "texrect_write_source_box_ratio": _ratio(per_op_box_pixels.get("texrect", 0), source_box_pixels),
+                "fill_write_pixels": per_op_pixels.get("fill", 0),
+                "fill_write_source_box_pixels": per_op_box_pixels.get("fill", 0),
+                "fill_write_source_box_ratio": _ratio(per_op_box_pixels.get("fill", 0), source_box_pixels),
+                "segments": segment_summary,
+            }
+        )
+
+    history_address_write_stats: List[Dict[str, Any]] = []
+    for color_image_address, counter in sorted(
+        history_address_stats.items(),
+        key=lambda item: (-int(item[1].get("work_total", 0) or 0), int(item[0])),
+    ):
+        work_total = int(counter.get("work_total", 0) or 0)
+        work_tri = int(counter.get("work_triangle_total", 0) or 0)
+        work_tex = int(counter.get("work_texrect_total", 0) or 0)
+        work_fill = int(counter.get("work_fill_total", 0) or 0)
+        mask = history_address_masks.get(color_image_address, bytearray(total_pixels))
+        write_pixels = int(sum(mask))
+        write_source_box_pixels = _count_mask_and(mask, source_box_mask)
+
+        op_masks = history_address_op_masks.get(color_image_address, {})
+        tri_mask = op_masks.get("triangle", bytearray(total_pixels))
+        tex_mask = op_masks.get("texrect", bytearray(total_pixels))
+        fill_mask = op_masks.get("fill", bytearray(total_pixels))
+        tri_source_box_pixels = _count_mask_and(tri_mask, source_box_mask)
+        tex_source_box_pixels = _count_mask_and(tex_mask, source_box_mask)
+        fill_source_box_pixels = _count_mask_and(fill_mask, source_box_mask)
+
+        history_address_write_stats.append(
+            {
+                "color_image_address": color_image_address,
+                "color_image_address_hex": f"0x{color_image_address:08X}",
+                "work_total": work_total,
+                "work_triangle_total": work_tri,
+                "work_texrect_total": work_tex,
+                "work_fill_total": work_fill,
+                "write_pixels": write_pixels,
+                "write_ratio": _ratio(write_pixels, total_pixels),
+                "write_source_box_pixels": write_source_box_pixels,
+                "write_source_box_ratio": _ratio(write_source_box_pixels, source_box_pixels),
+                "triangle_write_source_box_pixels": tri_source_box_pixels,
+                "triangle_write_source_box_ratio": _ratio(tri_source_box_pixels, source_box_pixels),
+                "texrect_write_source_box_pixels": tex_source_box_pixels,
+                "texrect_write_source_box_ratio": _ratio(tex_source_box_pixels, source_box_pixels),
+                "fill_write_source_box_pixels": fill_source_box_pixels,
+                "fill_write_source_box_ratio": _ratio(fill_source_box_pixels, source_box_pixels),
+            }
+        )
 
     payload = {
         "schema": "rvk2_missing_region_focus_v1",
@@ -321,7 +805,51 @@ def main() -> int:
             for box in source_boxes
         ],
         "counts": dict(sorted(counts.items())),
-        "texture_bucket_hits": dict(bucket_hits.most_common()),
+        "texture_bucket_hits": dict(bucket_bbox_hits.most_common()),
+        "texture_bucket_bbox_hits": dict(bucket_bbox_hits.most_common()),
+        "texture_bucket_write_hits": dict(bucket_write_hits.most_common()),
+        "phase_write_hits": dict(phase_write_hits.most_common()),
+        "write_coverage": {
+            "total_pixels": total_pixels,
+            "source_box_count": source_box_count,
+            "source_box_pixels": source_box_pixels,
+            "write_pixels": write_union_pixels,
+            "write_ratio": _ratio(write_union_pixels, total_pixels),
+            "write_source_box_pixels": write_union_box_pixels,
+            "write_source_box_ratio": _ratio(write_union_box_pixels, source_box_pixels),
+            "segments": write_coverage_segments,
+        },
+        "color_image_sequence": {
+            "switch_count": color_image_switch_count,
+            "unique_target_count": len(color_image_work_counts),
+            "sequence_head": [f"0x{addr:08X}" for addr in color_image_sequence],
+            "work_counts": {
+                f"0x{address:08X}": int(count)
+                for address, count in color_image_work_counts.most_common()
+            },
+        },
+        "history_window": {
+            "frames_requested": history_window + 1,
+            "frames_analyzed": len(history_frames),
+            "frame_ids": [int(frame.frame_id) for frame in history_frames],
+            "switch_count": history_color_image_switch_count,
+            "unique_target_count": len(history_color_image_work_counts),
+            "sequence_head": [f"0x{addr:08X}" for addr in history_color_image_sequence],
+            "work_counts": {
+                f"0x{address:08X}": int(count)
+                for address, count in history_color_image_work_counts.most_common()
+            },
+            "address_write_stats": history_address_write_stats,
+        },
+        "forensics_last_active": {
+            "present_surface": int(forensics_last.get("present_surface", 0) or 0),
+            "present_surface_hex": f"0x{int(forensics_last.get('present_surface', 0) or 0):08X}",
+            "vi_origin": int(forensics_last.get("vi_origin", 0) or 0),
+            "vi_origin_hex": f"0x{int(forensics_last.get('vi_origin', 0) or 0):08X}",
+            "vi_origin_match": int(forensics_last.get("vi_origin_match", 0) or 0),
+            "present_select": int(forensics_last.get("present_select", 0) or 0),
+        },
+        "address_write_stats": address_write_stats,
         "work_hit_samples": hit_samples,
     }
 

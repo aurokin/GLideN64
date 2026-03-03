@@ -524,25 +524,92 @@ def _build_signals(
     missing_region_signal: Dict[str, Any] = {}
     if isinstance(missing_region_focus, dict):
         counts = missing_region_focus.get("counts", {})
-        bucket_hits = missing_region_focus.get("texture_bucket_hits", {})
+        bucket_bbox_hits = missing_region_focus.get("texture_bucket_hits", {})
+        bucket_write_hits = missing_region_focus.get("texture_bucket_write_hits", {})
+        write_coverage = missing_region_focus.get("write_coverage", {})
+        color_image_sequence = missing_region_focus.get("color_image_sequence", {})
+        history_window = missing_region_focus.get("history_window", {})
+        address_write_stats_raw = missing_region_focus.get("address_write_stats", [])
+        address_write_stats: List[Dict[str, Any]] = (
+            [row for row in address_write_stats_raw if isinstance(row, dict)]
+            if isinstance(address_write_stats_raw, list)
+            else []
+        )
+        forensics_last_active = missing_region_focus.get("forensics_last_active", {})
         frame_id = missing_region_focus.get("frame_id")
         tri_total = int(counts.get("work_triangle_total", 0) or 0) if isinstance(counts, dict) else 0
-        tri_hit = int(counts.get("work_triangle_hit", 0) or 0) if isinstance(counts, dict) else 0
+        tri_bbox_hit = int(counts.get("work_triangle_hit", 0) or 0) if isinstance(counts, dict) else 0
+        tri_write_hit = int(counts.get("work_triangle_write_hit", 0) or 0) if isinstance(counts, dict) else 0
         tex_total = int(counts.get("work_texrect_total", 0) or 0) if isinstance(counts, dict) else 0
-        tex_hit = int(counts.get("work_texrect_hit", 0) or 0) if isinstance(counts, dict) else 0
+        tex_bbox_hit = int(counts.get("work_texrect_hit", 0) or 0) if isinstance(counts, dict) else 0
+        tex_write_hit = int(counts.get("work_texrect_write_hit", 0) or 0) if isinstance(counts, dict) else 0
+        present_surface_focus = (
+            int(forensics_last_active.get("present_surface", 0) or 0)
+            if isinstance(forensics_last_active, dict)
+            else 0
+        )
+        present_surface_focus_hex = f"0x{present_surface_focus:08X}" if present_surface_focus > 0 else None
+
+        present_surface_address_stats: Dict[str, Any] = {}
+        dominant_missing_address_stats: Dict[str, Any] = {}
+        history_address_write_stats: List[Dict[str, Any]] = []
+        if isinstance(history_window, dict):
+            history_rows = history_window.get("address_write_stats", [])
+            if isinstance(history_rows, list):
+                history_address_write_stats = [row for row in history_rows if isinstance(row, dict)]
+        present_surface_history_stats: Dict[str, Any] = {}
+        dominant_missing_history_stats: Dict[str, Any] = {}
+        if address_write_stats:
+            if present_surface_focus > 0:
+                for row in address_write_stats:
+                    if int(row.get("color_image_address", 0) or 0) == present_surface_focus:
+                        present_surface_address_stats = row
+                        break
+            dominant_missing_address_stats = max(
+                address_write_stats,
+                key=lambda row: int(row.get("write_source_box_pixels", 0) or 0),
+            )
+        if history_address_write_stats:
+            if present_surface_focus > 0:
+                for row in history_address_write_stats:
+                    if int(row.get("color_image_address", 0) or 0) == present_surface_focus:
+                        present_surface_history_stats = row
+                        break
+            dominant_missing_history_stats = max(
+                history_address_write_stats,
+                key=lambda row: int(row.get("write_source_box_pixels", 0) or 0),
+            )
+
         missing_region_signal = {
             "frame_id": frame_id,
             "triangle_total": tri_total,
-            "triangle_hit": tri_hit,
-            "triangle_hit_ratio": _ratio(tri_hit, tri_total),
+            "triangle_hit": tri_bbox_hit,
+            "triangle_hit_ratio": _ratio(tri_bbox_hit, tri_total),
+            "triangle_write_hit": tri_write_hit,
+            "triangle_write_hit_ratio": _ratio(tri_write_hit, tri_total),
             "texrect_total": tex_total,
-            "texrect_hit": tex_hit,
-            "texrect_hit_ratio": _ratio(tex_hit, tex_total),
-            "texture_bucket_hits": bucket_hits if isinstance(bucket_hits, dict) else {},
+            "texrect_hit": tex_bbox_hit,
+            "texrect_hit_ratio": _ratio(tex_bbox_hit, tex_total),
+            "texrect_write_hit": tex_write_hit,
+            "texrect_write_hit_ratio": _ratio(tex_write_hit, tex_total),
+            "texture_bucket_hits": bucket_bbox_hits if isinstance(bucket_bbox_hits, dict) else {},
+            "texture_bucket_write_hits": bucket_write_hits if isinstance(bucket_write_hits, dict) else {},
             "source_boxes": missing_region_focus.get("source_boxes", []),
+            "write_coverage": write_coverage if isinstance(write_coverage, dict) else {},
+            "color_image_sequence": color_image_sequence if isinstance(color_image_sequence, dict) else {},
+            "history_window": history_window if isinstance(history_window, dict) else {},
+            "present_surface_focus": present_surface_focus,
+            "present_surface_focus_hex": present_surface_focus_hex,
+            "present_surface_address_stats": present_surface_address_stats,
+            "dominant_missing_address_stats": dominant_missing_address_stats,
+            "present_surface_history_stats": present_surface_history_stats,
+            "dominant_missing_history_stats": dominant_missing_history_stats,
+            "address_write_stats": address_write_stats,
         }
-        tri_hit_ratio = _ratio(tri_hit, tri_total)
-        tex_hit_ratio = _ratio(tex_hit, tex_total)
+        tri_hit_ratio = _ratio(tri_bbox_hit, tri_total)
+        tex_hit_ratio = _ratio(tex_bbox_hit, tex_total)
+        tri_write_hit_ratio = _ratio(tri_write_hit, tri_total)
+        tex_write_hit_ratio = _ratio(tex_write_hit, tex_total)
         if tex_hit_ratio is not None and tex_hit_ratio > 0.90 and tri_hit_ratio is not None and tri_hit_ratio < 0.40:
             suspected_gaps.append(
                 "missing-region focus is dominated by texrect-intersecting work; prioritize texrect texture decode/addressing lane"
@@ -551,6 +618,104 @@ def _build_signals(
             suspected_gaps.append(
                 "missing-region focus is dominated by triangle-intersecting work; prioritize triangle raster/texture lane"
             )
+        if tex_hit_ratio is not None and tex_write_hit_ratio is not None and tex_hit_ratio > 0.70 and tex_write_hit_ratio + 0.20 < tex_hit_ratio:
+            suspected_gaps.append(
+                "missing-region texrect coverage intersects target box but write-bounds hit ratio is substantially lower (rect/scissor coverage loss)"
+            )
+        if tri_hit_ratio is not None and tri_write_hit_ratio is not None and tri_hit_ratio > 0.40 and tri_write_hit_ratio + 0.20 < tri_hit_ratio:
+            suspected_gaps.append(
+                "missing-region triangle coverage intersects target box but write-bounds hit ratio is substantially lower (triangle bounds/scissor loss)"
+            )
+
+        if isinstance(write_coverage, dict):
+            segments = write_coverage.get("segments", {})
+            if isinstance(segments, dict):
+                left = segments.get("left", {}) if isinstance(segments.get("left"), dict) else {}
+                center = segments.get("center", {}) if isinstance(segments.get("center"), dict) else {}
+                right = segments.get("right", {}) if isinstance(segments.get("right"), dict) else {}
+                left_box_ratio = left.get("write_source_box_ratio")
+                center_box_ratio = center.get("write_source_box_ratio")
+                right_box_ratio = right.get("write_source_box_ratio")
+                if (
+                    isinstance(left_box_ratio, (int, float))
+                    and isinstance(center_box_ratio, (int, float))
+                    and left_box_ratio < 0.15
+                    and center_box_ratio > 0.35
+                    and left_box_ratio + 0.20 < center_box_ratio
+                ):
+                    suspected_gaps.append(
+                        "missing-region write coverage is left-strip starved relative to center (upstream primitive coverage gap likely)"
+                    )
+                if (
+                    isinstance(left_box_ratio, (int, float))
+                    and isinstance(right_box_ratio, (int, float))
+                    and left_box_ratio < 0.15
+                    and right_box_ratio > 0.30
+                    and left_box_ratio + 0.15 < right_box_ratio
+                ):
+                    suspected_gaps.append(
+                        "missing-region write coverage is asymmetric with weak left-strip occupancy (check viewport/scissor/triangle edge stepping)"
+                    )
+
+        if address_write_stats:
+            unique_targets = (
+                int(color_image_sequence.get("unique_target_count", 0) or 0)
+                if isinstance(color_image_sequence, dict)
+                else 0
+            )
+            if unique_targets >= 3:
+                suspected_gaps.append(
+                    "missing-region focus sees >=3 color-image targets in one frame (buffer-rotation handoff needs per-address validation)"
+                )
+
+            max_tex_box = 0
+            max_tri_box = 0
+            for row in address_write_stats:
+                max_tex_box = max(max_tex_box, int(row.get("texrect_write_source_box_pixels", 0) or 0))
+                max_tri_box = max(max_tri_box, int(row.get("triangle_write_source_box_pixels", 0) or 0))
+            if max_tex_box > 0 and max_tri_box * 3 < max_tex_box:
+                suspected_gaps.append(
+                    "missing-region boxes are dominated by texrect writes while triangle box coverage stays low (missing geometry path likely upstream of raster)"
+                )
+
+            if present_surface_focus > 0 and present_surface_address_stats and dominant_missing_address_stats:
+                present_box_ratio = present_surface_address_stats.get("write_source_box_ratio")
+                dominant_box_ratio = dominant_missing_address_stats.get("write_source_box_ratio")
+                present_address = int(present_surface_address_stats.get("color_image_address", 0) or 0)
+                dominant_address = int(dominant_missing_address_stats.get("color_image_address", 0) or 0)
+                if (
+                    isinstance(present_box_ratio, (int, float))
+                    and isinstance(dominant_box_ratio, (int, float))
+                    and dominant_address != present_address
+                    and dominant_box_ratio > 0.20
+                    and present_box_ratio + 0.10 < dominant_box_ratio
+                ):
+                    suspected_gaps.append(
+                        "missing-region coverage is stronger on a non-present color-image target (possible present-surface handoff mismatch)"
+                    )
+
+        if isinstance(history_window, dict) and history_address_write_stats:
+            history_unique_targets = int(history_window.get("unique_target_count", 0) or 0)
+            history_frames_analyzed = int(history_window.get("frames_analyzed", 0) or 0)
+            if history_frames_analyzed >= 2 and history_unique_targets >= 3:
+                suspected_gaps.append(
+                    "missing-region history window shows >=3 rotating color-image targets across adjacent frames (carry-forward buffer contents likely required)"
+                )
+            if present_surface_focus > 0 and present_surface_history_stats and dominant_missing_history_stats:
+                present_hist_ratio = present_surface_history_stats.get("write_source_box_ratio")
+                dominant_hist_ratio = dominant_missing_history_stats.get("write_source_box_ratio")
+                present_hist_addr = int(present_surface_history_stats.get("color_image_address", 0) or 0)
+                dominant_hist_addr = int(dominant_missing_history_stats.get("color_image_address", 0) or 0)
+                if (
+                    isinstance(present_hist_ratio, (int, float))
+                    and isinstance(dominant_hist_ratio, (int, float))
+                    and dominant_hist_addr != present_hist_addr
+                    and dominant_hist_ratio > 0.30
+                    and present_hist_ratio + 0.15 < dominant_hist_ratio
+                ):
+                    suspected_gaps.append(
+                        "history-window missing-box coverage is stronger on a non-present target than the VI-selected surface (cross-frame handoff mismatch candidate)"
+                    )
 
     deviation_signal: Dict[str, Any] = {}
     if isinstance(diff_playbook_summary, dict):

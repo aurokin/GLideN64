@@ -261,6 +261,8 @@ struct ExecutorCachedSurface {
 	u64 workCount = 0ULL;
 	u64 lastTouched = 0ULL;
 	std::vector<u32> pixels;
+	std::vector<u8> coverage;
+	std::vector<u8> hiddenCoverage;
 };
 
 class Executor

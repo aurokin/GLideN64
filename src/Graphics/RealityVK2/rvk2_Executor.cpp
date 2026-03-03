@@ -121,6 +121,7 @@ enum class DebugStageViewMode : u8
 	kCombinerOut,
 	kBlenderOut,
 	kVISource,
+	kWriteMask,
 };
 
 DebugStageViewMode debugStageViewMode()
@@ -140,6 +141,8 @@ DebugStageViewMode debugStageViewMode()
 			return DebugStageViewMode::kBlenderOut;
 		if (token == "vi_source" || token == "source")
 			return DebugStageViewMode::kVISource;
+		if (token == "write_mask" || token == "writes")
+			return DebugStageViewMode::kWriteMask;
 		return DebugStageViewMode::kFinal;
 	}();
 	return mode;
@@ -401,6 +404,42 @@ bool debugTmem32PackHighToLowRGBA()
 {
 	static const bool enabled = []() -> bool {
 		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TMEM32_PACK_HIGH_TO_LOW");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugDisableVIHistoryPresentSelection()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_DISABLE_VI_HISTORY_PRESENT");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugEnableSurfaceHistoryBootstrap()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_ENABLE_SURFACE_HISTORY_BOOTSTRAP");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugEnableCrossSurfaceBootstrap()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_ENABLE_CROSS_SURFACE_BOOTSTRAP");
 		if (raw == nullptr || raw[0] == '\0')
 			return false;
 		bool parsed = false;
@@ -3997,6 +4036,8 @@ inline u32 selectDebugStageRasterColor(
 		return _combinerColor;
 	case DebugStageViewMode::kBlenderOut:
 		return _blenderColor;
+	case DebugStageViewMode::kWriteMask:
+		return 0xFFFFFFFFU;
 	default:
 		return _finalColor;
 	}
@@ -4768,7 +4809,8 @@ ExecutorOutput Executor::executeWithOutput(
 		}
 		summary.selectedPresentSurfaceHash = selectedSurfaceHash;
 		const bool useDirectSource =
-			stageViewMode == DebugStageViewMode::kVISource
+			(stageViewMode == DebugStageViewMode::kVISource
+				|| stageViewMode == DebugStageViewMode::kWriteMask)
 			&& _presentInput.sourcePixels != nullptr
 			&& _presentInput.sourceWidth != 0U
 			&& _presentInput.sourceHeight != 0U;
@@ -4845,6 +4887,8 @@ ExecutorOutput Executor::executeWithOutput(
 	std::unordered_map<u32, DepthSurface> depthSurfaces;
 	std::unordered_map<u32, u64> surfaceColorWrites;
 	std::unordered_map<u32, u64> surfaceWorkCounts;
+	const bool allowSurfaceHistoryBootstrap = debugEnableSurfaceHistoryBootstrap();
+	const bool allowCrossSurfaceBootstrap = debugEnableCrossSurfaceBootstrap();
 	u32 lastSurfaceAddress = 0U;
 	bool hasColorImageAddress = false;
 	u32 prevColorImageAddress = 0U;
@@ -4900,22 +4944,100 @@ ExecutorOutput Executor::executeWithOutput(
 				prevColorImageAddress = work.colorImageAddress;
 				recordColorImageEvent(work.colorImageAddress, summary.executedWorkCount);
 			}
-			summary.colorImageLastAddress = work.colorImageAddress;
-			++surfaceWorkCounts[work.colorImageAddress];
+				summary.colorImageLastAddress = work.colorImageAddress;
+				++surfaceWorkCounts[work.colorImageAddress];
 
-			ColorSurface & surface = surfaces[work.colorImageAddress];
-			surface.format = work.colorImageFormat;
-			surface.size = work.colorImageSize;
-			if (surface.width == 0U)
-				surface.width = std::max<u16>(1U, std::min<u16>(work.colorImageWidth, m_config.maxSurfaceWidth));
-			if (surface.height == 0U)
-				surface.height = 1U;
-			if (surface.pixels.empty())
-				surface.pixels.resize(static_cast<size_t>(surface.width) * static_cast<size_t>(surface.height), 0U);
-			if (surface.coverage.empty())
-				surface.coverage.resize(static_cast<size_t>(surface.width) * static_cast<size_t>(surface.height), 0U);
-			if (surface.hiddenCoverage.empty())
-				surface.hiddenCoverage.resize(static_cast<size_t>(surface.width) * static_cast<size_t>(surface.height), 0U);
+				ColorSurface & surface = surfaces[work.colorImageAddress];
+				surface.format = work.colorImageFormat;
+				surface.size = work.colorImageSize;
+				if (surface.width == 0U) {
+					const u16 desiredWidth = std::max<u16>(
+						1U,
+						std::min<u16>(work.colorImageWidth, m_config.maxSurfaceWidth));
+					const auto restoreSurfaceFromCache = [&](const ExecutorCachedSurface & _cached) -> bool {
+						if (!_cached.valid
+							|| _cached.format != work.colorImageFormat
+							|| _cached.size != work.colorImageSize
+							|| _cached.width != desiredWidth
+							|| _cached.height == 0U) {
+							return false;
+						}
+						const u16 restoredHeight = std::min<u16>(_cached.height, m_config.maxSurfaceHeight);
+						const size_t restoredPixelCount =
+							static_cast<size_t>(desiredWidth) * static_cast<size_t>(restoredHeight);
+						if (_cached.pixels.size() < restoredPixelCount)
+							return false;
+						surface.width = desiredWidth;
+						surface.height = restoredHeight;
+						surface.pixels.assign(
+							_cached.pixels.begin(),
+							_cached.pixels.begin() + restoredPixelCount);
+						if (_cached.coverage.size() >= restoredPixelCount) {
+							surface.coverage.assign(
+								_cached.coverage.begin(),
+								_cached.coverage.begin() + restoredPixelCount);
+						}
+						else
+							surface.coverage.assign(restoredPixelCount, 0U);
+						if (_cached.hiddenCoverage.size() >= restoredPixelCount) {
+							surface.hiddenCoverage.assign(
+								_cached.hiddenCoverage.begin(),
+								_cached.hiddenCoverage.begin() + restoredPixelCount);
+						}
+						else
+							surface.hiddenCoverage.assign(restoredPixelCount, 0U);
+						return true;
+					};
+
+					bool restoredFromHistory = false;
+					if (allowSurfaceHistoryBootstrap) {
+						const auto historyIt = m_surfaceHistory.find(work.colorImageAddress);
+						if (historyIt != m_surfaceHistory.end())
+							restoredFromHistory = restoreSurfaceFromCache(historyIt->second);
+					}
+					if (!restoredFromHistory
+						&& allowSurfaceHistoryBootstrap
+						&& allowCrossSurfaceBootstrap) {
+						restoredFromHistory = restoreSurfaceFromCache(m_lastSelectedSurface);
+					}
+					if (!restoredFromHistory)
+						surface.width = desiredWidth;
+				}
+				if (surface.height == 0U)
+					surface.height = 1U;
+				if (surface.pixels.empty())
+					surface.pixels.resize(static_cast<size_t>(surface.width) * static_cast<size_t>(surface.height), 0U);
+				if (surface.coverage.empty())
+					surface.coverage.resize(static_cast<size_t>(surface.width) * static_cast<size_t>(surface.height), 0U);
+				if (surface.hiddenCoverage.empty())
+					surface.hiddenCoverage.resize(static_cast<size_t>(surface.width) * static_cast<size_t>(surface.height), 0U);
+				if (allowSurfaceHistoryBootstrap
+					&& allowCrossSurfaceBootstrap
+					&& m_lastSelectedSurface.valid
+					&& m_lastSelectedSurface.address != work.colorImageAddress
+					&& m_lastSelectedSurface.format == work.colorImageFormat
+					&& m_lastSelectedSurface.size == work.colorImageSize
+					&& m_lastSelectedSurface.width == surface.width
+					&& m_lastSelectedSurface.height >= surface.height) {
+					const size_t pixelCount =
+						static_cast<size_t>(surface.width) * static_cast<size_t>(surface.height);
+					if (m_lastSelectedSurface.pixels.size() >= pixelCount) {
+						const bool hasPrevCoverage = m_lastSelectedSurface.coverage.size() >= pixelCount;
+						const bool hasPrevHidden = m_lastSelectedSurface.hiddenCoverage.size() >= pixelCount;
+						for (size_t i = 0U; i < pixelCount; ++i) {
+							if ((surface.pixels[i] & 0x00FFFFFFU) != 0U)
+								continue;
+							const u32 previousPixel = m_lastSelectedSurface.pixels[i];
+							if ((previousPixel & 0x00FFFFFFU) == 0U)
+								continue;
+							surface.pixels[i] = previousPixel;
+							if (hasPrevCoverage && surface.coverage[i] == 0U)
+								surface.coverage[i] = static_cast<u8>(m_lastSelectedSurface.coverage[i] & 0x7U);
+							if (hasPrevHidden && surface.hiddenCoverage[i] == 0U)
+								surface.hiddenCoverage[i] = static_cast<u8>(m_lastSelectedSurface.hiddenCoverage[i] & 0x1U);
+						}
+					}
+				}
 
 			const u64 writesBefore = summary.colorWriteCount;
 			if (work.opKind == static_cast<u8>(RasterOpKind::kTriangle)) {
@@ -4991,6 +5113,7 @@ ExecutorOutput Executor::executeWithOutput(
 	if (presentSurfaceAddress != 0U && surfaces.find(presentSurfaceAddress) != surfaces.end())
 		summary.presentSelectionReason = kExecutorPresentSelectionLastSurface;
 	const bool frameHasLiveSurfaceWrites = !surfaceColorWrites.empty();
+	const bool allowVIHistorySelection = !debugDisableVIHistoryPresentSelection();
 	bool viOriginMatchedSurface = false;
 	if (m_config.viRegistersValid) {
 		const u32 viOriginAddress = m_config.viOrigin & 0x00FFFFFFU;
@@ -5002,6 +5125,8 @@ ExecutorOutput Executor::executeWithOutput(
 			std::max<u32>(1U, m_config.viWidth),
 			static_cast<u32>(m_config.maxSurfaceWidth)));
 		const auto tryHistoryVIOriginSelection = [&](bool _requireRecentHistory) {
+			if (!allowVIHistorySelection)
+				return false;
 			if (m_surfaceHistory.empty())
 				return false;
 			u32 historyMatchedAddress = presentSurfaceAddress;
@@ -5134,7 +5259,8 @@ ExecutorOutput Executor::executeWithOutput(
 	}
 	summary.viOriginMatchedSurface = viOriginMatchedSurface ? 1U : 0U;
 	auto it = surfaces.find(presentSurfaceAddress);
-	if (it == surfaces.end() && m_surfaceHistory.find(presentSurfaceAddress) == m_surfaceHistory.end()) {
+	if (it == surfaces.end()
+		&& (!allowVIHistorySelection || m_surfaceHistory.find(presentSurfaceAddress) == m_surfaceHistory.end())) {
 		u32 fallbackAddress = 0U;
 		if (chooseMostWrittenSurfaceAddress(
 				surfaces,
@@ -5146,7 +5272,9 @@ ExecutorOutput Executor::executeWithOutput(
 			it = surfaces.find(presentSurfaceAddress);
 		}
 	}
-	const auto historyIt = m_surfaceHistory.find(presentSurfaceAddress);
+	const auto historyIt = allowVIHistorySelection
+		? m_surfaceHistory.find(presentSurfaceAddress)
+		: m_surfaceHistory.end();
 	if (it == surfaces.end() && historyIt == m_surfaceHistory.end())
 		summary.presentSelectionReason = kExecutorPresentSelectionNoSurface;
 	summary.selectedPresentSurfaceAddress = presentSurfaceAddress;
@@ -5201,6 +5329,8 @@ ExecutorOutput Executor::executeWithOutput(
 		m_lastSelectedSurface.workCount = summary.selectedPresentSurfaceWorkCount;
 		m_lastSelectedSurface.lastTouched = frameStamp;
 		m_lastSelectedSurface.pixels = it->second.pixels;
+		m_lastSelectedSurface.coverage = it->second.coverage;
+		m_lastSelectedSurface.hiddenCoverage = it->second.hiddenCoverage;
 	}
 	else if (historyIt != m_surfaceHistory.end()) {
 		summary.selectedPresentSurfaceFromHistory = 1U;
@@ -5245,7 +5375,7 @@ ExecutorOutput Executor::executeWithOutput(
 		m_lastSelectedSurface = cached;
 		m_lastSelectedSurface.lastTouched = frameStamp;
 	}
-	else if (m_lastSelectedSurface.valid) {
+	else if (allowVIHistorySelection && m_lastSelectedSurface.valid) {
 		summary.selectedPresentSurfaceHistoryAge = frameStamp >= m_lastSelectedSurface.lastTouched
 			? (frameStamp - m_lastSelectedSurface.lastTouched)
 			: 0ULL;
@@ -5313,6 +5443,8 @@ ExecutorOutput Executor::executeWithOutput(
 		cached.workCount = workIt != surfaceWorkCounts.end() ? workIt->second : 0ULL;
 		cached.lastTouched = frameStamp;
 		cached.pixels = surface.pixels;
+		cached.coverage = surface.coverage;
+		cached.hiddenCoverage = surface.hiddenCoverage;
 	}
 	while (m_surfaceHistory.size() > kExecutorSurfaceHistoryLimit) {
 		u32 oldestAddress = 0U;

@@ -541,6 +541,45 @@
     - triangle hits: `10/53` (`18.9%`)
     - dominant intersecting bucket: `texrect:f0s3` (`56` hits), with minor `texrect:f3s1` (`1` hit).
   - Interpretation: highest-priority forward fix lane is texrect-side `f0s3` texture decode/addressing/presentation behavior inside the missing top-left region.
+- Executor surface bootstrap telemetry/fix lane (new):
+  - Added optional per-address surface history bootstrap in RVK2 executor:
+    - `REALITYVK_RVK2_DEBUG_ENABLE_SURFACE_HISTORY_BOOTSTRAP=1`
+    - Behavior: when a color-image address reappears, initialize the working surface from cached prior-frame contents (format/size/width compatible) instead of hard-zero.
+  - Added optional cross-surface bootstrap/merge hook (kept opt-in):
+    - `REALITYVK_RVK2_DEBUG_ENABLE_CROSS_SURFACE_BOOTSTRAP=1`
+    - Behavior: allow fallback/merge from previously selected present surface for multi-buffer partial redraw experiments.
+  - Rationale: `paper_mario_intro` shows persistent partial-write behavior (`present_select=3`, selected surface often from history, live writes on selected surface `0`), so “start from black every frame” under-fills large regions.
+  - Measured impact (`paper_mario_intro`, screenshot reference):
+    - baseline: `rmse=0.375718`, `candidate_non_black_ratio=0.683657`, `candidate_mean_luma=0.259130`
+    - surface-history bootstrap enabled: `rmse=0.368224`, `candidate_non_black_ratio=0.741795`, `candidate_mean_luma=0.280509`
+    - cross-surface bootstrap additionally enabled: `rmse=0.367523`, `candidate_non_black_ratio=0.744787`, `candidate_mean_luma=0.281487`
+  - Quality gates:
+    - `rvk2_unit_tests`: PASS
+    - `rvk2_conformance_tests`: PASS
+  - Current interpretation:
+    - bootstrap materially reduces missing-content area, but residual left-strip coverage gap remains (`left-column occupancy unchanged`), so upstream command/geometry lane still needs targeted investigation.
+- Missing-region focus telemetry v2 (address-history + segment occupancy):
+  - `scripts/rvk2_missing_region_focus.py` now emits:
+    - frame-local write coverage (`left/center/right` segment ratios),
+    - per-color-image-address coverage stats,
+    - short history-window (`N=3` frames by default) address rotation and per-address missing-box coverage.
+  - `scripts/rvk2_telemetry_bundle.py` now consumes these fields and emits direct leads for:
+    - rotating target buffers across adjacent frames,
+    - non-present target dominance in missing-region coverage,
+    - texrect-vs-triangle dominance in missing boxes.
+- New deep run (`paper_mario-exp-handoff-lane`, bootstrap + cross-surface + `REALITYVK_RVK2_DEBUG_DISABLE_VI_HISTORY_PRESENT=1`):
+  - `rmse=0.368067`, `candidate_non_black_ratio=0.742217`, `candidate_mean_luma=0.280745`.
+  - Missing-region focus (`frame 126`) still shows mixed failure modes:
+    - write coverage in missing boxes: `0.6166` overall,
+    - segment source-box write ratios: `left=0.3129`, `center=0.8183`, `right=0.8228`.
+  - Dominant missing-region texrect lane is still `f0s3` (`56/57` texrect write-hit samples), with dominant texrect state:
+    - `tile_line=50`, `tile_tmem=0`, `cycle_type=1-cycle`.
+  - Interpretation: center/right mismatches are more likely texrect texture/color correctness (writes occur but still diverge), while left-side deficit still has a write-coverage gap.
+- TMEM32 decode sanity probes (quick smoke, bootstrap + cross-surface):
+  - `REALITYVK_RVK2_DEBUG_TMEM32_DIRECT_LINEAR=1`: `rmse=0.378957` (worse).
+  - `REALITYVK_RVK2_DEBUG_TMEM32_XOR02=1`: `rmse=0.368355` (slightly worse).
+  - `REALITYVK_RVK2_DEBUG_TMEM32_PACK_HIGH_TO_LOW=1`: `rmse=0.403117` (much worse).
+  - Interpretation: current default TMEM32 decode path remains the best-known baseline; dominant residual is unlikely to be solved by global TMEM32 addressing/packing toggles.
 
 ## Debug Support Matrix (maps steps to findings)
 
