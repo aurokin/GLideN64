@@ -19,6 +19,7 @@ constexpr u32 kExecutorTextureSizeBuckets = 4U;
 constexpr u32 kExecutorTextureFormatSizeBuckets =
 	kExecutorTextureFormatBuckets * kExecutorTextureSizeBuckets;
 constexpr u32 kExecutorTextureSampleSlotBuckets = 3U;
+constexpr u32 kExecutorColorImageEventSlots = 16U;
 
 enum ExecutorTextureSampleSlot : u8
 {
@@ -112,6 +113,22 @@ struct ExecutorSummary {
 	std::array<u32, kExecutorDebugSurfaceSlots> debugSurfaceAddress{};
 	std::array<u64, kExecutorDebugSurfaceSlots> debugSurfaceWriteCount{};
 	std::array<u64, kExecutorDebugSurfaceSlots> debugSurfaceWorkCount{};
+	std::array<u64, kExecutorDebugSurfaceSlots> debugSurfaceHash{};
+	u64 colorImageSwitchCount = 0ULL;
+	u64 triangleDegenerateRejectCount = 0ULL;
+	u64 triangleBoundsRejectCount = 0ULL;
+	u64 triangleScissorFieldRejectCount = 0ULL;
+	u64 triangleSampleCandidateCount = 0ULL;
+	u64 triangleAlphaRejectCount = 0ULL;
+	u64 triangleCoverageRejectCount = 0ULL;
+	u64 triangleDepthRejectCount = 0ULL;
+	u32 colorImageFirstAddress = 0U;
+	u32 colorImageLastAddress = 0U;
+	u8 colorImageEventCount = 0U;
+	u8 reservedColorImageEvents0 = 0U;
+	u16 reservedColorImageEvents1 = 0U;
+	std::array<u32, kExecutorColorImageEventSlots> colorImageEventAddress{};
+	std::array<u64, kExecutorColorImageEventSlots> colorImageEventWorkOrdinal{};
 	bool textureReplacementEnabled = false;
 	u64 textureReplacementEntryCount = 0ULL;
 	u64 textureReplacementPixelCount = 0ULL;

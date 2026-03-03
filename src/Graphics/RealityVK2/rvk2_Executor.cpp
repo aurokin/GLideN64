@@ -28,6 +28,18 @@ inline void updateHashByte(u64 & _hash, u8 _value)
 	_hash *= kFnvPrime;
 }
 
+inline u64 hashSurfacePixels(const std::vector<u32> & _pixels)
+{
+	u64 hash = kFnvOffset;
+	for (u32 pixel : _pixels) {
+		updateHashByte(hash, static_cast<u8>((pixel >> 0U) & 0xFFU));
+		updateHashByte(hash, static_cast<u8>((pixel >> 8U) & 0xFFU));
+		updateHashByte(hash, static_cast<u8>((pixel >> 16U) & 0xFFU));
+		updateHashByte(hash, static_cast<u8>((pixel >> 24U) & 0xFFU));
+	}
+	return hash;
+}
+
 inline const u64 * activeTMEMWords()
 {
 	return gActiveExecutorTMEMWords != nullptr ? gActiveExecutorTMEMWords : TMEM;
@@ -4041,8 +4053,9 @@ void writeRect(
 	const bool decodeCycle2BlendSelectors = cycle2Work;
 	const BlendMuxSelectors stageBlendSelectors = decodeBlendMuxSelectors(_work, decodeCycle2BlendSelectors);
 	WriteBounds bounds{};
-	if (!computeWriteBounds(_work, _config.maxSurfaceWidth, _config.maxSurfaceHeight, bounds))
+	if (!computeWriteBounds(_work, _config.maxSurfaceWidth, _config.maxSurfaceHeight, bounds)) {
 		return;
+	}
 	const u16 requiredWidth = static_cast<u16>(std::min<u32>(bounds.x1 + 1U, _config.maxSurfaceWidth));
 	const u16 requiredHeight = static_cast<u16>(std::min<u32>(bounds.y1 + 1U, _config.maxSurfaceHeight));
 	ensureSurfaceSize(_surface, requiredWidth, requiredHeight, _config.maxSurfaceWidth, _config.maxSurfaceHeight);
@@ -4292,8 +4305,10 @@ void writeTriangle(
 	const bool decodeCycle2BlendSelectors = cycle2Work;
 	const BlendMuxSelectors stageBlendSelectors = decodeBlendMuxSelectors(_work, decodeCycle2BlendSelectors);
 	WriteBounds bounds{};
-	if (!computeWriteBounds(_work, _config.maxSurfaceWidth, _config.maxSurfaceHeight, bounds))
+	if (!computeWriteBounds(_work, _config.maxSurfaceWidth, _config.maxSurfaceHeight, bounds)) {
+		++_summary.triangleBoundsRejectCount;
 		return;
+	}
 	const u16 requiredWidth = static_cast<u16>(std::min<u32>(bounds.x1 + 1U, _config.maxSurfaceWidth));
 	const u16 requiredHeight = static_cast<u16>(std::min<u32>(bounds.y1 + 1U, _config.maxSurfaceHeight));
 	ensureSurfaceSize(_surface, requiredWidth, requiredHeight, _config.maxSurfaceWidth, _config.maxSurfaceHeight);
@@ -4321,12 +4336,16 @@ void writeTriangle(
 	const double cx = xLongAtYL;
 	const double cy = yl;
 	const double area = edgeFunction(ax, ay, bx, by, cx, cy);
-	if (area == 0.0)
+	if (area == 0.0) {
+		++_summary.triangleDegenerateRejectCount;
 		return;
+	}
 
 	for (u32 y = bounds.y0; y <= bounds.y1; ++y) {
-		if (!passesScissorFieldFilter(_work, y))
+		if (!passesScissorFieldFilter(_work, y)) {
+			++_summary.triangleScissorFieldRejectCount;
 			continue;
+		}
 		bool hasPrevPixelForCycle2 = false;
 		u32 prevMemoryColorForCycle2 = 0U;
 		u8 prevMemoryCoverageForCycle2 = 7U;
@@ -4344,6 +4363,7 @@ void writeTriangle(
 				: (e0 <= 0.0 && e1 <= 0.0 && e2 <= 0.0);
 			if (!inside)
 				continue;
+			++_summary.triangleSampleCandidateCount;
 
 			const size_t colorIdx = pixelIndex(_surface.width, static_cast<u16>(x), static_cast<u16>(y));
 			const u32 dstColor = _surface.pixels[colorIdx];
@@ -4466,8 +4486,10 @@ void writeTriangle(
 					false,
 					nullptr);
 			}
-			if (!passesSyntheticAlphaCompare(_work, alphaCompareColor, x, y, &_summary))
+			if (!passesSyntheticAlphaCompare(_work, alphaCompareColor, x, y, &_summary)) {
+				++_summary.triangleAlphaRejectCount;
 				continue;
+			}
 			u8 resolvedCoverage = coverageDestination;
 			bool coverageOverflow = false;
 			if (!passesSyntheticCoverageWrite(
@@ -4478,8 +4500,10 @@ void writeTriangle(
 					y,
 					&resolvedCoverage,
 					&coverageOverflow,
-					&_summary))
+					&_summary)) {
+				++_summary.triangleCoverageRejectCount;
 				continue;
+			}
 			bool resolvedHiddenCoverage = false;
 			if (_work.phase != static_cast<u8>(rvk2::RenderPhase::kCopy)
 				&& _work.phase != static_cast<u8>(rvk2::RenderPhase::kFill)) {
@@ -4502,6 +4526,7 @@ void writeTriangle(
 				const s32 depthValue = _depthSurface->values[depthIdx];
 				if (!passesSyntheticDepthCompare(_work, z, depthValue)) {
 					++_summary.depthRejectCount;
+					++_summary.triangleDepthRejectCount;
 					continue;
 				}
 				if (shouldUpdateSyntheticDepth(_work, z, depthValue)) {
@@ -4810,6 +4835,16 @@ ExecutorOutput Executor::executeWithOutput(
 	std::unordered_map<u32, u64> surfaceColorWrites;
 	std::unordered_map<u32, u64> surfaceWorkCounts;
 	u32 lastSurfaceAddress = 0U;
+	bool hasColorImageAddress = false;
+	u32 prevColorImageAddress = 0U;
+	const auto recordColorImageEvent = [&](u32 _address, u64 _workOrdinal) {
+		if (summary.colorImageEventCount >= kExecutorColorImageEventSlots)
+			return;
+		const u32 index = static_cast<u32>(summary.colorImageEventCount);
+		summary.colorImageEventAddress[index] = _address;
+		summary.colorImageEventWorkOrdinal[index] = _workOrdinal;
+		++summary.colorImageEventCount;
+	};
 
 	for (const SubmissionBatchPacket & batch : _batches) {
 		++summary.executedBatchCount;
@@ -4843,6 +4878,18 @@ ExecutorOutput Executor::executeWithOutput(
 				++summary.workKindTriangleCount;
 			if (work.textured)
 				++summary.workTexturedCount;
+			if (!hasColorImageAddress) {
+				hasColorImageAddress = true;
+				prevColorImageAddress = work.colorImageAddress;
+				summary.colorImageFirstAddress = work.colorImageAddress;
+				recordColorImageEvent(work.colorImageAddress, summary.executedWorkCount);
+			}
+			else if (work.colorImageAddress != prevColorImageAddress) {
+				++summary.colorImageSwitchCount;
+				prevColorImageAddress = work.colorImageAddress;
+				recordColorImageEvent(work.colorImageAddress, summary.executedWorkCount);
+			}
+			summary.colorImageLastAddress = work.colorImageAddress;
 			++surfaceWorkCounts[work.colorImageAddress];
 
 			ColorSurface & surface = surfaces[work.colorImageAddress];
@@ -4924,6 +4971,9 @@ ExecutorOutput Executor::executeWithOutput(
 		summary.debugSurfaceAddress[i] = rankedSurfaces[i].address;
 		summary.debugSurfaceWriteCount[i] = rankedSurfaces[i].writes;
 		summary.debugSurfaceWorkCount[i] = rankedSurfaces[i].works;
+		const auto surfaceIt = surfaces.find(rankedSurfaces[i].address);
+		if (surfaceIt != surfaces.end())
+			summary.debugSurfaceHash[i] = hashSurfacePixels(surfaceIt->second.pixels);
 	}
 
 	u32 presentSurfaceAddress = lastSurfaceAddress;

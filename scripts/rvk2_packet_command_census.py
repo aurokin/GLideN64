@@ -20,6 +20,16 @@ class FrameTally:
     family_counts: Counter[str] = field(default_factory=Counter)
 
 
+@dataclass
+class ColorImageEvent:
+    frame_id: int
+    packet_id: int
+    address: int
+    image_format: int
+    image_size: int
+    width: int
+
+
 def _parse_int(text: str) -> int:
     value = text.strip()
     if value.startswith(("0x", "0X")):
@@ -105,6 +115,28 @@ def _classify_opcode(opcode: int) -> str:
     return "other"
 
 
+def _decode_set_color_image(frame_id: int, packet_id: int, w0: int, w1: int) -> ColorImageEvent:
+    return ColorImageEvent(
+        frame_id=frame_id,
+        packet_id=packet_id,
+        address=(w1 & 0x00FFFFFF),
+        image_format=((w0 >> 21) & 0x7),
+        image_size=((w0 >> 19) & 0x3),
+        width=((w0 & 0x3FF) + 1),
+    )
+
+
+def _event_to_map(event: ColorImageEvent) -> Dict[str, int]:
+    return {
+        "frame_id": int(event.frame_id),
+        "packet_id": int(event.packet_id),
+        "address": int(event.address),
+        "image_format": int(event.image_format),
+        "image_size": int(event.image_size),
+        "width": int(event.width),
+    }
+
+
 def _frame_summary(frame_id: int, tally: Optional[FrameTally]) -> Optional[Dict[str, Any]]:
     if tally is None:
         return None
@@ -117,24 +149,36 @@ def _frame_summary(frame_id: int, tally: Optional[FrameTally]) -> Optional[Dict[
     }
 
 
-def _load_replay_first_failed(path: Optional[Path]) -> Optional[int]:
+def _load_replay_meta(path: Optional[Path]) -> Dict[str, Any]:
+    meta: Dict[str, Any] = {
+        "first_failed_frame": None,
+        "stateful_frames": None,
+        "frame_count": 0,
+        "failed_count": 0,
+    }
     if path is None or not path.is_file():
-        return None
+        return meta
     try:
         replay = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
-        return None
+        return meta
+    stateful = replay.get("stateful_frames")
+    if isinstance(stateful, bool):
+        meta["stateful_frames"] = stateful
+    meta["frame_count"] = _safe_int(replay.get("frame_count"))
+    meta["failed_count"] = _safe_int(replay.get("failed_count"))
     frames = replay.get("frames", [])
     if not isinstance(frames, list):
-        return None
+        return meta
     for frame in frames:
         if not isinstance(frame, dict):
             continue
         if frame.get("ok") is False:
             frame_id = frame.get("frame_id")
             if isinstance(frame_id, int):
-                return frame_id
-    return None
+                meta["first_failed_frame"] = frame_id
+                break
+    return meta
 
 
 def _iter_window_frame_ids(frame_ids: Iterable[int], focus_frame: int, window: int) -> List[int]:
@@ -149,6 +193,7 @@ def _derive_leads(
     overall_families: Counter[str],
     focus_families: Counter[str],
     replay_first_failed_frame: Optional[int],
+    replay_stateful_frames: Optional[bool],
     focus_frame: Optional[int],
 ) -> List[str]:
     leads: List[str] = []
@@ -175,7 +220,14 @@ def _derive_leads(
     if set_color_total > 0 and tri_total > 0 and texrect_total > 0:
         leads.append("Mixed triangle+texrect traffic is present; prioritize raster/depth/blend state and render-target selection over upstream command drop theories.")
     if replay_first_failed_frame is not None:
-        leads.append(f"Replay first failed frame is {replay_first_failed_frame}; prioritize command/state inspection around that frame.")
+        if replay_stateful_frames is False:
+            leads.append(
+                f"Replay first failed frame is {replay_first_failed_frame}, but replay was non-stateful; treat this as low-confidence for focus selection."
+            )
+        else:
+            leads.append(
+                f"Replay first failed frame is {replay_first_failed_frame}; prioritize command/state inspection around that frame."
+            )
     return leads
 
 
@@ -190,11 +242,17 @@ def _write_markdown(path: Path, payload: Dict[str, Any]) -> None:
     lines.append(f"- Domain: `{payload.get('domain_filter')}`")
     lines.append(f"- Packet records: `{payload.get('packet_record_total')}`")
     lines.append(f"- RDP packets: `{payload.get('domain_packet_total')}`")
+    lines.append(f"- SetColorImage events: `{payload.get('set_color_image_event_total')}`")
     lines.append(f"- Frames observed: `{payload.get('frame_total')}`")
     if payload.get("replay_first_failed_frame") is not None:
         lines.append(f"- Replay first failed frame: `{payload.get('replay_first_failed_frame')}`")
+    replay_stateful = payload.get("replay_stateful_frames")
+    if isinstance(replay_stateful, bool):
+        lines.append(f"- Replay stateful: `{int(replay_stateful)}`")
     if payload.get("focus_frame_id") is not None:
         lines.append(f"- Focus frame: `{payload.get('focus_frame_id')}`")
+    if payload.get("focus_reason"):
+        lines.append(f"- Focus reason: `{payload.get('focus_reason')}`")
     lines.append("")
     lines.append("## Overall Family Counts")
     lines.append("")
@@ -220,6 +278,26 @@ def _write_markdown(path: Path, payload: Dict[str, Any]) -> None:
     if isinstance(window_family_counts, dict) and window_family_counts:
         for key, value in window_family_counts.items():
             lines.append(f"- `{key}`: {value}")
+    else:
+        lines.append("- _(none)_")
+    lines.append("")
+    lines.append("## Focus Window SetColorImage Events")
+    lines.append("")
+    events = payload.get("set_color_image_events_focus_window", [])
+    if isinstance(events, list) and events:
+        for raw in events:
+            if not isinstance(raw, dict):
+                continue
+            frame_id = raw.get("frame_id", -1)
+            packet_id = raw.get("packet_id", -1)
+            address = int(raw.get("address", 0) or 0)
+            image_format = raw.get("image_format", -1)
+            image_size = raw.get("image_size", -1)
+            width = raw.get("width", -1)
+            lines.append(
+                f"- frame={frame_id} packet={packet_id} addr=0x{address:08X} "
+                f"fmt={image_format} size={image_size} width={width}"
+            )
     else:
         lines.append("- _(none)_")
     lines.append("")
@@ -260,6 +338,8 @@ def main() -> int:
     domain_packet_total = 0
     parse_error_count = 0
     current_frame: Optional[int] = None
+    set_color_image_event_total = 0
+    set_color_image_events_by_frame: Dict[int, List[ColorImageEvent]] = {}
 
     overall_opcode_counts: Counter[int] = Counter()
     overall_family_counts: Counter[str] = Counter()
@@ -300,6 +380,7 @@ def main() -> int:
             tally = frame_tallies[current_frame]
             tally.packet_total += 1
 
+            packet_id = _parse_int(fields[1])
             domain = _parse_int(fields[2])
             opcode = _parse_int(fields[3]) & 0xFF
             if domain != args.domain:
@@ -312,38 +393,16 @@ def main() -> int:
             tally.family_counts[family] += 1
             overall_opcode_counts[opcode] += 1
             overall_family_counts[family] += 1
+            if opcode == 0x3F and len(fields) >= 7:
+                w0 = _parse_int(fields[5])
+                w1 = _parse_int(fields[6])
+                event = _decode_set_color_image(current_frame, packet_id, w0, w1)
+                set_color_image_event_total += 1
+                if current_frame not in set_color_image_events_by_frame:
+                    set_color_image_events_by_frame[current_frame] = []
+                set_color_image_events_by_frame[current_frame].append(event)
         except Exception:
             parse_error_count += 1
-
-    replay_first_failed_frame = _load_replay_first_failed(Path(args.replay) if args.replay else None)
-    focus_frame: Optional[int] = args.focus_frame
-    if focus_frame is None:
-        focus_frame = replay_first_failed_frame
-    if focus_frame is None:
-        for frame_id in sorted(frame_order):
-            tally = frame_tallies.get(frame_id)
-            if tally is not None and tally.domain_packet_total > 0:
-                focus_frame = frame_id
-                break
-
-    focus_tally = frame_tallies.get(focus_frame) if focus_frame is not None else None
-    focus_frame_summary = _frame_summary(focus_frame, focus_tally) if focus_frame is not None else None
-
-    window_frame_ids: List[int] = []
-    window_opcode_counts: Counter[int] = Counter()
-    window_family_counts: Counter[str] = Counter()
-    window_packet_total = 0
-    window_domain_total = 0
-    if focus_frame is not None:
-        window_frame_ids = _iter_window_frame_ids(frame_order, focus_frame, args.focus_window)
-        for frame_id in window_frame_ids:
-            tally = frame_tallies.get(frame_id)
-            if tally is None:
-                continue
-            window_packet_total += tally.packet_total
-            window_domain_total += tally.domain_packet_total
-            window_opcode_counts.update(tally.opcode_counts)
-            window_family_counts.update(tally.family_counts)
 
     first_triangle_frame: Optional[int] = None
     first_texrect_frame: Optional[int] = None
@@ -369,12 +428,75 @@ def main() -> int:
             max_texrect_count = texrect_count
             max_texrect_frame = frame_id
 
+    replay_meta = _load_replay_meta(Path(args.replay) if args.replay else None)
+    replay_first_failed_frame = replay_meta.get("first_failed_frame")
+    replay_stateful_frames = replay_meta.get("stateful_frames")
+    focus_frame: Optional[int] = args.focus_frame
+    focus_reason = "explicit"
+    if focus_frame is None:
+        focus_reason = "unset"
+        if replay_stateful_frames is True and isinstance(replay_first_failed_frame, int):
+            focus_frame = replay_first_failed_frame
+            focus_reason = "replay_first_failed_stateful"
+        elif isinstance(max_triangle_frame, int):
+            focus_frame = max_triangle_frame
+            focus_reason = "max_triangle_frame"
+        elif isinstance(replay_first_failed_frame, int):
+            focus_frame = replay_first_failed_frame
+            focus_reason = "replay_first_failed_non_stateful_fallback"
+        elif isinstance(first_triangle_frame, int):
+            focus_frame = first_triangle_frame
+            focus_reason = "first_triangle_frame"
+        else:
+            for frame_id in sorted(frame_order):
+                tally = frame_tallies.get(frame_id)
+                if tally is not None and tally.domain_packet_total > 0:
+                    focus_frame = frame_id
+                    focus_reason = "first_domain_activity"
+                    break
+
+    focus_tally = frame_tallies.get(focus_frame) if focus_frame is not None else None
+    focus_frame_summary = _frame_summary(focus_frame, focus_tally) if focus_frame is not None else None
+
+    window_frame_ids: List[int] = []
+    window_opcode_counts: Counter[int] = Counter()
+    window_family_counts: Counter[str] = Counter()
+    window_packet_total = 0
+    window_domain_total = 0
+    window_color_image_events: List[Dict[str, int]] = []
+    if focus_frame is not None:
+        window_frame_ids = _iter_window_frame_ids(frame_order, focus_frame, args.focus_window)
+        for frame_id in window_frame_ids:
+            tally = frame_tallies.get(frame_id)
+            if tally is None:
+                continue
+            window_packet_total += tally.packet_total
+            window_domain_total += tally.domain_packet_total
+            window_opcode_counts.update(tally.opcode_counts)
+            window_family_counts.update(tally.family_counts)
+            events = set_color_image_events_by_frame.get(frame_id, [])
+            for event in events:
+                window_color_image_events.append(_event_to_map(event))
+
     leads = _derive_leads(
         overall_family_counts,
         focus_tally.family_counts if focus_tally is not None else Counter(),
         replay_first_failed_frame,
+        replay_stateful_frames if isinstance(replay_stateful_frames, bool) else None,
         focus_frame,
     )
+    if window_color_image_events:
+        addresses = [int(event.get("address", 0) or 0) for event in window_color_image_events]
+        unique_addresses = sorted(set(addresses))
+        if len(unique_addresses) > 1:
+            rendered = ",".join(f"0x{addr:08X}" for addr in unique_addresses[:6])
+            leads.append(
+                f"Focus window SetColorImage uses multiple targets ({rendered}); verify VI/present source follows intended buffer."
+            )
+        elif len(unique_addresses) == 1:
+            leads.append(
+                f"Focus window SetColorImage targets single buffer 0x{unique_addresses[0]:08X}."
+            )
 
     payload: Dict[str, Any] = {
         "schema": "rvk2_packet_command_census_v1",
@@ -383,10 +505,13 @@ def main() -> int:
         "record_total": int(record_total),
         "packet_record_total": int(packet_record_total),
         "domain_packet_total": int(domain_packet_total),
+        "set_color_image_event_total": int(set_color_image_event_total),
         "frame_total": int(len(frame_order)),
         "parse_error_count": int(parse_error_count),
         "replay_first_failed_frame": replay_first_failed_frame,
+        "replay_stateful_frames": replay_stateful_frames,
         "focus_frame_id": focus_frame,
+        "focus_reason": focus_reason,
         "focus_window": int(args.focus_window),
         "overall": {
             "rdp_opcode_counts": _counter_to_map(overall_opcode_counts),
@@ -400,6 +525,7 @@ def main() -> int:
             "rdp_opcode_counts": _counter_to_map(window_opcode_counts),
             "rdp_family_counts": _family_counter_to_map(window_family_counts),
         },
+        "set_color_image_events_focus_window": window_color_image_events,
         "first_triangle_frame": first_triangle_frame,
         "first_texrect_frame": first_texrect_frame,
         "max_triangle_frame": max_triangle_frame,

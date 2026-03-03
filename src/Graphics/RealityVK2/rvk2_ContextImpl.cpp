@@ -337,13 +337,37 @@ void appendFrameForensicsRecord(const rvk2::ExecutorOutput & _output)
 	for (u32 i = 0U; i < summary.debugSurfaceSlotCount; ++i) {
 		std::fprintf(
 			file,
-			"\ts%u_addr=0x%08X\ts%u_writes=%llu\ts%u_works=%llu",
+			"\ts%u_addr=0x%08X\ts%u_writes=%llu\ts%u_works=%llu\ts%u_hash=0x%016llX",
 			i,
 			summary.debugSurfaceAddress[i],
 			i,
 			static_cast<unsigned long long>(summary.debugSurfaceWriteCount[i]),
 			i,
-			static_cast<unsigned long long>(summary.debugSurfaceWorkCount[i]));
+			static_cast<unsigned long long>(summary.debugSurfaceWorkCount[i]),
+			i,
+			static_cast<unsigned long long>(summary.debugSurfaceHash[i]));
+	}
+	std::fprintf(
+		file,
+		"\tci_switches=%llu\tci_first=0x%08X\tci_last=0x%08X\ttri_deg_reject=%llu\ttri_bounds_reject=%llu\ttri_scissor_reject=%llu\ttri_samples=%llu\ttri_alpha_reject=%llu\ttri_cvg_reject=%llu\ttri_depth_reject=%llu",
+		static_cast<unsigned long long>(summary.colorImageSwitchCount),
+		summary.colorImageFirstAddress,
+		summary.colorImageLastAddress,
+		static_cast<unsigned long long>(summary.triangleDegenerateRejectCount),
+		static_cast<unsigned long long>(summary.triangleBoundsRejectCount),
+		static_cast<unsigned long long>(summary.triangleScissorFieldRejectCount),
+		static_cast<unsigned long long>(summary.triangleSampleCandidateCount),
+		static_cast<unsigned long long>(summary.triangleAlphaRejectCount),
+		static_cast<unsigned long long>(summary.triangleCoverageRejectCount),
+		static_cast<unsigned long long>(summary.triangleDepthRejectCount));
+	for (u32 i = 0U; i < summary.colorImageEventCount; ++i) {
+		std::fprintf(
+			file,
+			"\tci_evt%u_addr=0x%08X\tci_evt%u_work=%llu",
+			i,
+			summary.colorImageEventAddress[i],
+			i,
+			static_cast<unsigned long long>(summary.colorImageEventWorkOrdinal[i]));
 	}
 	std::fprintf(file, "\n");
 	std::fclose(file);

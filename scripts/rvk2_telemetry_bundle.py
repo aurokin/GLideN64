@@ -156,6 +156,7 @@ def _summarize_replay(replay: Optional[Dict[str, Any]]) -> Dict[str, Any]:
             "failed_count": 0,
             "warning_count": 0,
             "all_ok": False,
+            "stateful_frames": None,
             "first_failed_frame": None,
             "first_warn_frame": None,
             "error_kind_counts": {},
@@ -198,6 +199,7 @@ def _summarize_replay(replay: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         "warning_count": int(replay.get("warning_count", 0) or 0),
         "all_ok": bool(replay.get("all_ok", False)),
         "strict_mode": bool(replay.get("strict_mode", False)),
+        "stateful_frames": replay.get("stateful_frames") if isinstance(replay.get("stateful_frames"), bool) else None,
         "first_failed_frame": failed_frame,
         "first_warn_frame": warn_frame,
         "error_kind_counts": error_kind_counts,
@@ -248,6 +250,16 @@ def _build_signals(
     write_fill = _u64(last_record, "write_fill")
     write_texrect = _u64(last_record, "write_texrect")
     write_tri = _u64(last_record, "write_tri")
+    ci_switches = _u64(last_record, "ci_switches")
+    ci_first = _u64(last_record, "ci_first")
+    ci_last = _u64(last_record, "ci_last")
+    tri_deg_reject = _u64(last_record, "tri_deg_reject")
+    tri_bounds_reject = _u64(last_record, "tri_bounds_reject")
+    tri_scissor_reject = _u64(last_record, "tri_scissor_reject")
+    tri_samples = _u64(last_record, "tri_samples")
+    tri_alpha_reject = _u64(last_record, "tri_alpha_reject")
+    tri_cvg_reject = _u64(last_record, "tri_cvg_reject")
+    tri_depth_reject = _u64(last_record, "tri_depth_reject")
     writes = _u64(last_record, "writes")
 
     depth_eval = _u64(last_record, "depth_eval")
@@ -301,6 +313,19 @@ def _build_signals(
         "write_texrect": write_texrect,
         "write_tri": write_tri,
         "writes": writes,
+        "ci_switches": ci_switches,
+        "ci_first": ci_first,
+        "ci_last": ci_last,
+        "tri_deg_reject": tri_deg_reject,
+        "tri_bounds_reject": tri_bounds_reject,
+        "tri_scissor_reject": tri_scissor_reject,
+        "tri_samples": tri_samples,
+        "tri_alpha_reject": tri_alpha_reject,
+        "tri_alpha_reject_ratio": _ratio(tri_alpha_reject, tri_samples),
+        "tri_cvg_reject": tri_cvg_reject,
+        "tri_cvg_reject_ratio": _ratio(tri_cvg_reject, tri_samples),
+        "tri_depth_reject": tri_depth_reject,
+        "tri_depth_reject_ratio": _ratio(tri_depth_reject, tri_samples),
         "triangle_writes_per_work": _ratio(write_tri, work_tri),
         "texrect_writes_per_work": _ratio(write_texrect, work_texrect),
     }
@@ -329,12 +354,33 @@ def _build_signals(
         suspected_gaps.append("texrect work exists but texrect write count is zero")
     if (work_fill + work_texrect + work_tri) > 0 and writes == 0:
         suspected_gaps.append("render work was scheduled but no color writes were produced")
+    if tri_samples > 0 and tri_depth_reject * 2 >= tri_samples:
+        suspected_gaps.append("triangle depth rejects exceed 50% of candidate samples (possible depth compare/update issue)")
+    if tri_samples > 0 and tri_cvg_reject * 2 >= tri_samples:
+        suspected_gaps.append("triangle coverage rejects exceed 50% of candidate samples (possible coverage/AA/cvg path issue)")
+    if ci_switches >= 2:
+        suspected_gaps.append("multiple color-image target switches observed in final frame (verify present target selection)")
 
-    if replay_summary.get("failed_count", 0) > 0:
-        suspected_gaps.append("packet replay reports frame mismatches (state divergence possible before raster output)")
+    replay_failed_count = int(replay_summary.get("failed_count", 0) or 0)
+    replay_frame_count = int(replay_summary.get("frame_count", 0) or 0)
+    replay_stateful = replay_summary.get("stateful_frames")
+    replay_is_stateful = isinstance(replay_stateful, bool) and replay_stateful
+    replay_is_non_stateful = isinstance(replay_stateful, bool) and not replay_stateful
+    replay_failure_ratio = _ratio(replay_failed_count, replay_frame_count)
+
+    if replay_failed_count > 0:
+        if replay_is_non_stateful:
+            suspected_gaps.append(
+                "packet replay mismatches were collected in non-stateful mode; use stateful replay only for deterministic first-divergence checks"
+            )
+        else:
+            suspected_gaps.append("packet replay reports frame mismatches (state divergence possible before raster output)")
 
     replay_error_kinds = replay_summary.get("error_kind_counts", {})
-    if isinstance(replay_error_kinds, dict):
+    replay_error_kinds_actionable = replay_is_stateful or (
+        replay_failure_ratio is not None and replay_failure_ratio < 0.5
+    )
+    if isinstance(replay_error_kinds, dict) and replay_error_kinds_actionable:
         if int(replay_error_kinds.get("executor_present_width mismatch", 0) or 0) > 0 or int(
             replay_error_kinds.get("executor_present_height mismatch", 0) or 0
         ) > 0:
@@ -345,6 +391,10 @@ def _build_signals(
             suspected_gaps.append("packet-trace present hash diverges from frame-forensics present hash provenance")
         if int(replay_error_kinds.get("selected_surface_hash mismatch", 0) or 0) > 0:
             suspected_gaps.append("selected surface hash diverges before VI post-processing (raster/source divergence likely)")
+    elif isinstance(replay_error_kinds, dict) and replay_is_non_stateful and replay_failed_count > 0:
+        suspected_gaps.append(
+            "replay error-kind breakdown suppressed because non-stateful replay failed on most frames; run stateful mode for high-confidence class attribution"
+        )
 
     if vi_valid == 1 and vi_use_regs == 0:
         suspected_gaps.append("VI registers are valid but VI register path is not active for present")
@@ -395,7 +445,9 @@ def _build_signals(
 
         command_signal = {
             "replay_first_failed_frame": command_census.get("replay_first_failed_frame"),
+            "replay_stateful_frames": command_census.get("replay_stateful_frames"),
             "focus_frame_id": command_census.get("focus_frame_id"),
+            "focus_reason": command_census.get("focus_reason"),
             "triangles_total": tri_total,
             "texrect_total": texrect_total,
             "fillrect_total": fillrect_total,
@@ -689,11 +741,30 @@ def _selected_forensics_fields(record: Dict[str, Any]) -> Dict[str, Any]:
         "write_fill",
         "write_texrect",
         "write_tri",
+        "ci_switches",
+        "ci_first",
+        "ci_last",
+        "tri_deg_reject",
+        "tri_bounds_reject",
+        "tri_scissor_reject",
+        "tri_samples",
+        "tri_alpha_reject",
+        "tri_cvg_reject",
+        "tri_depth_reject",
         "depth_eval",
         "depth_reject",
         "depth_update",
     ]
-    return {key: record.get(key) for key in keys if key in record}
+    selected = {key: record.get(key) for key in keys if key in record}
+    for i in range(4):
+        for key in (f"s{i}_addr", f"s{i}_writes", f"s{i}_works", f"s{i}_hash"):
+            if key in record:
+                selected[key] = record.get(key)
+    for i in range(8):
+        for key in (f"ci_evt{i}_addr", f"ci_evt{i}_work"):
+            if key in record:
+                selected[key] = record.get(key)
+    return selected
 
 
 def main() -> int:
