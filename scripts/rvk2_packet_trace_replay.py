@@ -585,6 +585,16 @@ class RenderWorkRecord:
     env_color: int = 0
     blend_color: int = 0
     fog_color: int = 0
+    prim_color_min_level: int = 0
+    prim_color_lod_frac: int = 0
+    convert_k4: int = 0
+    convert_k5: int = 0
+    key_center_r: int = 0
+    key_scale_r: int = 0
+    key_center_g: int = 0
+    key_scale_g: int = 0
+    key_center_b: int = 0
+    key_scale_b: int = 0
     key_state: int = 0
     convert_state: int = 0
     depth_source: int = 0
@@ -1445,14 +1455,73 @@ def parse_packet_trace(path: Path) -> List[FrameRecord]:
                 continue
 
             if row_type == "W":
-                if len(fields) != 109:
+                if len(fields) not in (109, 138):
                     raise TraceParseError(
-                        f"line {line_no}: render-work row expected 109 columns, got {len(fields)}"
+                        f"line {line_no}: render-work row expected 109 or 138 columns, got {len(fields)}"
                     )
                 if current_frame is None:
                     raise TraceParseError(
                         f"line {line_no}: render-work row encountered before first frame row"
                     )
+                depth_compare_enable = True
+                depth_update_enable = True
+                alpha_compare = 0
+                cvg_dest = 0
+                blend_mask = 0
+                cvg_x_alpha = False
+                alpha_cvg_sel = False
+                color_on_cvg = False
+                force_blender = False
+                depth_source = 0
+                prim_depth_z = 0
+                prim_depth_delta = 0
+                other_modes = 0
+                prim_color = 0
+                env_color = 0
+                blend_color = 0
+                fog_color = 0
+                prim_color_min_level = 0
+                prim_color_lod_frac = 0
+                convert_k4 = 0
+                convert_k5 = 0
+                key_center_r = 0
+                key_scale_r = 0
+                key_center_g = 0
+                key_scale_g = 0
+                key_center_b = 0
+                key_scale_b = 0
+                key_state = 0
+                convert_state = 0
+                if len(fields) == 138:
+                    depth_compare_enable = _parse_uint(fields[109], "depth_compare_enable", line_no, 1) != 0
+                    depth_update_enable = _parse_uint(fields[110], "depth_update_enable", line_no, 1) != 0
+                    alpha_compare = _parse_uint(fields[111], "alpha_compare", line_no, 8)
+                    cvg_dest = _parse_uint(fields[112], "cvg_dest", line_no, 8)
+                    blend_mask = _parse_uint(fields[113], "blend_mask", line_no, 8)
+                    cvg_x_alpha = _parse_uint(fields[114], "cvg_x_alpha", line_no, 1) != 0
+                    alpha_cvg_sel = _parse_uint(fields[115], "alpha_cvg_sel", line_no, 1) != 0
+                    color_on_cvg = _parse_uint(fields[116], "color_on_cvg", line_no, 1) != 0
+                    force_blender = _parse_uint(fields[117], "force_blender", line_no, 1) != 0
+                    depth_source = _parse_uint(fields[118], "depth_source", line_no, 8)
+                    prim_depth_z = _parse_uint(fields[119], "prim_depth_z", line_no, 16)
+                    prim_depth_delta = _parse_uint(fields[120], "prim_depth_delta", line_no, 16)
+                    other_modes = _parse_uint(fields[121], "other_modes", line_no, 64)
+                    prim_color = _parse_uint(fields[122], "prim_color", line_no, 32)
+                    env_color = _parse_uint(fields[123], "env_color", line_no, 32)
+                    blend_color = _parse_uint(fields[124], "blend_color", line_no, 32)
+                    fog_color = _parse_uint(fields[125], "fog_color", line_no, 32)
+                    prim_color_min_level = _parse_uint(fields[126], "prim_color_min_level", line_no, 8)
+                    prim_color_lod_frac = _parse_uint(fields[127], "prim_color_lod_frac", line_no, 8)
+                    convert_k4 = _sign_extend(_parse_uint(fields[128], "convert_k4_raw", line_no, 16), 16)
+                    convert_k5 = _sign_extend(_parse_uint(fields[129], "convert_k5_raw", line_no, 16), 16)
+                    key_center_r = _parse_uint(fields[130], "key_center_r", line_no, 8)
+                    key_scale_r = _parse_uint(fields[131], "key_scale_r", line_no, 8)
+                    key_center_g = _parse_uint(fields[132], "key_center_g", line_no, 8)
+                    key_scale_g = _parse_uint(fields[133], "key_scale_g", line_no, 8)
+                    key_center_b = _parse_uint(fields[134], "key_center_b", line_no, 8)
+                    key_scale_b = _parse_uint(fields[135], "key_scale_b", line_no, 8)
+                    key_state = _parse_uint(fields[136], "key_state", line_no, 64)
+                    convert_state = _parse_uint(fields[137], "convert_state", line_no, 64)
                 current_frame.render_work.append(
                     RenderWorkRecord(
                             source_packet_id=_parse_uint(fields[1], "source_packet_id", line_no, 64),
@@ -1563,6 +1632,35 @@ def parse_packet_trace(path: Path) -> List[FrameRecord]:
                             pipe_sync_packet_id=_parse_uint(fields[106], "pipe_sync_packet_id", line_no, 64),
                             tile_sync_packet_id=_parse_uint(fields[107], "tile_sync_packet_id", line_no, 64),
                             full_sync_packet_id=_parse_uint(fields[108], "full_sync_packet_id", line_no, 64),
+                            depth_compare_enable=depth_compare_enable,
+                            depth_update_enable=depth_update_enable,
+                            alpha_compare=alpha_compare,
+                            cvg_dest=cvg_dest,
+                            blend_mask=blend_mask,
+                            cvg_x_alpha=cvg_x_alpha,
+                            alpha_cvg_sel=alpha_cvg_sel,
+                            color_on_cvg=color_on_cvg,
+                            force_blender=force_blender,
+                            depth_source=depth_source,
+                            prim_depth_z=prim_depth_z,
+                            prim_depth_delta=prim_depth_delta,
+                            other_modes=other_modes,
+                            prim_color=prim_color,
+                            env_color=env_color,
+                            blend_color=blend_color,
+                            fog_color=fog_color,
+                            prim_color_min_level=prim_color_min_level,
+                            prim_color_lod_frac=prim_color_lod_frac,
+                            convert_k4=convert_k4,
+                            convert_k5=convert_k5,
+                            key_center_r=key_center_r,
+                            key_scale_r=key_scale_r,
+                            key_center_g=key_center_g,
+                            key_scale_g=key_scale_g,
+                            key_center_b=key_center_b,
+                            key_scale_b=key_scale_b,
+                            key_state=key_state,
+                            convert_state=convert_state,
                         )
                 )
                 continue
@@ -2947,6 +3045,16 @@ def _build_render_work(
             rdp_snapshot.fog_color.b,
             rdp_snapshot.fog_color.a,
         ),
+        prim_color_min_level=rdp_snapshot.prim_color_min_level,
+        prim_color_lod_frac=rdp_snapshot.prim_color_lod_frac,
+        convert_k4=rdp_snapshot.convert_k4,
+        convert_k5=rdp_snapshot.convert_k5,
+        key_center_r=rdp_snapshot.key_center_r,
+        key_scale_r=rdp_snapshot.key_scale_r,
+        key_center_g=rdp_snapshot.key_center_g,
+        key_scale_g=rdp_snapshot.key_scale_g,
+        key_center_b=rdp_snapshot.key_center_b,
+        key_scale_b=rdp_snapshot.key_scale_b,
         key_state=_build_key_state_digest(rdp_snapshot),
         convert_state=_build_convert_state_digest(rdp_snapshot),
         scissor_mode=rdp_snapshot.scissor_mode,
@@ -3079,6 +3187,16 @@ def _hash_render_work(work: RenderWorkRecord) -> int:
     hash_value = _fnv_update_int(hash_value, work.env_color, 4)
     hash_value = _fnv_update_int(hash_value, work.blend_color, 4)
     hash_value = _fnv_update_int(hash_value, work.fog_color, 4)
+    hash_value = _fnv_update_int(hash_value, work.prim_color_min_level, 1)
+    hash_value = _fnv_update_int(hash_value, work.prim_color_lod_frac, 1)
+    hash_value = _fnv_update_int(hash_value, work.convert_k4 & 0xFFFF, 2)
+    hash_value = _fnv_update_int(hash_value, work.convert_k5 & 0xFFFF, 2)
+    hash_value = _fnv_update_int(hash_value, work.key_center_r, 1)
+    hash_value = _fnv_update_int(hash_value, work.key_scale_r, 1)
+    hash_value = _fnv_update_int(hash_value, work.key_center_g, 1)
+    hash_value = _fnv_update_int(hash_value, work.key_scale_g, 1)
+    hash_value = _fnv_update_int(hash_value, work.key_center_b, 1)
+    hash_value = _fnv_update_int(hash_value, work.key_scale_b, 1)
     hash_value = _fnv_update_int(hash_value, work.key_state, 8)
     hash_value = _fnv_update_int(hash_value, work.convert_state, 8)
     hash_value = _fnv_update_int(hash_value, work.scissor_mode, 1)
@@ -4919,15 +5037,23 @@ def _hash_combined_state(rdp_snapshot: RDPStateSnapshot, tmem_snapshot: TMEMSnap
     return hash_value
 
 
-def replay_frame(frame: FrameRecord) -> FrameCheck:
+def replay_frame(
+    frame: FrameRecord,
+    rdp_snapshot: Optional[RDPStateSnapshot] = None,
+    tmem_snapshot: Optional[TMEMSnapshot] = None,
+    render_plan_state: Optional[RenderPlanReplayState] = None,
+) -> FrameCheck:
     command_hash = _hash_command_stream(frame.packets)
-    rdp_snapshot = RDPStateSnapshot()
-    tmem_snapshot = TMEMSnapshot()
+    if rdp_snapshot is None:
+        rdp_snapshot = RDPStateSnapshot()
+    if tmem_snapshot is None:
+        tmem_snapshot = TMEMSnapshot()
     computed_semantics: List[DrawSemanticRecord] = []
     computed_raster_ops: List[RasterOpRecord] = []
     computed_render_work: List[RenderWorkRecord] = []
     computed_submission_batches: List[SubmissionBatchRecord] = []
-    render_plan_state = RenderPlanReplayState()
+    if render_plan_state is None:
+        render_plan_state = RenderPlanReplayState()
     unknown_rdp_opcode_count = 0
     first_unknown_rdp_packet_id = 0
     first_unknown_rdp_opcode = 0
@@ -5240,6 +5366,14 @@ def _parse_args() -> argparse.Namespace:
             "0 (default) uses all detected CPU cores; 1 forces single-threaded replay."
         ),
     )
+    parser.add_argument(
+        "--stateful-frames",
+        action="store_true",
+        help=(
+            "Carry RDP/TMEM state across frame boundaries during replay. "
+            "Disabled by default to preserve parallel throughput."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -5331,8 +5465,27 @@ def main() -> int:
     if jobs <= 0:
         jobs = os.cpu_count() or 1
     jobs = max(1, jobs)
+    stateful_frames = bool(args.stateful_frames)
 
-    if jobs == 1 or len(frames) <= 1:
+    if stateful_frames:
+        if jobs > 1 and len(frames) > 1:
+            print(
+                "INFO: stateful frame replay enabled; forcing --jobs=1 for sequential state carry.",
+                file=sys.stderr,
+            )
+        checks = []
+        replay_rdp_snapshot = RDPStateSnapshot()
+        replay_tmem_snapshot = TMEMSnapshot()
+        for frame in frames:
+            checks.append(
+                replay_frame(
+                    frame,
+                    replay_rdp_snapshot,
+                    replay_tmem_snapshot,
+                    RenderPlanReplayState(),
+                )
+            )
+    elif jobs == 1 or len(frames) <= 1:
         checks = [replay_frame(frame) for frame in frames]
     else:
         chunksize = max(1, len(frames) // (jobs * 4))
@@ -5379,6 +5532,7 @@ def main() -> int:
         "failed_count": len(failed),
         "warning_count": len(warned),
         "strict_mode": bool(args.strict),
+        "stateful_frames": bool(stateful_frames),
         "all_ok": len(failed) == 0 and (not args.strict or len(warned) == 0),
         "frames": [_check_to_json(check) for check in checks],
     }

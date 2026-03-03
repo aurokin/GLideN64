@@ -409,6 +409,35 @@ void appendPacketTraceDump(
 		emitU64(work.pipeSyncPacketId);
 		emitU64(work.tileSyncPacketId);
 		emitU64(work.fullSyncPacketId);
+		emitU32(work.depthCompareEnable ? 1U : 0U);
+		emitU32(work.depthUpdateEnable ? 1U : 0U);
+		emitU32(static_cast<u32>(work.alphaCompare));
+		emitU32(static_cast<u32>(work.cvgDest));
+		emitU32(static_cast<u32>(work.blendMask));
+		emitU32(work.cvgXAlpha ? 1U : 0U);
+		emitU32(work.alphaCvgSel ? 1U : 0U);
+		emitU32(work.colorOnCvg ? 1U : 0U);
+		emitU32(work.forceBlender ? 1U : 0U);
+		emitU32(static_cast<u32>(work.depthSource));
+		emitU32(static_cast<u32>(work.primDepthZ));
+		emitU32(static_cast<u32>(work.primDepthDelta));
+		emitU64(work.otherModes);
+		emitU32(static_cast<u32>(work.primColor));
+		emitU32(static_cast<u32>(work.envColor));
+		emitU32(static_cast<u32>(work.blendColor));
+		emitU32(static_cast<u32>(work.fogColor));
+		emitU32(static_cast<u32>(work.primColorMinLevel));
+		emitU32(static_cast<u32>(work.primColorLodFrac));
+		emitU32(static_cast<u32>(static_cast<u16>(work.convertK4)));
+		emitU32(static_cast<u32>(static_cast<u16>(work.convertK5)));
+		emitU32(static_cast<u32>(work.keyCenterR));
+		emitU32(static_cast<u32>(work.keyScaleR));
+		emitU32(static_cast<u32>(work.keyCenterG));
+		emitU32(static_cast<u32>(work.keyScaleG));
+		emitU32(static_cast<u32>(work.keyCenterB));
+		emitU32(static_cast<u32>(work.keyScaleB));
+		emitU64(work.keyState);
+		emitU64(work.convertState);
 		std::fprintf(file, "\n");
 	}
 
