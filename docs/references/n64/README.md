@@ -1,6 +1,6 @@
 # N64 Reference Corpus
 
-## Primary Hardware Docs
+## Primary Hardware Documents
 
 - `Nintendo_64_Programming_Manual_NU6-06-0030-001G_HQ.pdf`
 - `SGI_Nintendo_64_RSP_Programmers_Guide.pdf`
@@ -14,18 +14,11 @@
 - `n64brew_Reality_Signal_Processor.html`
 - `n64brew_Video_Interface.html`
 
-## Supplemental Research Pack (2026-03-01)
+## Supplemental Pack
 
-- Source zip mirror: `n64_video_core_deep_dive_pack.zip`
-- Expanded corpus: `deep-dive-pack/`
-  - `report.md` / `report.pdf`
-  - `docs/links/curated_links.md`
-  - `docs/extracted/` (upstream READMEs, headers, licenses, cheatsheets)
-  - `rvk2_delta_notes.md` (project-specific integration notes)
+- `n64_video_core_deep_dive_pack.zip`
 
-This pack is implementation-focused and useful for verification strategy, test ROM targeting,
-and emulator engineering notes. Treat hardware manuals + local n64brew snapshots above as
-normative when source claims conflict.
+Use the primary hardware docs above as normative when sources conflict.
 
 ## Source URLs
 
@@ -37,10 +30,3 @@ normative when source claims conflict.
 - https://n64brew.dev/wiki/Reality_Display_Processor/Pipeline
 - https://n64brew.dev/wiki/Reality_Signal_Processor
 - https://n64brew.dev/wiki/Video_Interface
-
-## Refresh Hashes
-
-```bash
-sha256sum docs/references/n64/* | sed 's#docs/references/n64/##'
-sha256sum docs/references/n64/deep-dive-pack/report.md
-```

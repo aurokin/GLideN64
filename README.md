@@ -9,13 +9,13 @@ RealityVK in this branch is a Vulkan-only N64 video plugin rewrite.
   - 4:3 and 16:9 output scaling.
   - Hi-res texture packs.
   - `.hts` cache support.
-- Comparison target for parity tools: upstream `GLideN64` only.
+- Comparison target for parity tooling: upstream `GLideN64` only.
 
-## Current State
+## Hard Rules
 
-- Phases A-E are complete.
-- Phase F cleanup is in final deletion/debugging.
-- Current blocking runtime issue: present output is unstable (black/noise), which is the next debugging target.
+- No legacy renderer fallback paths.
+- Trace/packet schema contract is `rvk2_schema_v1` (`src/Graphics/RealityVK2/rvk2_Types.h`).
+- When schema-affecting changes are made, tooling and docs must be updated in the same change.
 
 ## Build
 
@@ -39,22 +39,13 @@ REALITYVK_GATE_WITH_SMOKE=1 ./scripts/local_gate.sh
 ## Core Maintainer Commands
 
 ```bash
-# Paper Mario parity (reference: upstream GLideN64, candidate: RealityVK)
 ./scripts/paper_mario_parity.sh
-
-# Deterministic Vulkan smoke baseline checks
 ./scripts/local_smoke.sh
-
-# Visual compare panel
 ./scripts/paper_mario_compare_view.sh
 
-# Update Vulkan smoke baseline (intentional behavior changes only)
 REALITYVK_SMOKE_UPDATE_BASELINES=1 ./scripts/local_smoke.sh
-
-# Refresh parity reference capture cache
 REALITYVK_PM_REFRESH_REFERENCE=1 ./scripts/paper_mario_parity.sh
 
-# Replay validation for a captured packet trace
 python3 scripts/rvk2_packet_trace_replay.py \
   --input build/local-gate/rvk2.packet.tsv \
   --json-out build/local-gate/rvk2.packet.replay.json \
@@ -72,7 +63,6 @@ python3 scripts/rvk2_packet_trace_replay.py \
 ## Docs
 
 - `docs/README.md`
-- `docs/rvk2-video-plan.md`
 - `docs/local-ci.md`
 - `docs/references/n64/README.md`
 

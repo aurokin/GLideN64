@@ -1,15 +1,20 @@
-# Documentation Index
+# Maintainer Documentation
 
-## Canonical Maintainer Docs
+## Canonical Docs
 
-- `rvk2-video-plan.md`: single-source RVK2 video roadmap and execution batches.
-- `local-ci.md`: build/gate/parity/smoke command contract.
-- `adr/0001-rvk2-schema-ownership.md`: schema-v1 ownership and compatibility policy.
-- `adr/0002-rvk2-runtime-switch-policy.md`: rvk2 single-path runtime decision.
+- `../README.md`: maintainer-facing project overview and operating rules.
+- `local-ci.md`: build, gate, smoke, parity, and replay commands.
 - `references/n64/README.md`: local N64 hardware/reference corpus.
 
-## Documentation Policy
+## RVK2 Operating Policy
 
-- Keep this set small and current.
+- Runtime render path is `rvk2` only.
+- Runtime fallback renderer paths are not supported.
+- Packet/trace schema contract is `rvk2_schema_v1` (`src/Graphics/RealityVK2/rvk2_Types.h`).
+- During active bring-up, schema-breaking changes are allowed when tooling and docs are updated in the same change.
+
+## Documentation Hygiene
+
+- Keep docs short and maintainer-focused.
 - Delete superseded docs instead of archiving duplicates.
-- Keep implementation logs in `build/`, not `docs/`.
+- Keep logs and generated artifacts in `build/`, not `docs/`.
