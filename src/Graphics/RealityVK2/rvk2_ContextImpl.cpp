@@ -270,13 +270,31 @@ void appendFrameForensicsRecord(const rvk2::ExecutorOutput & _output)
 			const u32 index = fmt * rvk2::kExecutorTextureSizeBuckets + size;
 			std::fprintf(
 				file,
-				"\ttx_fs_f%u_s%u=%llu\ttx_fs_lut_f%u_s%u=%llu",
+				"\ttx_fs_f%u_s%u=%llu\ttx_fs_lut_f%u_s%u=%llu\ttx_fs_t0_f%u_s%u=%llu\ttx_fs_t1_f%u_s%u=%llu\ttx_fs_t0n_f%u_s%u=%llu\ttx_fs_lut_t0_f%u_s%u=%llu\ttx_fs_lut_t1_f%u_s%u=%llu\ttx_fs_lut_t0n_f%u_s%u=%llu",
 				fmt,
 				size,
 				static_cast<unsigned long long>(summary.textureFormatSizeSampleCount[index]),
 				fmt,
 				size,
-				static_cast<unsigned long long>(summary.textureFormatSizeLUTSampleCount[index]));
+				static_cast<unsigned long long>(summary.textureFormatSizeLUTSampleCount[index]),
+				fmt,
+				size,
+				static_cast<unsigned long long>(summary.textureFormatSizeSampleCountBySlot[rvk2::kExecutorTextureSampleSlotTexel0][index]),
+				fmt,
+				size,
+				static_cast<unsigned long long>(summary.textureFormatSizeSampleCountBySlot[rvk2::kExecutorTextureSampleSlotTexel1][index]),
+				fmt,
+				size,
+				static_cast<unsigned long long>(summary.textureFormatSizeSampleCountBySlot[rvk2::kExecutorTextureSampleSlotTexel0Next][index]),
+				fmt,
+				size,
+				static_cast<unsigned long long>(summary.textureFormatSizeLUTSampleCountBySlot[rvk2::kExecutorTextureSampleSlotTexel0][index]),
+				fmt,
+				size,
+				static_cast<unsigned long long>(summary.textureFormatSizeLUTSampleCountBySlot[rvk2::kExecutorTextureSampleSlotTexel1][index]),
+				fmt,
+				size,
+				static_cast<unsigned long long>(summary.textureFormatSizeLUTSampleCountBySlot[rvk2::kExecutorTextureSampleSlotTexel0Next][index]));
 		}
 	}
 	for (u32 i = 0U; i < rvk2::kExecutorStageDeltaClassBuckets; ++i) {

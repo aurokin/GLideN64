@@ -18,6 +18,14 @@ constexpr u32 kExecutorTextureFormatBuckets = 5U;
 constexpr u32 kExecutorTextureSizeBuckets = 4U;
 constexpr u32 kExecutorTextureFormatSizeBuckets =
 	kExecutorTextureFormatBuckets * kExecutorTextureSizeBuckets;
+constexpr u32 kExecutorTextureSampleSlotBuckets = 3U;
+
+enum ExecutorTextureSampleSlot : u8
+{
+	kExecutorTextureSampleSlotTexel0 = 0U,
+	kExecutorTextureSampleSlotTexel1 = 1U,
+	kExecutorTextureSampleSlotTexel0Next = 2U,
+};
 
 enum ExecutorPresentSelectionReason : u8
 {
@@ -123,6 +131,8 @@ struct ExecutorSummary {
 	std::array<u64, kExecutorTextureSizeBuckets> textureSizeSampleCount{};
 	std::array<u64, kExecutorTextureFormatSizeBuckets> textureFormatSizeSampleCount{};
 	std::array<u64, kExecutorTextureFormatSizeBuckets> textureFormatSizeLUTSampleCount{};
+	std::array<std::array<u64, kExecutorTextureFormatSizeBuckets>, kExecutorTextureSampleSlotBuckets> textureFormatSizeSampleCountBySlot{};
+	std::array<std::array<u64, kExecutorTextureFormatSizeBuckets>, kExecutorTextureSampleSlotBuckets> textureFormatSizeLUTSampleCountBySlot{};
 	u64 textureBucketMaskAllowCount = 0ULL;
 	u64 textureBucketMaskRejectCount = 0ULL;
 	u64 combinerOpCount = 0ULL;

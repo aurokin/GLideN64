@@ -1916,7 +1916,8 @@ inline bool debugTextureBucketMaskAllowsSample(
 
 inline void recordTextureSampleMode(
 	const rvk2::RenderWorkPacket & _work,
-	bool _needsLUT)
+	bool _needsLUT,
+	u8 _sampleSlot)
 {
 	if (gActiveExecutorSummary == nullptr)
 		return;
@@ -1940,6 +1941,11 @@ inline void recordTextureSampleMode(
 		++gActiveExecutorSummary->textureFormatSizeSampleCount[index];
 		if (_needsLUT)
 			++gActiveExecutorSummary->textureFormatSizeLUTSampleCount[index];
+		if (_sampleSlot < rvk2::kExecutorTextureSampleSlotBuckets) {
+			++gActiveExecutorSummary->textureFormatSizeSampleCountBySlot[_sampleSlot][index];
+			if (_needsLUT)
+				++gActiveExecutorSummary->textureFormatSizeLUTSampleCountBySlot[_sampleSlot][index];
+		}
 	}
 }
 
@@ -1951,7 +1957,8 @@ inline u32 samplePseudoTexelColor(
 	bool _includeW,
 	u32 _x,
 	u32 _y,
-	u32 * _sourceBits = nullptr)
+	u32 * _sourceBits = nullptr,
+	u8 _sampleSlot = rvk2::kExecutorTextureSampleSlotTexel0)
 {
 	if (gActiveExecutorSummary != nullptr)
 		++gActiveExecutorSummary->textureSampleCount;
@@ -1989,7 +1996,7 @@ inline u32 samplePseudoTexelColor(
 			sampledColor,
 			needsLUT,
 			tmemReject)) {
-		recordTextureSampleMode(_work, needsLUT);
+		recordTextureSampleMode(_work, needsLUT, _sampleSlot);
 		if (gActiveExecutorSummary != nullptr) {
 			++gActiveExecutorSummary->textureTmemSampleCount;
 			if (needsLUT)
@@ -2024,7 +2031,7 @@ inline u32 samplePseudoTexelColor(
 			needsLUT,
 			rdramReject)) {
 		(void)rdramReject;
-		recordTextureSampleMode(_work, needsLUT);
+		recordTextureSampleMode(_work, needsLUT, _sampleSlot);
 		if (gActiveExecutorSummary != nullptr)
 			++gActiveExecutorSummary->textureRdramSampleCount;
 		if (_sourceBits != nullptr)
@@ -2077,7 +2084,7 @@ inline u32 samplePseudoTexelColor(
 		| (static_cast<u32>(g) << 16)
 		| (static_cast<u32>(b) << 8)
 		| static_cast<u32>(a);
-	recordTextureSampleMode(_work, lutModeEnabled);
+	recordTextureSampleMode(_work, lutModeEnabled, _sampleSlot);
 	if (lutModeEnabled) {
 		if (gActiveExecutorSummary != nullptr)
 			++gActiveExecutorSummary->textureLUTSampleCount;
@@ -2095,7 +2102,8 @@ inline u32 pseudoTexel(
 	const rvk2::RenderWorkPacket & _work,
 	u32 _x,
 	u32 _y,
-	u32 * _sourceBits = nullptr)
+	u32 * _sourceBits = nullptr,
+	u8 _sampleSlot = rvk2::kExecutorTextureSampleSlotTexel0)
 {
 	const s32 dx = static_cast<s32>(_x) - static_cast<s32>(_work.rectULX);
 	const s32 dy = static_cast<s32>(_y) - static_cast<s32>(_work.rectULY);
@@ -2129,7 +2137,16 @@ inline u32 pseudoTexel(
 		clampAllowed);
 	const u8 filterMode = decodeTextureFilterMode(_work);
 	if (filterMode == 0U)
-		return samplePseudoTexelColor(_work, sCoord.texel, tCoord.texel, wCoordRaw, false, _x, _y, _sourceBits);
+		return samplePseudoTexelColor(
+			_work,
+			sCoord.texel,
+			tCoord.texel,
+			wCoordRaw,
+			false,
+			_x,
+			_y,
+			_sourceBits,
+			_sampleSlot);
 
 	const s32 sNextRaw = sCoordRaw + 32;
 	const s32 tNextRaw = tCoordRaw + 32;
@@ -2151,10 +2168,10 @@ inline u32 pseudoTexel(
 		clampAllowed);
 	const u32 fracS = static_cast<u32>(sCoord.frac);
 	const u32 fracT = static_cast<u32>(tCoord.frac);
-	const u32 c00 = samplePseudoTexelColor(_work, sCoord.texel, tCoord.texel, wCoordRaw, false, _x, _y, _sourceBits);
-	const u32 c10 = samplePseudoTexelColor(_work, sNextCoord.texel, tCoord.texel, wCoordRaw, false, _x, _y, _sourceBits);
-	const u32 c01 = samplePseudoTexelColor(_work, sCoord.texel, tNextCoord.texel, wCoordRaw, false, _x, _y, _sourceBits);
-	const u32 c11 = samplePseudoTexelColor(_work, sNextCoord.texel, tNextCoord.texel, wCoordRaw, false, _x, _y, _sourceBits);
+	const u32 c00 = samplePseudoTexelColor(_work, sCoord.texel, tCoord.texel, wCoordRaw, false, _x, _y, _sourceBits, _sampleSlot);
+	const u32 c10 = samplePseudoTexelColor(_work, sNextCoord.texel, tCoord.texel, wCoordRaw, false, _x, _y, _sourceBits, _sampleSlot);
+	const u32 c01 = samplePseudoTexelColor(_work, sCoord.texel, tNextCoord.texel, wCoordRaw, false, _x, _y, _sourceBits, _sampleSlot);
+	const u32 c11 = samplePseudoTexelColor(_work, sNextCoord.texel, tNextCoord.texel, wCoordRaw, false, _x, _y, _sourceBits, _sampleSlot);
 	return applyTextureFilterMode(filterMode, c00, c10, c01, c11, fracS, fracT);
 }
 
@@ -2163,12 +2180,13 @@ inline u32 pseudoTexelForSlot(
 	u32 _x,
 	u32 _y,
 	bool _texel1Slot,
-	u32 * _sourceBits = nullptr)
+	u32 * _sourceBits = nullptr,
+	u8 _sampleSlot = rvk2::kExecutorTextureSampleSlotTexel0)
 {
 	rvk2::RenderWorkPacket sampleWork{};
 	const rvk2::RenderWorkPacket & slotWork =
 		selectTexelSlotWork(_work, _texel1Slot, sampleWork);
-	return pseudoTexel(slotWork, _x, _y, _sourceBits);
+	return pseudoTexel(slotWork, _x, _y, _sourceBits, _sampleSlot);
 }
 
 struct ColorSurface {
@@ -3615,7 +3633,8 @@ inline u32 evaluateTriangleTextureColor(
 	const rvk2::RenderWorkPacket & _work,
 	u32 _x,
 	u32 _y,
-	u32 * _sourceBits = nullptr)
+	u32 * _sourceBits = nullptr,
+	u8 _sampleSlot = rvk2::kExecutorTextureSampleSlotTexel0)
 {
 	const s32 dsdy = combineDYDerivative(_work.triangleTexDSDY, _work.triangleTexDSDE, _work.triangleLMajor);
 	const s32 dtdy = combineDYDerivative(_work.triangleTexDTDY, _work.triangleTexDTDE, _work.triangleLMajor);
@@ -3647,7 +3666,16 @@ inline u32 evaluateTriangleTextureColor(
 		clampAllowed);
 	const u8 filterMode = decodeTextureFilterMode(_work);
 	if (filterMode == 0U)
-		return samplePseudoTexelColor(_work, sCoord.texel, tCoord.texel, wCoordRaw, true, _x, _y, _sourceBits);
+		return samplePseudoTexelColor(
+			_work,
+			sCoord.texel,
+			tCoord.texel,
+			wCoordRaw,
+			true,
+			_x,
+			_y,
+			_sourceBits,
+			_sampleSlot);
 
 	const s32 sNextRaw = sCoordRaw + 32;
 	const s32 tNextRaw = tCoordRaw + 32;
@@ -3669,10 +3697,10 @@ inline u32 evaluateTriangleTextureColor(
 		clampAllowed);
 	const u32 fracS = static_cast<u32>(sCoord.frac);
 	const u32 fracT = static_cast<u32>(tCoord.frac);
-	const u32 c00 = samplePseudoTexelColor(_work, sCoord.texel, tCoord.texel, wCoordRaw, true, _x, _y, _sourceBits);
-	const u32 c10 = samplePseudoTexelColor(_work, sNextCoord.texel, tCoord.texel, wCoordRaw, true, _x, _y, _sourceBits);
-	const u32 c01 = samplePseudoTexelColor(_work, sCoord.texel, tNextCoord.texel, wCoordRaw, true, _x, _y, _sourceBits);
-	const u32 c11 = samplePseudoTexelColor(_work, sNextCoord.texel, tNextCoord.texel, wCoordRaw, true, _x, _y, _sourceBits);
+	const u32 c00 = samplePseudoTexelColor(_work, sCoord.texel, tCoord.texel, wCoordRaw, true, _x, _y, _sourceBits, _sampleSlot);
+	const u32 c10 = samplePseudoTexelColor(_work, sNextCoord.texel, tCoord.texel, wCoordRaw, true, _x, _y, _sourceBits, _sampleSlot);
+	const u32 c01 = samplePseudoTexelColor(_work, sCoord.texel, tNextCoord.texel, wCoordRaw, true, _x, _y, _sourceBits, _sampleSlot);
+	const u32 c11 = samplePseudoTexelColor(_work, sNextCoord.texel, tNextCoord.texel, wCoordRaw, true, _x, _y, _sourceBits, _sampleSlot);
 	return applyTextureFilterMode(filterMode, c00, c10, c01, c11, fracS, fracT);
 }
 
@@ -3759,15 +3787,16 @@ inline u32 chooseTriangleTextureSourceColor(
 	u32 _x,
 	u32 _y,
 	bool _texel1Slot = false,
-	u32 * _sourceBits = nullptr)
+	u32 * _sourceBits = nullptr,
+	u8 _sampleSlot = rvk2::kExecutorTextureSampleSlotTexel0)
 {
 	rvk2::RenderWorkPacket sampleWork{};
 	const rvk2::RenderWorkPacket & texelWork =
 		selectTexelSlotWork(_work, _texel1Slot, sampleWork);
 	const bool useTriangleTexture = texelWork.textured && texelWork.triangleTextureEnable;
 	return useTriangleTexture
-		? evaluateTriangleTextureColor(texelWork, _x, _y, _sourceBits)
-		: (texelWork.textured ? pseudoTexel(texelWork, _x, _y, _sourceBits) : pseudoTriangleColor(texelWork, _x, _y));
+		? evaluateTriangleTextureColor(texelWork, _x, _y, _sourceBits, _sampleSlot)
+		: (texelWork.textured ? pseudoTexel(texelWork, _x, _y, _sourceBits, _sampleSlot) : pseudoTriangleColor(texelWork, _x, _y));
 }
 
 inline u32 chooseTriangleShadeSourceColor(
@@ -4068,14 +4097,27 @@ void writeRect(
 				cycle1CombinedColor = finalColor;
 			}
 			else {
-				textureColor = pseudoTexelForSlot(_work, x, y, false, &textureSourceBits);
-				texel1Color = pseudoTexelForSlot(_work, x, y, true, &textureSourceBits);
+				textureColor = pseudoTexelForSlot(
+					_work,
+					x,
+					y,
+					false,
+					&textureSourceBits,
+					rvk2::kExecutorTextureSampleSlotTexel0);
+				texel1Color = pseudoTexelForSlot(
+					_work,
+					x,
+					y,
+					true,
+					&textureSourceBits,
+					rvk2::kExecutorTextureSampleSlotTexel1);
 				texel0NextColor = pseudoTexelForSlot(
 					_work,
 					std::min<u32>(x + 1U, bounds.x1),
 					y,
 					false,
-					&textureSourceBits);
+					&textureSourceBits,
+					rvk2::kExecutorTextureSampleSlotTexel0Next);
 				if (debugForceTexelAlphaOpaque() && _work.textured) {
 					textureColor = forceOpaqueAlpha(textureColor);
 					texel1Color = forceOpaqueAlpha(texel1Color);
@@ -4123,8 +4165,20 @@ void writeRect(
 					static_cast<u16>(y));
 				const u32 nextDstColor = _surface.pixels[nextColorIdx];
 				const u32 nextPipelineDstColor = imageReadEnabledWork ? nextDstColor : 0x00000000U;
-				const u32 nextTexel0Color = pseudoTexelForSlot(_work, nextX, y, false, nullptr);
-				const u32 nextTexel1Color = pseudoTexelForSlot(_work, nextX, y, true, nullptr);
+				const u32 nextTexel0Color = pseudoTexelForSlot(
+					_work,
+					nextX,
+					y,
+					false,
+					nullptr,
+					rvk2::kExecutorTextureSampleSlotTexel0Next);
+				const u32 nextTexel1Color = pseudoTexelForSlot(
+					_work,
+					nextX,
+					y,
+					true,
+					nullptr,
+					rvk2::kExecutorTextureSampleSlotTexel1);
 				alphaCompareColor = applySyntheticCombiner(
 					_work,
 					nextTexel0Color,
@@ -4304,14 +4358,27 @@ void writeTriangle(
 			const bool pipelineDstHiddenCoverage = imageReadEnabledWork ? dstHiddenCoverage : false;
 			u8 coverageDestination = pipelineDstCoverage;
 			u32 textureSourceBits = 0U;
-			const u32 textureColor = chooseTriangleTextureSourceColor(_work, x, y, false, &textureSourceBits);
-			const u32 texel1Color = chooseTriangleTextureSourceColor(_work, x, y, true, &textureSourceBits);
+			const u32 textureColor = chooseTriangleTextureSourceColor(
+				_work,
+				x,
+				y,
+				false,
+				&textureSourceBits,
+				rvk2::kExecutorTextureSampleSlotTexel0);
+			const u32 texel1Color = chooseTriangleTextureSourceColor(
+				_work,
+				x,
+				y,
+				true,
+				&textureSourceBits,
+				rvk2::kExecutorTextureSampleSlotTexel1);
 			const u32 texel0NextColor = chooseTriangleTextureSourceColor(
 				_work,
 				std::min<u32>(x + 1U, bounds.x1),
 				y,
 				false,
-				&textureSourceBits);
+				&textureSourceBits,
+				rvk2::kExecutorTextureSampleSlotTexel0Next);
 			const u32 shadeColor = chooseTriangleShadeSourceColor(_work, x, y);
 			const u32 shadeColorNext = chooseTriangleShadeSourceColor(
 				_work,
@@ -4371,8 +4438,20 @@ void writeTriangle(
 					static_cast<u16>(y));
 				const u32 nextDstColor = _surface.pixels[nextColorIdx];
 				const u32 nextPipelineDstColor = imageReadEnabledWork ? nextDstColor : 0x00000000U;
-				const u32 nextTexel0Color = chooseTriangleTextureSourceColor(_work, nextX, y, false, nullptr);
-				const u32 nextTexel1Color = chooseTriangleTextureSourceColor(_work, nextX, y, true, nullptr);
+				const u32 nextTexel0Color = chooseTriangleTextureSourceColor(
+					_work,
+					nextX,
+					y,
+					false,
+					nullptr,
+					rvk2::kExecutorTextureSampleSlotTexel0Next);
+				const u32 nextTexel1Color = chooseTriangleTextureSourceColor(
+					_work,
+					nextX,
+					y,
+					true,
+					nullptr,
+					rvk2::kExecutorTextureSampleSlotTexel1);
 				const u32 nextShadeColor = chooseTriangleShadeSourceColor(_work, nextX, y);
 				alphaCompareColor = applySyntheticCombiner(
 					_work,

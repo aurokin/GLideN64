@@ -556,6 +556,23 @@ class RenderWorkRecord:
     tile_ult: int
     tile_lrs: int
     tile_lrt: int
+    tile1_valid: bool
+    tile1_index: int
+    tile1_format: int
+    tile1_size: int
+    tile1_line: int
+    tile1_tmem: int
+    tile1_palette: int
+    tile1_cmt: int
+    tile1_cms: int
+    tile1_maskt: int
+    tile1_masks: int
+    tile1_shiftt: int
+    tile1_shifts: int
+    tile1_uls: int
+    tile1_ult: int
+    tile1_lrs: int
+    tile1_lrt: int
     tmem_load_kind: int
     tmem_load_tile: int
     tmem_load_uls: int
@@ -1455,14 +1472,18 @@ def parse_packet_trace(path: Path) -> List[FrameRecord]:
                 continue
 
             if row_type == "W":
-                if len(fields) not in (109, 138):
+                if len(fields) not in (109, 126, 138, 155):
                     raise TraceParseError(
-                        f"line {line_no}: render-work row expected 109 or 138 columns, got {len(fields)}"
+                        f"line {line_no}: render-work row expected 109, 126, 138, or 155 columns, got {len(fields)}"
                     )
                 if current_frame is None:
                     raise TraceParseError(
                         f"line {line_no}: render-work row encountered before first frame row"
                     )
+                has_tile1 = len(fields) in (126, 155)
+                has_extended_state = len(fields) in (138, 155)
+                tmem_base_index = 111 if has_tile1 else 94
+                extra_state_base_index = tmem_base_index + 15
                 depth_compare_enable = True
                 depth_update_enable = True
                 alpha_compare = 0
@@ -1492,36 +1513,111 @@ def parse_packet_trace(path: Path) -> List[FrameRecord]:
                 key_scale_b = 0
                 key_state = 0
                 convert_state = 0
-                if len(fields) == 138:
-                    depth_compare_enable = _parse_uint(fields[109], "depth_compare_enable", line_no, 1) != 0
-                    depth_update_enable = _parse_uint(fields[110], "depth_update_enable", line_no, 1) != 0
-                    alpha_compare = _parse_uint(fields[111], "alpha_compare", line_no, 8)
-                    cvg_dest = _parse_uint(fields[112], "cvg_dest", line_no, 8)
-                    blend_mask = _parse_uint(fields[113], "blend_mask", line_no, 8)
-                    cvg_x_alpha = _parse_uint(fields[114], "cvg_x_alpha", line_no, 1) != 0
-                    alpha_cvg_sel = _parse_uint(fields[115], "alpha_cvg_sel", line_no, 1) != 0
-                    color_on_cvg = _parse_uint(fields[116], "color_on_cvg", line_no, 1) != 0
-                    force_blender = _parse_uint(fields[117], "force_blender", line_no, 1) != 0
-                    depth_source = _parse_uint(fields[118], "depth_source", line_no, 8)
-                    prim_depth_z = _parse_uint(fields[119], "prim_depth_z", line_no, 16)
-                    prim_depth_delta = _parse_uint(fields[120], "prim_depth_delta", line_no, 16)
-                    other_modes = _parse_uint(fields[121], "other_modes", line_no, 64)
-                    prim_color = _parse_uint(fields[122], "prim_color", line_no, 32)
-                    env_color = _parse_uint(fields[123], "env_color", line_no, 32)
-                    blend_color = _parse_uint(fields[124], "blend_color", line_no, 32)
-                    fog_color = _parse_uint(fields[125], "fog_color", line_no, 32)
-                    prim_color_min_level = _parse_uint(fields[126], "prim_color_min_level", line_no, 8)
-                    prim_color_lod_frac = _parse_uint(fields[127], "prim_color_lod_frac", line_no, 8)
-                    convert_k4 = _sign_extend(_parse_uint(fields[128], "convert_k4_raw", line_no, 16), 16)
-                    convert_k5 = _sign_extend(_parse_uint(fields[129], "convert_k5_raw", line_no, 16), 16)
-                    key_center_r = _parse_uint(fields[130], "key_center_r", line_no, 8)
-                    key_scale_r = _parse_uint(fields[131], "key_scale_r", line_no, 8)
-                    key_center_g = _parse_uint(fields[132], "key_center_g", line_no, 8)
-                    key_scale_g = _parse_uint(fields[133], "key_scale_g", line_no, 8)
-                    key_center_b = _parse_uint(fields[134], "key_center_b", line_no, 8)
-                    key_scale_b = _parse_uint(fields[135], "key_scale_b", line_no, 8)
-                    key_state = _parse_uint(fields[136], "key_state", line_no, 64)
-                    convert_state = _parse_uint(fields[137], "convert_state", line_no, 64)
+                tile1_valid = False
+                tile1_index = 0
+                tile1_format = 0
+                tile1_size = 0
+                tile1_line = 0
+                tile1_tmem = 0
+                tile1_palette = 0
+                tile1_cmt = 0
+                tile1_cms = 0
+                tile1_maskt = 0
+                tile1_masks = 0
+                tile1_shiftt = 0
+                tile1_shifts = 0
+                tile1_uls = 0
+                tile1_ult = 0
+                tile1_lrs = 0
+                tile1_lrt = 0
+                if has_tile1:
+                    tile1_valid = _parse_uint(fields[94], "tile1_valid", line_no, 1) != 0
+                    tile1_index = _parse_uint(fields[95], "tile1_index", line_no, 8)
+                    tile1_format = _parse_uint(fields[96], "tile1_format", line_no, 8)
+                    tile1_size = _parse_uint(fields[97], "tile1_size", line_no, 8)
+                    tile1_line = _parse_uint(fields[98], "tile1_line", line_no, 16)
+                    tile1_tmem = _parse_uint(fields[99], "tile1_tmem", line_no, 16)
+                    tile1_palette = _parse_uint(fields[100], "tile1_palette", line_no, 8)
+                    tile1_cmt = _parse_uint(fields[101], "tile1_cmt", line_no, 8)
+                    tile1_cms = _parse_uint(fields[102], "tile1_cms", line_no, 8)
+                    tile1_maskt = _parse_uint(fields[103], "tile1_maskt", line_no, 8)
+                    tile1_masks = _parse_uint(fields[104], "tile1_masks", line_no, 8)
+                    tile1_shiftt = _parse_uint(fields[105], "tile1_shiftt", line_no, 8)
+                    tile1_shifts = _parse_uint(fields[106], "tile1_shifts", line_no, 8)
+                    tile1_uls = _parse_uint(fields[107], "tile1_uls", line_no, 16)
+                    tile1_ult = _parse_uint(fields[108], "tile1_ult", line_no, 16)
+                    tile1_lrs = _parse_uint(fields[109], "tile1_lrs", line_no, 16)
+                    tile1_lrt = _parse_uint(fields[110], "tile1_lrt", line_no, 16)
+                if has_extended_state:
+                    depth_compare_enable = (
+                        _parse_uint(
+                            fields[extra_state_base_index + 0],
+                            "depth_compare_enable",
+                            line_no,
+                            1,
+                        )
+                        != 0
+                    )
+                    depth_update_enable = (
+                        _parse_uint(
+                            fields[extra_state_base_index + 1],
+                            "depth_update_enable",
+                            line_no,
+                            1,
+                        )
+                        != 0
+                    )
+                    alpha_compare = _parse_uint(fields[extra_state_base_index + 2], "alpha_compare", line_no, 8)
+                    cvg_dest = _parse_uint(fields[extra_state_base_index + 3], "cvg_dest", line_no, 8)
+                    blend_mask = _parse_uint(fields[extra_state_base_index + 4], "blend_mask", line_no, 8)
+                    cvg_x_alpha = (
+                        _parse_uint(fields[extra_state_base_index + 5], "cvg_x_alpha", line_no, 1)
+                        != 0
+                    )
+                    alpha_cvg_sel = (
+                        _parse_uint(fields[extra_state_base_index + 6], "alpha_cvg_sel", line_no, 1)
+                        != 0
+                    )
+                    color_on_cvg = (
+                        _parse_uint(fields[extra_state_base_index + 7], "color_on_cvg", line_no, 1)
+                        != 0
+                    )
+                    force_blender = (
+                        _parse_uint(fields[extra_state_base_index + 8], "force_blender", line_no, 1)
+                        != 0
+                    )
+                    depth_source = _parse_uint(fields[extra_state_base_index + 9], "depth_source", line_no, 8)
+                    prim_depth_z = _parse_uint(fields[extra_state_base_index + 10], "prim_depth_z", line_no, 16)
+                    prim_depth_delta = _parse_uint(
+                        fields[extra_state_base_index + 11], "prim_depth_delta", line_no, 16
+                    )
+                    other_modes = _parse_uint(fields[extra_state_base_index + 12], "other_modes", line_no, 64)
+                    prim_color = _parse_uint(fields[extra_state_base_index + 13], "prim_color", line_no, 32)
+                    env_color = _parse_uint(fields[extra_state_base_index + 14], "env_color", line_no, 32)
+                    blend_color = _parse_uint(fields[extra_state_base_index + 15], "blend_color", line_no, 32)
+                    fog_color = _parse_uint(fields[extra_state_base_index + 16], "fog_color", line_no, 32)
+                    prim_color_min_level = _parse_uint(
+                        fields[extra_state_base_index + 17], "prim_color_min_level", line_no, 8
+                    )
+                    prim_color_lod_frac = _parse_uint(
+                        fields[extra_state_base_index + 18], "prim_color_lod_frac", line_no, 8
+                    )
+                    convert_k4 = _sign_extend(
+                        _parse_uint(fields[extra_state_base_index + 19], "convert_k4_raw", line_no, 16),
+                        16,
+                    )
+                    convert_k5 = _sign_extend(
+                        _parse_uint(fields[extra_state_base_index + 20], "convert_k5_raw", line_no, 16),
+                        16,
+                    )
+                    key_center_r = _parse_uint(fields[extra_state_base_index + 21], "key_center_r", line_no, 8)
+                    key_scale_r = _parse_uint(fields[extra_state_base_index + 22], "key_scale_r", line_no, 8)
+                    key_center_g = _parse_uint(fields[extra_state_base_index + 23], "key_center_g", line_no, 8)
+                    key_scale_g = _parse_uint(fields[extra_state_base_index + 24], "key_scale_g", line_no, 8)
+                    key_center_b = _parse_uint(fields[extra_state_base_index + 25], "key_center_b", line_no, 8)
+                    key_scale_b = _parse_uint(fields[extra_state_base_index + 26], "key_scale_b", line_no, 8)
+                    key_state = _parse_uint(fields[extra_state_base_index + 27], "key_state", line_no, 64)
+                    convert_state = _parse_uint(fields[extra_state_base_index + 28], "convert_state", line_no, 64)
                 current_frame.render_work.append(
                     RenderWorkRecord(
                             source_packet_id=_parse_uint(fields[1], "source_packet_id", line_no, 64),
@@ -1617,21 +1713,62 @@ def parse_packet_trace(path: Path) -> List[FrameRecord]:
                             tile_ult=_parse_uint(fields[91], "tile_ult", line_no, 16),
                             tile_lrs=_parse_uint(fields[92], "tile_lrs", line_no, 16),
                             tile_lrt=_parse_uint(fields[93], "tile_lrt", line_no, 16),
-                            tmem_load_kind=_parse_uint(fields[94], "tmem_load_kind", line_no, 8),
-                            tmem_load_tile=_parse_uint(fields[95], "tmem_load_tile", line_no, 8),
-                            tmem_load_uls=_parse_uint(fields[96], "tmem_load_uls", line_no, 16),
-                            tmem_load_ult=_parse_uint(fields[97], "tmem_load_ult", line_no, 16),
-                            tmem_load_lrs=_parse_uint(fields[98], "tmem_load_lrs", line_no, 16),
-                            tmem_load_lrt=_parse_uint(fields[99], "tmem_load_lrt", line_no, 16),
-                            tmem_load_dxt=_parse_uint(fields[100], "tmem_load_dxt", line_no, 16),
-                            combine_mux=_parse_uint(fields[101], "combine_mux", line_no, 64),
-                            blend_params=_parse_uint(fields[102], "blend_params", line_no, 32),
-                            fill_color=_parse_uint(fields[103], "fill_color", line_no, 32),
-                            sync_epoch=_parse_uint(fields[104], "sync_epoch", line_no, 32),
-                            load_sync_packet_id=_parse_uint(fields[105], "load_sync_packet_id", line_no, 64),
-                            pipe_sync_packet_id=_parse_uint(fields[106], "pipe_sync_packet_id", line_no, 64),
-                            tile_sync_packet_id=_parse_uint(fields[107], "tile_sync_packet_id", line_no, 64),
-                            full_sync_packet_id=_parse_uint(fields[108], "full_sync_packet_id", line_no, 64),
+                            tile1_valid=tile1_valid,
+                            tile1_index=tile1_index,
+                            tile1_format=tile1_format,
+                            tile1_size=tile1_size,
+                            tile1_line=tile1_line,
+                            tile1_tmem=tile1_tmem,
+                            tile1_palette=tile1_palette,
+                            tile1_cmt=tile1_cmt,
+                            tile1_cms=tile1_cms,
+                            tile1_maskt=tile1_maskt,
+                            tile1_masks=tile1_masks,
+                            tile1_shiftt=tile1_shiftt,
+                            tile1_shifts=tile1_shifts,
+                            tile1_uls=tile1_uls,
+                            tile1_ult=tile1_ult,
+                            tile1_lrs=tile1_lrs,
+                            tile1_lrt=tile1_lrt,
+                            tmem_load_kind=_parse_uint(
+                                fields[tmem_base_index + 0], "tmem_load_kind", line_no, 8
+                            ),
+                            tmem_load_tile=_parse_uint(
+                                fields[tmem_base_index + 1], "tmem_load_tile", line_no, 8
+                            ),
+                            tmem_load_uls=_parse_uint(
+                                fields[tmem_base_index + 2], "tmem_load_uls", line_no, 16
+                            ),
+                            tmem_load_ult=_parse_uint(
+                                fields[tmem_base_index + 3], "tmem_load_ult", line_no, 16
+                            ),
+                            tmem_load_lrs=_parse_uint(
+                                fields[tmem_base_index + 4], "tmem_load_lrs", line_no, 16
+                            ),
+                            tmem_load_lrt=_parse_uint(
+                                fields[tmem_base_index + 5], "tmem_load_lrt", line_no, 16
+                            ),
+                            tmem_load_dxt=_parse_uint(
+                                fields[tmem_base_index + 6], "tmem_load_dxt", line_no, 16
+                            ),
+                            combine_mux=_parse_uint(fields[tmem_base_index + 7], "combine_mux", line_no, 64),
+                            blend_params=_parse_uint(
+                                fields[tmem_base_index + 8], "blend_params", line_no, 32
+                            ),
+                            fill_color=_parse_uint(fields[tmem_base_index + 9], "fill_color", line_no, 32),
+                            sync_epoch=_parse_uint(fields[tmem_base_index + 10], "sync_epoch", line_no, 32),
+                            load_sync_packet_id=_parse_uint(
+                                fields[tmem_base_index + 11], "load_sync_packet_id", line_no, 64
+                            ),
+                            pipe_sync_packet_id=_parse_uint(
+                                fields[tmem_base_index + 12], "pipe_sync_packet_id", line_no, 64
+                            ),
+                            tile_sync_packet_id=_parse_uint(
+                                fields[tmem_base_index + 13], "tile_sync_packet_id", line_no, 64
+                            ),
+                            full_sync_packet_id=_parse_uint(
+                                fields[tmem_base_index + 14], "full_sync_packet_id", line_no, 64
+                            ),
                             depth_compare_enable=depth_compare_enable,
                             depth_update_enable=depth_update_enable,
                             alpha_compare=alpha_compare,
@@ -2904,6 +3041,8 @@ def _build_render_work(
     replay_state: RenderPlanReplayState,
 ) -> RenderWorkRecord:
     tile = tmem_snapshot.tiles[op.tile & 0x7]
+    tile1_index = (op.tile + 1) & 0x7
+    tile1 = tmem_snapshot.tiles[tile1_index]
 
     barrier_mask = RENDER_BARRIER_NONE
     load_mask, replay_state.last_load_sync_packet_id = _set_barrier_if_advanced(
@@ -3081,6 +3220,23 @@ def _build_render_work(
         tile_ult=tile.ult,
         tile_lrs=tile.lrs,
         tile_lrt=tile.lrt,
+        tile1_valid=True,
+        tile1_index=tile1_index,
+        tile1_format=tile1.format,
+        tile1_size=tile1.size,
+        tile1_line=tile1.line,
+        tile1_tmem=tile1.tmem,
+        tile1_palette=tile1.palette,
+        tile1_cmt=tile1.cmt,
+        tile1_cms=tile1.cms,
+        tile1_maskt=tile1.maskt,
+        tile1_masks=tile1.masks,
+        tile1_shiftt=tile1.shiftt,
+        tile1_shifts=tile1.shifts,
+        tile1_uls=tile1.uls,
+        tile1_ult=tile1.ult,
+        tile1_lrs=tile1.lrs,
+        tile1_lrt=tile1.lrt,
         tmem_load_kind=tmem_snapshot.last_load.kind,
         tmem_load_tile=tmem_snapshot.last_load.tile,
         tmem_load_uls=tmem_snapshot.last_load.uls,
