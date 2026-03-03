@@ -31,13 +31,13 @@ Accuracy-first. RVK2-only path. No legacy renderer fallback.
 12. Triangle Y edge values are now consumed as signed 14-bit s10.2 values in both render-plan bound derivation and executor rasterization.
 13. Executor TMEM sampling is now bound to per-draw historical TMEM snapshots (instead of end-of-frame global TMEM state).
 
-## Remaining Work Map (3.0%)
+## Remaining Work Map (2.9%)
 
 1. `P5` cycle semantics closure (combiner/blender/coverage/depth): **0.5%**
 2. `P3` authoritative TMEM path closure (especially 32b): **1.4%**
 3. `P4` raster/coefficient edge behavior: **0.2%**
 4. `P2` present-source determinism polish: **0.5%**
-5. `P6` VI finishing polish: **0.3%**
+5. `P6` VI finishing polish: **0.2%**
 
 ## Latest Batch (2026-03-03)
 
@@ -52,6 +52,9 @@ Accuracy-first. RVK2-only path. No legacy renderer fallback.
 4. Closed blender `color_on_cvg` non-overflow write target:
    - non-overflow `color_on_cvg` path now writes blender `M` input (2B path) instead of hardcoded framebuffer memory color.
    - added conformance lock `testColorOnCvgWritesBlenderMInputConformance`.
+5. Closed VI content-window over-letterboxing path:
+   - removed second-pass content fit inside already aspect-resolved output, so VI now fills resolved output instead of reintroducing heavy center-band letterbox.
+   - updated VI aspect unit expectations to lock fill behavior.
 
 ## Previous Batch (2026-03-03)
 

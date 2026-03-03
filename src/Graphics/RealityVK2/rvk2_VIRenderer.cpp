@@ -513,27 +513,10 @@ VIFrameSummary VIRenderer::present(
 	outputWidth = clampU32(outputWidth, 1U, std::max<u32>(1U, m_config.maxOutputWidth));
 	outputHeight = clampU32(outputHeight, 1U, std::max<u32>(1U, m_config.maxOutputHeight));
 
-	u32 contentWidth = outputWidth;
-	u32 contentHeight = outputHeight;
-	const u64 contentSourceScaled = static_cast<u64>(viState.outputWidth) * static_cast<u64>(outputHeight);
-	const u64 contentOutputScaled = static_cast<u64>(viState.outputHeight) * static_cast<u64>(outputWidth);
-	if (contentSourceScaled > contentOutputScaled) {
-		contentHeight = static_cast<u32>(
-			(std::max<u64>(1ULL,
-				static_cast<u64>(outputWidth) * static_cast<u64>(viState.outputHeight)))
-			/ static_cast<u64>(viState.outputWidth));
-		contentHeight = std::max<u32>(1U, std::min<u32>(contentHeight, outputHeight));
-	}
-	else if (contentSourceScaled < contentOutputScaled) {
-		contentWidth = static_cast<u32>(
-			(std::max<u64>(1ULL,
-				static_cast<u64>(outputHeight) * static_cast<u64>(viState.outputWidth)))
-			/ static_cast<u64>(viState.outputHeight));
-		contentWidth = std::max<u32>(1U, std::min<u32>(contentWidth, outputWidth));
-	}
-
-	const u32 contentX = (outputWidth - contentWidth) / 2U;
-	const u32 contentY = (outputHeight - contentHeight) / 2U;
+	const u32 contentWidth = outputWidth;
+	const u32 contentHeight = outputHeight;
+	const u32 contentX = 0U;
+	const u32 contentY = 0U;
 
 	summary.presentWidth = outputWidth;
 	summary.presentHeight = outputHeight;

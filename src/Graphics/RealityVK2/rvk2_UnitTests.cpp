@@ -1224,9 +1224,9 @@ void testVIRendererAspectScaling()
 	const rvk2::VIFrameSummary summary169 = renderer169.present(input43);
 	expectEq(summary169.presentWidth, 6U, "VIRenderer 16:9 width mismatch");
 	expectEq(summary169.presentHeight, 3U, "VIRenderer 16:9 height mismatch");
-	expectEq(summary169.contentX, 1U, "VIRenderer 16:9 contentX mismatch");
+	expectEq(summary169.contentX, 0U, "VIRenderer 16:9 contentX mismatch");
 	expectEq(summary169.contentY, 0U, "VIRenderer 16:9 contentY mismatch");
-	expectEq(summary169.contentWidth, 4U, "VIRenderer 16:9 content width mismatch");
+	expectEq(summary169.contentWidth, 6U, "VIRenderer 16:9 content width mismatch");
 	expectEq(summary169.contentHeight, 3U, "VIRenderer 16:9 content height mismatch");
 	expectTrue(summary169.presentHash != summary43.presentHash, "VIRenderer 16:9 hash should differ from 4:3");
 
@@ -1239,9 +1239,9 @@ void testVIRendererAspectScaling()
 	expectEq(summaryCrop.presentWidth, 8U, "VIRenderer 16:9->4:3 width mismatch");
 	expectEq(summaryCrop.presentHeight, 6U, "VIRenderer 16:9->4:3 height mismatch");
 	expectEq(summaryCrop.contentX, 0U, "VIRenderer 16:9->4:3 contentX mismatch");
-	expectEq(summaryCrop.contentY, 1U, "VIRenderer 16:9->4:3 contentY mismatch");
+	expectEq(summaryCrop.contentY, 0U, "VIRenderer 16:9->4:3 contentY mismatch");
 	expectEq(summaryCrop.contentWidth, 8U, "VIRenderer 16:9->4:3 content width mismatch");
-	expectEq(summaryCrop.contentHeight, 4U, "VIRenderer 16:9->4:3 content height mismatch");
+	expectEq(summaryCrop.contentHeight, 6U, "VIRenderer 16:9->4:3 content height mismatch");
 
 	std::vector<u32> registerPixels{
 		0x000000FFU, 0x010101FFU, 0x020202FFU, 0x030303FFU,
