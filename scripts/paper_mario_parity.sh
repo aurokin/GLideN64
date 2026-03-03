@@ -58,6 +58,10 @@ DEEP_TELEMETRY_DIFF_IGNORE_BOXES="${REALITYVK_PM_DEEP_TELEMETRY_DIFF_IGNORE_BOXE
 DEEP_TELEMETRY_COMMAND_CENSUS="${REALITYVK_PM_DEEP_TELEMETRY_COMMAND_CENSUS:-1}"
 DEEP_TELEMETRY_COMMAND_FOCUS_WINDOW="${REALITYVK_PM_DEEP_TELEMETRY_COMMAND_FOCUS_WINDOW:-1}"
 DEEP_TELEMETRY_REQUIRE_LIVE_PRESENT_SURFACE="${REALITYVK_PM_DEEP_TELEMETRY_REQUIRE_LIVE_PRESENT_SURFACE:-1}"
+AUTO_COMPARE_VIEW="${REALITYVK_PM_AUTO_COMPARE_VIEW:-1}"
+AUTO_COMPARE_VIEW_MODE="${REALITYVK_PM_AUTO_COMPARE_VIEW_MODE:-side_by_side}"
+AUTO_COMPARE_VIEWER="${REALITYVK_PM_AUTO_COMPARE_VIEWER:-eog}"
+AUTO_COMPARE_CLOSE_ALL_EOG="${REALITYVK_PM_AUTO_COMPARE_CLOSE_ALL_EOG:-1}"
 
 if [[ ! -f "${MANIFEST}" ]]; then
   echo "ERROR: scenario manifest not found: ${MANIFEST}" >&2
@@ -215,6 +219,21 @@ if [[ "${DEEP_TELEMETRY_REQUIRE_LIVE_PRESENT_SURFACE}" != "0" && "${DEEP_TELEMET
   exit 2
 fi
 
+if [[ "${AUTO_COMPARE_VIEW}" != "0" && "${AUTO_COMPARE_VIEW}" != "1" ]]; then
+  echo "ERROR: REALITYVK_PM_AUTO_COMPARE_VIEW must be 0 or 1." >&2
+  exit 2
+fi
+
+if [[ "${AUTO_COMPARE_VIEW_MODE}" != "side_by_side" ]]; then
+  echo "ERROR: REALITYVK_PM_AUTO_COMPARE_VIEW_MODE must be 'side_by_side'." >&2
+  exit 2
+fi
+
+if [[ "${AUTO_COMPARE_CLOSE_ALL_EOG}" != "0" && "${AUTO_COMPARE_CLOSE_ALL_EOG}" != "1" ]]; then
+  echo "ERROR: REALITYVK_PM_AUTO_COMPARE_CLOSE_ALL_EOG must be 0 or 1." >&2
+  exit 2
+fi
+
 if ! [[ "${DEEP_TELEMETRY_DIFF_THRESHOLD}" =~ ^[0-9]+$ ]] || (( DEEP_TELEMETRY_DIFF_THRESHOLD > 255 )); then
   echo "ERROR: REALITYVK_PM_DEEP_TELEMETRY_DIFF_THRESHOLD must be an integer in [0,255]." >&2
   exit 2
@@ -341,6 +360,8 @@ DIFF_PLAYBOOK_BOXES_OUT=""
 DIFF_PLAYBOOK_SNIPPET_OUT=""
 COMMAND_CENSUS_OUT=""
 COMMAND_CENSUS_MD_OUT=""
+COMPARE_SIDE_BY_SIDE_OUT="${RUN_ROOT}/${SCENARIO_ID}.compare_side_by_side.latest.png"
+COMPARE_VIEWER_PID_FILE="${RUN_ROOT}/.paper_mario_parity_compare_view.pid"
 
 SCENARIO_ARGS_ARRAY=()
 if [[ -n "${SCENARIO_ARGS// }" ]]; then
@@ -520,6 +541,71 @@ raise SystemExit(1)
 PY
 }
 
+build_auto_compare_side_by_side() {
+  local reference_source="$1"
+  local candidate_source="$2"
+  local out_path="$3"
+
+  if command -v magick >/dev/null 2>&1; then
+    magick "${reference_source}" "${candidate_source}" +append "${out_path}"
+    return 0
+  fi
+  if command -v convert >/dev/null 2>&1; then
+    convert "${reference_source}" "${candidate_source}" +append "${out_path}"
+    return 0
+  fi
+
+  echo "WARN: auto compare requested but ImageMagick is unavailable (magick/convert not found)." >&2
+  return 1
+}
+
+close_auto_compare_viewer() {
+  if [[ -f "${COMPARE_VIEWER_PID_FILE}" ]]; then
+    old_pid="$(cat "${COMPARE_VIEWER_PID_FILE}" 2>/dev/null || true)"
+    if [[ -n "${old_pid}" ]] && kill -0 "${old_pid}" >/dev/null 2>&1; then
+      kill "${old_pid}" >/dev/null 2>&1 || true
+      sleep 0.15
+    fi
+    rm -f "${COMPARE_VIEWER_PID_FILE}"
+  fi
+
+  if [[ "${AUTO_COMPARE_CLOSE_ALL_EOG}" == "1" ]]; then
+    pkill -x eog >/dev/null 2>&1 || true
+  fi
+}
+
+open_auto_compare_viewer() {
+  local image_path="$1"
+
+  if [[ "${AUTO_COMPARE_VIEWER}" != "eog" ]]; then
+    echo "WARN: REALITYVK_PM_AUTO_COMPARE_VIEWER supports only 'eog' currently (got '${AUTO_COMPARE_VIEWER}')." >&2
+    return 0
+  fi
+
+  if [[ -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]]; then
+    echo "WARN: auto compare viewer skipped (DISPLAY/WAYLAND_DISPLAY not set)." >&2
+    return 0
+  fi
+
+  if ! command -v eog >/dev/null 2>&1; then
+    echo "WARN: auto compare viewer requested but eog is unavailable." >&2
+    return 0
+  fi
+
+  setsid eog --new-instance "${image_path}" >/dev/null 2>&1 < /dev/null &
+  new_pid="$!"
+  disown || true
+  sleep 0.2
+  if kill -0 "${new_pid}" >/dev/null 2>&1; then
+    echo "${new_pid}" > "${COMPARE_VIEWER_PID_FILE}"
+    return 0
+  fi
+
+  echo "WARN: eog exited before image view stabilized: ${image_path}" >&2
+  rm -f "${COMPARE_VIEWER_PID_FILE}"
+  return 0
+}
+
 if [[ "${REFRESH_REFERENCE}" == "1" || ! -s "${REFERENCE_CAPTURE}" ]]; then
   if [[ ! -f "${REFERENCE_PLUGIN}" ]]; then
     echo "ERROR: reference plugin not found: ${REFERENCE_PLUGIN}" >&2
@@ -692,6 +778,14 @@ Image.open(cand_ppm).convert("RGB").save(cand_png)
 print(f"reference png: {ref_png}")
 print(f"candidate png: {cand_png}")
 PY
+
+if [[ "${AUTO_COMPARE_VIEW}" == "1" ]]; then
+  if build_auto_compare_side_by_side "${REFERENCE_PNG}" "${CANDIDATE_PNG}" "${COMPARE_SIDE_BY_SIDE_OUT}"; then
+    echo "auto compare image: ${COMPARE_SIDE_BY_SIDE_OUT}"
+    close_auto_compare_viewer
+    open_auto_compare_viewer "${COMPARE_SIDE_BY_SIDE_OUT}"
+  fi
+fi
 
 if [[ "${CAPTURE_DEPTH_SUMMARY}" == "1" ]]; then
   ref_depth_summary="${RUN_ROOT}/${SCENARIO_ID}.reference.depth-blit-summary.json"
