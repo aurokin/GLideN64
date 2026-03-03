@@ -529,6 +529,7 @@ def _build_signals(
         write_state_hits = missing_region_focus.get("write_state_hits", {})
         write_coverage = missing_region_focus.get("write_coverage", {})
         missing_write_attribution = missing_region_focus.get("missing_write_attribution", {})
+        work_hit_stats = missing_region_focus.get("work_hit_stats", {})
         color_image_sequence = missing_region_focus.get("color_image_sequence", {})
         history_window = missing_region_focus.get("history_window", {})
         address_write_stats_raw = missing_region_focus.get("address_write_stats", [])
@@ -555,10 +556,14 @@ def _build_signals(
         present_surface_address_stats: Dict[str, Any] = {}
         dominant_missing_address_stats: Dict[str, Any] = {}
         history_address_write_stats: List[Dict[str, Any]] = []
+        history_prior_address_write_stats: List[Dict[str, Any]] = []
         if isinstance(history_window, dict):
             history_rows = history_window.get("address_write_stats", [])
             if isinstance(history_rows, list):
                 history_address_write_stats = [row for row in history_rows if isinstance(row, dict)]
+            history_prior_rows = history_window.get("prior_address_write_stats", [])
+            if isinstance(history_prior_rows, list):
+                history_prior_address_write_stats = [row for row in history_prior_rows if isinstance(row, dict)]
         present_surface_history_stats: Dict[str, Any] = {}
         dominant_missing_history_stats: Dict[str, Any] = {}
         if address_write_stats:
@@ -581,6 +586,11 @@ def _build_signals(
                 history_address_write_stats,
                 key=lambda row: int(row.get("write_source_box_pixels", 0) or 0),
             )
+        missing_write_history = (
+            missing_write_attribution.get("history", {})
+            if isinstance(missing_write_attribution, dict)
+            else {}
+        )
 
         missing_region_signal = {
             "frame_id": frame_id,
@@ -599,9 +609,11 @@ def _build_signals(
             "write_state_hits": write_state_hits if isinstance(write_state_hits, dict) else {},
             "source_boxes": missing_region_focus.get("source_boxes", []),
             "write_coverage": write_coverage if isinstance(write_coverage, dict) else {},
+            "work_hit_stats": work_hit_stats if isinstance(work_hit_stats, dict) else {},
             "missing_write_attribution": (
                 missing_write_attribution if isinstance(missing_write_attribution, dict) else {}
             ),
+            "missing_write_history": missing_write_history if isinstance(missing_write_history, dict) else {},
             "color_image_sequence": color_image_sequence if isinstance(color_image_sequence, dict) else {},
             "history_window": history_window if isinstance(history_window, dict) else {},
             "present_surface_focus": present_surface_focus,
@@ -611,6 +623,7 @@ def _build_signals(
             "present_surface_history_stats": present_surface_history_stats,
             "dominant_missing_history_stats": dominant_missing_history_stats,
             "address_write_stats": address_write_stats,
+            "history_prior_address_write_stats": history_prior_address_write_stats,
         }
         tri_hit_ratio = _ratio(tri_bbox_hit, tri_total)
         tex_hit_ratio = _ratio(tex_bbox_hit, tex_total)
@@ -632,6 +645,14 @@ def _build_signals(
             suspected_gaps.append(
                 "missing-region triangle coverage intersects target box but write-bounds hit ratio is substantially lower (triangle bounds/scissor loss)"
             )
+        if isinstance(work_hit_stats, dict):
+            hit_total = int(work_hit_stats.get("hit_total", 0) or 0)
+            samples_emitted = int(work_hit_stats.get("samples_emitted", 0) or 0)
+            samples_truncated = int(work_hit_stats.get("samples_truncated", 0) or 0)
+            if hit_total > 0 and samples_truncated > 0 and samples_emitted * 5 < hit_total * 4:
+                suspected_gaps.append(
+                    "missing-region hit samples are heavily truncated; increase max-hit-samples for full chronology attribution"
+                )
 
         if isinstance(write_state_hits, dict):
             def dominant_entry(key: str):
@@ -731,6 +752,61 @@ def _build_signals(
                     suspected_gaps.append(
                         "left-side missing pixels are predominantly unwritten versus center (missing geometry/primitive coverage on left strip)"
                     )
+            if isinstance(missing_write_history, dict):
+                missing_without_current_with_prior_ratio = missing_write_history.get(
+                    "missing_without_current_with_prior_write_ratio"
+                )
+                missing_without_current_without_prior_ratio = missing_write_history.get(
+                    "missing_without_current_without_prior_write_ratio"
+                )
+                present_prior_overlap_ratio = missing_write_history.get("present_surface_prior_overlap_ratio")
+                dominant_prior = (
+                    missing_write_history.get("dominant_prior_overlap_address")
+                    if isinstance(missing_write_history.get("dominant_prior_overlap_address"), dict)
+                    else {}
+                )
+                dominant_prior_ratio = dominant_prior.get("missing_overlap_ratio")
+                dominant_prior_is_present = bool(dominant_prior.get("is_present_surface", False))
+                if (
+                    isinstance(missing_without_current_with_prior_ratio, (int, float))
+                    and missing_without_current_with_prior_ratio > 0.45
+                ):
+                    suspected_gaps.append(
+                        "many missing pixels are unwritten in the focus frame but were written in prior frames (carry-forward/handoff dependency)"
+                    )
+                if (
+                    isinstance(missing_without_current_without_prior_ratio, (int, float))
+                    and missing_without_current_without_prior_ratio > 0.55
+                ):
+                    suspected_gaps.append(
+                        "most unwritten missing pixels were not written even in recent history (likely absent primitive coverage, not handoff)"
+                    )
+                if (
+                    isinstance(dominant_prior_ratio, (int, float))
+                    and dominant_prior_ratio > 0.35
+                    and not dominant_prior_is_present
+                    and isinstance(present_prior_overlap_ratio, (int, float))
+                    and present_prior_overlap_ratio + 0.15 < dominant_prior_ratio
+                ):
+                    suspected_gaps.append(
+                        "prior-frame missing overlap is dominated by a non-present surface target (present-surface handoff/composition mismatch)"
+                    )
+                prior_overlap_rows = (
+                    missing_write_history.get("prior_address_overlap_rows")
+                    if isinstance(missing_write_history.get("prior_address_overlap_rows"), list)
+                    else []
+                )
+                strong_prior_overlap_rows = 0
+                for row in prior_overlap_rows:
+                    if not isinstance(row, dict):
+                        continue
+                    overlap_ratio = row.get("missing_overlap_ratio")
+                    if isinstance(overlap_ratio, (int, float)) and overlap_ratio > 0.80:
+                        strong_prior_overlap_rows += 1
+                if strong_prior_overlap_rows >= 2:
+                    suspected_gaps.append(
+                        "unwritten missing pixels overlap strongly with multiple prior color-image targets (cross-surface carry-forward composition likely required)"
+                    )
 
         if address_write_stats:
             unique_targets = (
@@ -791,6 +867,29 @@ def _build_signals(
                     suspected_gaps.append(
                         "history-window missing-box coverage is stronger on a non-present target than the VI-selected surface (cross-frame handoff mismatch candidate)"
                     )
+        if history_prior_address_write_stats and present_surface_focus > 0:
+            present_prior_row: Dict[str, Any] = {}
+            dominant_prior_row = max(
+                history_prior_address_write_stats,
+                key=lambda row: int(row.get("write_source_box_pixels", 0) or 0),
+            )
+            for row in history_prior_address_write_stats:
+                if int(row.get("color_image_address", 0) or 0) == present_surface_focus:
+                    present_prior_row = row
+                    break
+            present_prior_ratio = present_prior_row.get("write_source_box_ratio") if present_prior_row else None
+            dominant_prior_ratio = dominant_prior_row.get("write_source_box_ratio")
+            dominant_prior_addr = int(dominant_prior_row.get("color_image_address", 0) or 0)
+            if (
+                isinstance(present_prior_ratio, (int, float))
+                and isinstance(dominant_prior_ratio, (int, float))
+                and dominant_prior_addr != present_surface_focus
+                and dominant_prior_ratio > 0.25
+                and present_prior_ratio + 0.12 < dominant_prior_ratio
+            ):
+                suspected_gaps.append(
+                    "prior-window write coverage for missing boxes is stronger on a non-present target than the present surface (frame handoff likely under-selecting carry-forward source)"
+                )
 
     deviation_signal: Dict[str, Any] = {}
     if isinstance(diff_playbook_summary, dict):

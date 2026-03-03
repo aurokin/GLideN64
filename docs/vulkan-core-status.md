@@ -572,6 +572,22 @@
     - rotating target buffers across adjacent frames,
     - non-present target dominance in missing-region coverage,
     - texrect-vs-triangle dominance in missing boxes.
+- Missing-region focus telemetry v3 (history-owner attribution + deeper single-run coverage):
+  - `scripts/rvk2_missing_region_focus.py` now also emits:
+    - `work_hit_stats` (`hit_total`, emitted sample count, truncation count) so chronology truncation is explicit.
+    - history-owner attribution for missing pixels:
+      - `missing_without_current_with_prior_write` vs `missing_without_current_without_prior_write`,
+      - prior-frame overlap by color-image target (`prior_address_overlap_rows`),
+      - present-surface overlap vs dominant prior overlap target.
+    - prior-window address write stats (`history_window.prior_address_write_stats`) and prior frame ids.
+  - `scripts/paper_mario_parity.sh` deep telemetry now defaults to high-coverage missing-region sampling:
+    - `REALITYVK_PM_DEEP_TELEMETRY_MISSING_REGION_MAX_HIT_SAMPLES=4096`
+    - `REALITYVK_PM_DEEP_TELEMETRY_MISSING_REGION_HISTORY_WINDOW=4`
+    - `REALITYVK_PM_DEEP_TELEMETRY_MISSING_REGION_MAX_ADDRESS_OVERLAP=16`
+  - `scripts/rvk2_telemetry_bundle.py` now emits additional leads when:
+    - unwritten missing pixels are mostly explained by prior-frame writes (carry-forward/handoff dependency),
+    - unwritten missing pixels are not explained by recent history (absent primitive coverage),
+    - multiple prior targets strongly overlap unwritten missing pixels (cross-surface composition requirement).
 - New deep run (`paper_mario-exp-handoff-lane`, bootstrap + cross-surface + `REALITYVK_RVK2_DEBUG_DISABLE_VI_HISTORY_PRESENT=1`):
   - `rmse=0.368067`, `candidate_non_black_ratio=0.742217`, `candidate_mean_luma=0.280745`.
   - Missing-region focus (`frame 126`) still shows mixed failure modes:

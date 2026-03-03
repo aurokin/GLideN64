@@ -498,7 +498,7 @@ def main() -> int:
     parser.add_argument(
         "--max-hit-samples",
         type=int,
-        default=24,
+        default=256,
         help="max intersecting work samples to emit",
     )
     parser.add_argument(
@@ -509,6 +509,12 @@ def main() -> int:
             "number of prior render-work frames to include for color-image address history "
             "(0 analyzes selected frame only)"
         ),
+    )
+    parser.add_argument(
+        "--max-address-overlap",
+        type=int,
+        default=16,
+        help="max address overlap rows to emit for missing-write attribution",
     )
     args = parser.parse_args()
 
@@ -534,7 +540,7 @@ def main() -> int:
     boxes = _load_boxes(summary, diff_summary_path)
     if not boxes:
         payload = {
-            "schema": "rvk2_missing_region_focus_v2",
+            "schema": "rvk2_missing_region_focus_v3",
             "packet_trace": str(packet_trace_path),
             "diff_summary": str(diff_summary_path),
             "frame_id": None,
@@ -554,6 +560,7 @@ def main() -> int:
             "address_write_stats": [],
             "work_hit_samples": [],
             "missing_write_attribution": {},
+            "work_hit_stats": {},
             "notes": ["no diff boxes available"],
         }
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -623,6 +630,10 @@ def main() -> int:
     op_union_masks: Dict[str, bytearray] = {}
     address_stats: Dict[int, Counter[str]] = defaultdict(Counter)
     hit_samples: List[Dict[str, Any]] = []
+    work_hit_total = 0
+    work_hit_bbox_total = 0
+    work_hit_write_total = 0
+    work_hit_sample_truncated = 0
 
     for work in selected_frame.render_work:
         op_kind = int(work.op_kind)
@@ -693,6 +704,12 @@ def main() -> int:
         if not bbox_hit and not write_hit:
             continue
 
+        work_hit_total += 1
+        if bbox_hit:
+            work_hit_bbox_total += 1
+        if write_hit:
+            work_hit_write_total += 1
+
         if bool(work.textured):
             bucket_key = f"{op_name}:f{int(work.tile_format)}s{int(work.tile_size)}"
             if int(work.tile_format) == 2 and int(work.tile_size) == 0:
@@ -741,15 +758,19 @@ def main() -> int:
                     "color_image_address": color_image_address,
                 }
             )
+        else:
+            work_hit_sample_truncated += 1
 
     history_window = max(0, int(args.history_frame_window))
     history_frames: List[Any] = []
+    history_frame_pairs: List[Tuple[Any, bool]] = []
     if selected_frame_index >= 0:
         first_index = max(0, selected_frame_index - history_window)
         for idx in range(first_index, selected_frame_index + 1):
             frame = frames[idx]
             if len(frame.render_work) > 0:
                 history_frames.append(frame)
+                history_frame_pairs.append((frame, idx == selected_frame_index))
 
     history_color_image_sequence: List[int] = []
     history_color_image_switch_count = 0
@@ -758,8 +779,18 @@ def main() -> int:
     history_address_stats: Dict[int, Counter[str]] = defaultdict(Counter)
     history_address_masks: Dict[int, bytearray] = {}
     history_address_op_masks: Dict[int, Dict[str, bytearray]] = defaultdict(dict)
+    history_union_mask = bytearray(total_pixels)
+    history_op_union_masks: Dict[str, bytearray] = {}
+    history_prior_address_stats: Dict[int, Counter[str]] = defaultdict(Counter)
+    history_prior_address_masks: Dict[int, bytearray] = {}
+    history_prior_address_op_masks: Dict[int, Dict[str, bytearray]] = defaultdict(dict)
+    history_prior_union_mask = bytearray(total_pixels)
+    history_prior_op_union_masks: Dict[str, bytearray] = {}
+    history_prior_frame_ids: List[int] = []
 
-    for frame in history_frames:
+    for frame, is_selected in history_frame_pairs:
+        if not is_selected:
+            history_prior_frame_ids.append(int(frame.frame_id))
         for work in frame.render_work:
             op_name = _op_kind_name(int(work.op_kind))
             color_image_address = int(work.color_image_address)
@@ -774,10 +805,22 @@ def main() -> int:
             history_counter = history_address_stats[color_image_address]
             history_counter["work_total"] += 1
             history_counter[f"work_{op_name}_total"] += 1
+            if not is_selected:
+                prior_counter = history_prior_address_stats[color_image_address]
+                prior_counter["work_total"] += 1
+                prior_counter[f"work_{op_name}_total"] += 1
 
             write_bounds = _compute_effective_write_bounds(work, source_width, source_height)
             if write_bounds is None or total_pixels <= 0:
                 continue
+
+            _mark_mask_bounds(history_union_mask, write_bounds, source_width, source_height)
+            history_union_op_mask = history_op_union_masks.get(op_name)
+            if history_union_op_mask is None:
+                history_union_op_mask = bytearray(total_pixels)
+                history_op_union_masks[op_name] = history_union_op_mask
+            _mark_mask_bounds(history_union_op_mask, write_bounds, source_width, source_height)
+
             mask = history_address_masks.get(color_image_address)
             if mask is None:
                 mask = bytearray(total_pixels)
@@ -792,6 +835,32 @@ def main() -> int:
                 op_mask = bytearray(total_pixels)
                 history_address_op_masks[color_image_address][op_name] = op_mask
             _mark_mask_bounds(op_mask, write_bounds, source_width, source_height)
+
+            if is_selected:
+                continue
+
+            _mark_mask_bounds(history_prior_union_mask, write_bounds, source_width, source_height)
+            prior_union_op_mask = history_prior_op_union_masks.get(op_name)
+            if prior_union_op_mask is None:
+                prior_union_op_mask = bytearray(total_pixels)
+                history_prior_op_union_masks[op_name] = prior_union_op_mask
+            _mark_mask_bounds(prior_union_op_mask, write_bounds, source_width, source_height)
+
+            prior_mask = history_prior_address_masks.get(color_image_address)
+            if prior_mask is None:
+                prior_mask = bytearray(total_pixels)
+                history_prior_address_masks[color_image_address] = prior_mask
+            prior_painted = _mark_mask_bounds(prior_mask, write_bounds, source_width, source_height)
+            if prior_painted > 0:
+                prior_counter = history_prior_address_stats[color_image_address]
+                prior_counter["write_area_pixels"] += prior_painted
+                prior_counter[f"write_area_pixels_{op_name}"] += prior_painted
+
+            prior_op_mask = history_prior_address_op_masks[color_image_address].get(op_name)
+            if prior_op_mask is None:
+                prior_op_mask = bytearray(total_pixels)
+                history_prior_address_op_masks[color_image_address][op_name] = prior_op_mask
+            _mark_mask_bounds(prior_op_mask, write_bounds, source_width, source_height)
 
     write_union_pixels = int(sum(write_union_mask))
     write_union_box_pixels = _count_mask_and(write_union_mask, source_box_mask)
@@ -827,32 +896,171 @@ def main() -> int:
             source_height,
         )
         missing_source_pixels = int(sum(missing_source_mask))
-        missing_with_write_pixels = _count_mask_and(missing_source_mask, write_union_mask)
-        missing_without_write_pixels = max(0, missing_source_pixels - missing_with_write_pixels)
+        missing_with_write_mask = bytearray(total_pixels)
+        missing_without_write_mask = bytearray(total_pixels)
+        missing_without_write_with_prior_mask = bytearray(total_pixels)
+        missing_without_write_without_prior_mask = bytearray(total_pixels)
+        for idx in range(total_pixels):
+            if missing_source_mask[idx] == 0:
+                continue
+            if write_union_mask[idx] != 0:
+                missing_with_write_mask[idx] = 1
+                continue
+            missing_without_write_mask[idx] = 1
+            if history_prior_union_mask[idx] != 0:
+                missing_without_write_with_prior_mask[idx] = 1
+            else:
+                missing_without_write_without_prior_mask[idx] = 1
+        missing_with_write_pixels = int(sum(missing_with_write_mask))
+        missing_without_write_pixels = int(sum(missing_without_write_mask))
+        missing_with_prior_write_pixels = _count_mask_and(missing_source_mask, history_prior_union_mask)
+        missing_without_write_with_prior_pixels = int(sum(missing_without_write_with_prior_mask))
+        missing_without_write_without_prior_pixels = int(sum(missing_without_write_without_prior_mask))
 
         op_cover_pixels: Dict[str, int] = {}
         op_cover_ratios: Dict[str, Optional[float]] = {}
+        prior_op_cover_pixels: Dict[str, int] = {}
+        prior_op_cover_ratios: Dict[str, Optional[float]] = {}
+        history_window_op_cover_pixels: Dict[str, int] = {}
+        history_window_op_cover_ratios: Dict[str, Optional[float]] = {}
         for op_name in ("fill", "triangle", "texrect"):
             op_mask = op_union_masks.get(op_name, bytearray(total_pixels))
             op_pixels = _count_mask_and(missing_source_mask, op_mask)
             op_cover_pixels[op_name] = op_pixels
             op_cover_ratios[op_name] = _ratio(op_pixels, missing_source_pixels)
+            prior_op_mask = history_prior_op_union_masks.get(op_name, bytearray(total_pixels))
+            prior_op_pixels = _count_mask_and(missing_without_write_mask, prior_op_mask)
+            prior_op_cover_pixels[op_name] = prior_op_pixels
+            prior_op_cover_ratios[op_name] = _ratio(prior_op_pixels, missing_without_write_pixels)
+            history_window_op_mask = history_op_union_masks.get(op_name, bytearray(total_pixels))
+            history_window_op_pixels = _count_mask_and(missing_source_mask, history_window_op_mask)
+            history_window_op_cover_pixels[op_name] = history_window_op_pixels
+            history_window_op_cover_ratios[op_name] = _ratio(history_window_op_pixels, missing_source_pixels)
+
+        max_address_overlap = max(0, int(args.max_address_overlap))
+        present_surface_address = int(forensics_last.get("present_surface", 0) or 0)
+
+        def _build_address_overlap_rows(
+            address_masks: Dict[int, bytearray],
+            address_op_masks: Dict[int, Dict[str, bytearray]],
+            missing_mask: bytearray,
+            missing_pixels: int,
+        ) -> Tuple[List[Dict[str, Any]], int]:
+            rows: List[Dict[str, Any]] = []
+            for color_image_address, address_mask in address_masks.items():
+                overlap_pixels = _count_mask_and(address_mask, missing_mask)
+                if overlap_pixels <= 0:
+                    continue
+                op_masks = address_op_masks.get(color_image_address, {})
+                op_overlap: Dict[str, int] = {}
+                for op_name in ("fill", "triangle", "texrect"):
+                    op_mask = op_masks.get(op_name)
+                    op_overlap[op_name] = (
+                        _count_mask_and(op_mask, missing_mask) if op_mask is not None else 0
+                    )
+                segment_overlap: Dict[str, Dict[str, Any]] = {}
+                for segment_name, (x0, x1) in segment_ranges.items():
+                    segment_missing_pixels = _count_mask_segment(
+                        missing_mask, source_width, source_height, x0, x1
+                    )
+                    segment_overlap_pixels = _count_mask_and_segment(
+                        address_mask,
+                        missing_mask,
+                        source_width,
+                        source_height,
+                        x0,
+                        x1,
+                    )
+                    segment_overlap[segment_name] = {
+                        "x0": x0,
+                        "x1_exclusive": x1,
+                        "missing_pixels": segment_missing_pixels,
+                        "missing_overlap_pixels": segment_overlap_pixels,
+                        "missing_overlap_ratio": _ratio(
+                            segment_overlap_pixels, segment_missing_pixels
+                        ),
+                    }
+                rows.append(
+                    {
+                        "color_image_address": color_image_address,
+                        "color_image_address_hex": f"0x{color_image_address:08X}",
+                        "is_present_surface": (
+                            present_surface_address != 0 and color_image_address == present_surface_address
+                        ),
+                        "missing_overlap_pixels": overlap_pixels,
+                        "missing_overlap_ratio": _ratio(overlap_pixels, missing_pixels),
+                        "missing_overlap_by_op": op_overlap,
+                        "segments": segment_overlap,
+                    }
+                )
+            rows.sort(
+                key=lambda row: (
+                    -int(row.get("missing_overlap_pixels", 0) or 0),
+                    int(row.get("color_image_address", 0) or 0),
+                )
+            )
+            full_count = len(rows)
+            if max_address_overlap > 0 and len(rows) > max_address_overlap:
+                rows = rows[:max_address_overlap]
+            truncated = max(0, full_count - len(rows))
+            return rows, truncated
+
+        current_address_overlap_rows, current_address_overlap_truncated = _build_address_overlap_rows(
+            address_write_masks,
+            address_op_masks,
+            missing_source_mask,
+            missing_source_pixels,
+        )
+        prior_address_overlap_rows, prior_address_overlap_truncated = _build_address_overlap_rows(
+            history_prior_address_masks,
+            history_prior_address_op_masks,
+            missing_without_write_mask,
+            missing_without_write_pixels,
+        )
+
+        present_surface_current_overlap_pixels = 0
+        present_surface_prior_overlap_pixels = 0
+        for row in current_address_overlap_rows:
+            if int(row.get("color_image_address", 0) or 0) == present_surface_address:
+                present_surface_current_overlap_pixels = int(row.get("missing_overlap_pixels", 0) or 0)
+                break
+        for row in prior_address_overlap_rows:
+            if int(row.get("color_image_address", 0) or 0) == present_surface_address:
+                present_surface_prior_overlap_pixels = int(row.get("missing_overlap_pixels", 0) or 0)
+                break
+
+        dominant_current_address = current_address_overlap_rows[0] if current_address_overlap_rows else {}
+        dominant_prior_address = prior_address_overlap_rows[0] if prior_address_overlap_rows else {}
+        history_prior_union_pixels = int(sum(history_prior_union_mask))
+        history_union_pixels = int(sum(history_union_mask))
+        missing_with_any_window_write_pixels = _count_mask_and(
+            missing_source_mask, history_union_mask
+        )
 
         segment_missing: Dict[str, Dict[str, Any]] = {}
         for segment_name, (x0, x1) in segment_ranges.items():
             segment_missing_pixels = _count_mask_segment(
                 missing_source_mask, source_width, source_height, x0, x1
             )
-            segment_missing_with_write = _count_mask_and_segment(
+            segment_missing_with_write = _count_mask_segment(
+                missing_with_write_mask, source_width, source_height, x0, x1
+            )
+            segment_missing_without_write = _count_mask_segment(
+                missing_without_write_mask, source_width, source_height, x0, x1
+            )
+            segment_missing_with_prior = _count_mask_and_segment(
                 missing_source_mask,
-                write_union_mask,
+                history_prior_union_mask,
                 source_width,
                 source_height,
                 x0,
                 x1,
             )
-            segment_missing_without_write = max(
-                0, segment_missing_pixels - segment_missing_with_write
+            segment_missing_without_write_with_prior = _count_mask_segment(
+                missing_without_write_with_prior_mask, source_width, source_height, x0, x1
+            )
+            segment_missing_without_write_without_prior = _count_mask_segment(
+                missing_without_write_without_prior_mask, source_width, source_height, x0, x1
             )
             segment_missing[segment_name] = {
                 "x0": x0,
@@ -860,11 +1068,23 @@ def main() -> int:
                 "missing_pixels": segment_missing_pixels,
                 "missing_with_write_pixels": segment_missing_with_write,
                 "missing_without_write_pixels": segment_missing_without_write,
+                "missing_with_prior_write_pixels": segment_missing_with_prior,
+                "missing_without_write_with_prior_write_pixels": segment_missing_without_write_with_prior,
+                "missing_without_write_without_prior_write_pixels": segment_missing_without_write_without_prior,
                 "missing_with_write_ratio": _ratio(
                     segment_missing_with_write, segment_missing_pixels
                 ),
                 "missing_without_write_ratio": _ratio(
                     segment_missing_without_write, segment_missing_pixels
+                ),
+                "missing_with_prior_write_ratio": _ratio(
+                    segment_missing_with_prior, segment_missing_pixels
+                ),
+                "missing_without_write_with_prior_write_ratio": _ratio(
+                    segment_missing_without_write_with_prior, segment_missing_pixels
+                ),
+                "missing_without_write_without_prior_write_ratio": _ratio(
+                    segment_missing_without_write_without_prior, segment_missing_pixels
                 ),
             }
 
@@ -880,8 +1100,68 @@ def main() -> int:
             "missing_without_write_ratio": _ratio(
                 missing_without_write_pixels, missing_source_pixels
             ),
+            "missing_with_prior_write_pixels": missing_with_prior_write_pixels,
+            "missing_with_prior_write_ratio": _ratio(
+                missing_with_prior_write_pixels, missing_source_pixels
+            ),
+            "missing_without_write_with_prior_write_pixels": missing_without_write_with_prior_pixels,
+            "missing_without_write_with_prior_write_ratio": _ratio(
+                missing_without_write_with_prior_pixels, missing_without_write_pixels
+            ),
+            "missing_without_write_without_prior_write_pixels": missing_without_write_without_prior_pixels,
+            "missing_without_write_without_prior_write_ratio": _ratio(
+                missing_without_write_without_prior_pixels, missing_without_write_pixels
+            ),
             "missing_cover_pixels_by_op": op_cover_pixels,
             "missing_cover_ratio_by_op": op_cover_ratios,
+            "missing_cover_pixels_by_prior_op": prior_op_cover_pixels,
+            "missing_cover_ratio_by_prior_op": prior_op_cover_ratios,
+            "missing_cover_pixels_by_history_window_op": history_window_op_cover_pixels,
+            "missing_cover_ratio_by_history_window_op": history_window_op_cover_ratios,
+            "history": {
+                "frames_analyzed": len(history_frames),
+                "prior_frames_analyzed": len(history_prior_frame_ids),
+                "prior_frame_ids": history_prior_frame_ids,
+                "write_pixels_any_window": history_union_pixels,
+                "write_ratio_any_window": _ratio(history_union_pixels, total_pixels),
+                "write_pixels_prior_window": history_prior_union_pixels,
+                "write_ratio_prior_window": _ratio(history_prior_union_pixels, total_pixels),
+                "missing_with_any_window_write_pixels": missing_with_any_window_write_pixels,
+                "missing_with_any_window_write_ratio": _ratio(
+                    missing_with_any_window_write_pixels,
+                    missing_source_pixels,
+                ),
+                "missing_with_prior_write_pixels": missing_with_prior_write_pixels,
+                "missing_with_prior_write_ratio": _ratio(
+                    missing_with_prior_write_pixels, missing_source_pixels
+                ),
+                "missing_without_current_with_prior_write_pixels": missing_without_write_with_prior_pixels,
+                "missing_without_current_with_prior_write_ratio": _ratio(
+                    missing_without_write_with_prior_pixels, missing_without_write_pixels
+                ),
+                "missing_without_current_without_prior_write_pixels": missing_without_write_without_prior_pixels,
+                "missing_without_current_without_prior_write_ratio": _ratio(
+                    missing_without_write_without_prior_pixels, missing_without_write_pixels
+                ),
+                "present_surface_address": present_surface_address,
+                "present_surface_address_hex": (
+                    f"0x{present_surface_address:08X}" if present_surface_address > 0 else None
+                ),
+                "present_surface_current_overlap_pixels": present_surface_current_overlap_pixels,
+                "present_surface_current_overlap_ratio": _ratio(
+                    present_surface_current_overlap_pixels, missing_source_pixels
+                ),
+                "present_surface_prior_overlap_pixels": present_surface_prior_overlap_pixels,
+                "present_surface_prior_overlap_ratio": _ratio(
+                    present_surface_prior_overlap_pixels, missing_without_write_pixels
+                ),
+                "dominant_current_overlap_address": dominant_current_address,
+                "dominant_prior_overlap_address": dominant_prior_address,
+                "current_address_overlap_rows": current_address_overlap_rows,
+                "current_address_overlap_rows_truncated": current_address_overlap_truncated,
+                "prior_address_overlap_rows": prior_address_overlap_rows,
+                "prior_address_overlap_rows_truncated": prior_address_overlap_truncated,
+            },
             "segments": segment_missing,
         }
 
@@ -1015,8 +1295,50 @@ def main() -> int:
             }
         )
 
+    history_prior_address_write_stats: List[Dict[str, Any]] = []
+    for color_image_address, counter in sorted(
+        history_prior_address_stats.items(),
+        key=lambda item: (-int(item[1].get("work_total", 0) or 0), int(item[0])),
+    ):
+        work_total = int(counter.get("work_total", 0) or 0)
+        work_tri = int(counter.get("work_triangle_total", 0) or 0)
+        work_tex = int(counter.get("work_texrect_total", 0) or 0)
+        work_fill = int(counter.get("work_fill_total", 0) or 0)
+        mask = history_prior_address_masks.get(color_image_address, bytearray(total_pixels))
+        write_pixels = int(sum(mask))
+        write_source_box_pixels = _count_mask_and(mask, source_box_mask)
+
+        op_masks = history_prior_address_op_masks.get(color_image_address, {})
+        tri_mask = op_masks.get("triangle", bytearray(total_pixels))
+        tex_mask = op_masks.get("texrect", bytearray(total_pixels))
+        fill_mask = op_masks.get("fill", bytearray(total_pixels))
+        tri_source_box_pixels = _count_mask_and(tri_mask, source_box_mask)
+        tex_source_box_pixels = _count_mask_and(tex_mask, source_box_mask)
+        fill_source_box_pixels = _count_mask_and(fill_mask, source_box_mask)
+
+        history_prior_address_write_stats.append(
+            {
+                "color_image_address": color_image_address,
+                "color_image_address_hex": f"0x{color_image_address:08X}",
+                "work_total": work_total,
+                "work_triangle_total": work_tri,
+                "work_texrect_total": work_tex,
+                "work_fill_total": work_fill,
+                "write_pixels": write_pixels,
+                "write_ratio": _ratio(write_pixels, total_pixels),
+                "write_source_box_pixels": write_source_box_pixels,
+                "write_source_box_ratio": _ratio(write_source_box_pixels, source_box_pixels),
+                "triangle_write_source_box_pixels": tri_source_box_pixels,
+                "triangle_write_source_box_ratio": _ratio(tri_source_box_pixels, source_box_pixels),
+                "texrect_write_source_box_pixels": tex_source_box_pixels,
+                "texrect_write_source_box_ratio": _ratio(tex_source_box_pixels, source_box_pixels),
+                "fill_write_source_box_pixels": fill_source_box_pixels,
+                "fill_write_source_box_ratio": _ratio(fill_source_box_pixels, source_box_pixels),
+            }
+        )
+
     payload = {
-        "schema": "rvk2_missing_region_focus_v2",
+        "schema": "rvk2_missing_region_focus_v3",
         "packet_trace": str(packet_trace_path),
         "diff_summary": str(diff_summary_path),
         "frame_id": int(selected_frame.frame_id),
@@ -1058,6 +1380,8 @@ def main() -> int:
             "frames_requested": history_window + 1,
             "frames_analyzed": len(history_frames),
             "frame_ids": [int(frame.frame_id) for frame in history_frames],
+            "prior_frames_analyzed": len(history_prior_frame_ids),
+            "prior_frame_ids": history_prior_frame_ids,
             "switch_count": history_color_image_switch_count,
             "unique_target_count": len(history_color_image_work_counts),
             "sequence_head": [f"0x{addr:08X}" for addr in history_color_image_sequence],
@@ -1066,6 +1390,7 @@ def main() -> int:
                 for address, count in history_color_image_work_counts.most_common()
             },
             "address_write_stats": history_address_write_stats,
+            "prior_address_write_stats": history_prior_address_write_stats,
         },
         "forensics_last_active": {
             "present_surface": int(forensics_last.get("present_surface", 0) or 0),
@@ -1077,6 +1402,14 @@ def main() -> int:
         },
         "address_write_stats": address_write_stats,
         "work_hit_samples": hit_samples,
+        "work_hit_stats": {
+            "hit_total": work_hit_total,
+            "bbox_hit_total": work_hit_bbox_total,
+            "write_hit_total": work_hit_write_total,
+            "samples_emitted": len(hit_samples),
+            "samples_truncated": work_hit_sample_truncated,
+            "max_hit_samples": max(0, int(args.max_hit_samples)),
+        },
         "missing_write_attribution": missing_write_attribution,
     }
 
