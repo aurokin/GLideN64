@@ -4,7 +4,6 @@
 
 - `../README.md`: maintainer-facing project overview and operating rules.
 - `local-ci.md`: build, gate, smoke, parity, and replay commands.
-- `vulkan-core-status.md`: RVK2 gap findings and plugin debug/closure plan.
 - `references/n64/README.md`: local N64 hardware/reference corpus.
 
 ## RVK2 Operating Policy

@@ -92,8 +92,6 @@ Command census tuning knob:
 ./scripts/paper_mario_compare_view.sh
 ```
 
-For RVK2 logic-gap closure workflow, see `docs/vulkan-core-status.md`.
-
 ## Baseline/Reference Refresh
 
 ```bash
