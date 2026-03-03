@@ -89,9 +89,11 @@ struct ExecutorSummary {
 	u32 selectedPresentSurfaceHeight = 0U;
 	u64 selectedPresentSurfaceWriteCount = 0ULL;
 	u64 selectedPresentSurfaceWorkCount = 0ULL;
+	u64 selectedPresentSurfaceLiveWriteCount = 0ULL;
+	u64 selectedPresentSurfaceLiveWorkCount = 0ULL;
 	u64 selectedPresentSurfaceHash = 1469598103934665603ULL;
 	u8 selectedPresentSurfaceSize = 0U;
-	u8 reservedA = 0U;
+	u8 selectedPresentSurfaceFromHistory = 0U;
 	u16 reservedB = 0U;
 	u32 viResolvedSourceWidth = 0U;
 	u32 viResolvedSourceHeight = 0U;
@@ -214,6 +216,10 @@ struct ExecutorSummary {
 	u64 writeKindFillCount = 0ULL;
 	u64 writeKindTexRectCount = 0ULL;
 	u64 writeKindTriangleCount = 0ULL;
+	u64 writeTexRectNonBlackCount = 0ULL;
+	u64 writeTriangleNonBlackCount = 0ULL;
+	u64 writeTexRectLumaSum = 0ULL;
+	u64 writeTriangleLumaSum = 0ULL;
 	std::array<u64, kExecutorStageDeltaClassBuckets> stageWriteClassCount{};
 	std::array<u64, kExecutorStageDeltaClassBuckets> stageTexelToFinalDeltaClassCount{};
 	std::array<u64, kExecutorStageDeltaClassBuckets> stageCombinerToBlenderDeltaClassCount{};

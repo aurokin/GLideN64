@@ -240,6 +240,9 @@ def _build_signals(
     vi_out_h = _u64(last_record, "vi_out_h")
     vi_stride = _u64(last_record, "vi_stride")
     selected_surface_hash = _u64(last_record, "selected_surface_hash")
+    selected_surface_live_writes = _u64(last_record, "selected_surface_live_writes")
+    selected_surface_live_works = _u64(last_record, "selected_surface_live_works")
+    selected_surface_from_history = _u64(last_record, "selected_surface_from_history")
     vi_hash_decode = _u64(last_record, "vi_hash_decode")
     vi_hash_filter = _u64(last_record, "vi_hash_filter")
     vi_hash_gdither = _u64(last_record, "vi_hash_gdither")
@@ -260,6 +263,10 @@ def _build_signals(
     tri_alpha_reject = _u64(last_record, "tri_alpha_reject")
     tri_cvg_reject = _u64(last_record, "tri_cvg_reject")
     tri_depth_reject = _u64(last_record, "tri_depth_reject")
+    tri_nonblack = _u64(last_record, "tri_nonblack")
+    texrect_nonblack = _u64(last_record, "texrect_nonblack")
+    tri_luma_sum = _u64(last_record, "tri_luma_sum")
+    texrect_luma_sum = _u64(last_record, "texrect_luma_sum")
     writes = _u64(last_record, "writes")
 
     depth_eval = _u64(last_record, "depth_eval")
@@ -300,6 +307,9 @@ def _build_signals(
         "vi_out_h": vi_out_h,
         "vi_stride": vi_stride,
         "selected_surface_hash": selected_surface_hash,
+        "selected_surface_live_writes": selected_surface_live_writes,
+        "selected_surface_live_works": selected_surface_live_works,
+        "selected_surface_from_history": selected_surface_from_history,
         "vi_hash_decode": vi_hash_decode,
         "vi_hash_filter": vi_hash_filter,
         "vi_hash_gdither": vi_hash_gdither,
@@ -326,6 +336,14 @@ def _build_signals(
         "tri_cvg_reject_ratio": _ratio(tri_cvg_reject, tri_samples),
         "tri_depth_reject": tri_depth_reject,
         "tri_depth_reject_ratio": _ratio(tri_depth_reject, tri_samples),
+        "tri_nonblack": tri_nonblack,
+        "tri_nonblack_ratio": _ratio(tri_nonblack, write_tri),
+        "texrect_nonblack": texrect_nonblack,
+        "texrect_nonblack_ratio": _ratio(texrect_nonblack, write_texrect),
+        "tri_luma_sum": tri_luma_sum,
+        "tri_luma_per_write": _ratio(tri_luma_sum, write_tri),
+        "texrect_luma_sum": texrect_luma_sum,
+        "texrect_luma_per_write": _ratio(texrect_luma_sum, write_texrect),
         "triangle_writes_per_work": _ratio(write_tri, work_tri),
         "texrect_writes_per_work": _ratio(write_texrect, work_texrect),
     }
@@ -340,6 +358,7 @@ def _build_signals(
     }
 
     suspected_gaps: List[str] = []
+    hard_faults: List[str] = []
 
     if tx_samples > 0 and tx_tmem == 0 and tx_rdram == 0 and tx_synth == 0:
         suspected_gaps.append("texture samples were recorded but no source bucket advanced (TMEM/RDRAM/synth all zero)")
@@ -360,6 +379,18 @@ def _build_signals(
         suspected_gaps.append("triangle coverage rejects exceed 50% of candidate samples (possible coverage/AA/cvg path issue)")
     if ci_switches >= 2:
         suspected_gaps.append("multiple color-image target switches observed in final frame (verify present target selection)")
+    tri_nonblack_ratio = _ratio(tri_nonblack, write_tri)
+    texrect_nonblack_ratio = _ratio(texrect_nonblack, write_texrect)
+    if (
+        tri_nonblack_ratio is not None
+        and texrect_nonblack_ratio is not None
+        and write_tri > 0
+        and write_texrect > 0
+        and tri_nonblack_ratio + 0.25 < texrect_nonblack_ratio
+    ):
+        suspected_gaps.append(
+            "triangle writes are significantly darker than texrect writes (possible triangle combiner/texture decode mismatch)"
+        )
 
     replay_failed_count = int(replay_summary.get("failed_count", 0) or 0)
     replay_frame_count = int(replay_summary.get("frame_count", 0) or 0)
@@ -402,6 +433,11 @@ def _build_signals(
         suspected_gaps.append("VI resolver rejected current frame state (see vi_reject code)")
     if vi_valid == 1 and vi_origin_match == 0:
         suspected_gaps.append("VI origin did not match selected present surface")
+    if selected_surface_from_history != 0:
+        suspected_gaps.append("present selected surface came from history cache (potential stale-buffer presentation)")
+    if writes > 0 and selected_surface_live_writes == 0 and selected_surface_from_history != 0:
+        suspected_gaps.append("presented surface had no live writes in this frame (buffer handoff mismatch candidate)")
+        hard_faults.append("present-surface handoff fault: selected history surface with zero live writes in an active frame")
 
     visibility_signal = {}
     if isinstance(metrics, dict):
@@ -505,6 +541,7 @@ def _build_signals(
         "command": command_signal,
         "deviation": deviation_signal,
         "suspected_gaps": suspected_gaps,
+        "hard_faults": hard_faults,
     }
 
 
@@ -708,6 +745,9 @@ def _selected_forensics_fields(record: Dict[str, Any]) -> Dict[str, Any]:
         "selected_surface_w",
         "selected_surface_h",
         "selected_surface_hash",
+        "selected_surface_live_writes",
+        "selected_surface_live_works",
+        "selected_surface_from_history",
         "vi_valid",
         "vi_origin",
         "vi_status",
@@ -755,6 +795,10 @@ def _selected_forensics_fields(record: Dict[str, Any]) -> Dict[str, Any]:
         "tri_alpha_reject",
         "tri_cvg_reject",
         "tri_depth_reject",
+        "tri_nonblack",
+        "texrect_nonblack",
+        "tri_luma_sum",
+        "texrect_luma_sum",
         "depth_eval",
         "depth_reject",
         "depth_update",
@@ -861,6 +905,8 @@ def main() -> int:
             "packet_replay_exit": args.packet_replay_exit,
             "forensics_summary_exit": args.forensics_summary_exit,
             "forensics_summary_active_exit": args.forensics_summary_active_exit,
+            "hard_fault_count": len(signal_summary.get("hard_faults", [])),
+            "has_hard_faults": bool(signal_summary.get("hard_faults")),
         },
         "artifacts": {
             "metrics": _file_meta(metrics_path),
@@ -909,6 +955,7 @@ def main() -> int:
             "deviation": signal_summary["deviation"],
         },
         "suspected_gaps": signal_summary["suspected_gaps"],
+        "hard_faults": signal_summary.get("hard_faults", []),
     }
 
     output.parent.mkdir(parents=True, exist_ok=True)

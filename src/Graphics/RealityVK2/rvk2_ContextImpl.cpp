@@ -249,6 +249,12 @@ void appendFrameForensicsRecord(const rvk2::ExecutorOutput & _output)
 		static_cast<unsigned long long>(viSourceLumaAvgX1000),
 		static_cast<unsigned long long>(viOutputLumaAvgX1000),
 		static_cast<unsigned long long>(summary.viOutputNonBlackCount));
+	std::fprintf(
+		file,
+		"\tselected_surface_live_writes=%llu\tselected_surface_live_works=%llu\tselected_surface_from_history=%u",
+		static_cast<unsigned long long>(summary.selectedPresentSurfaceLiveWriteCount),
+		static_cast<unsigned long long>(summary.selectedPresentSurfaceLiveWorkCount),
+		static_cast<u32>(summary.selectedPresentSurfaceFromHistory));
 	for (u32 i = 0U; i < summary.textureFilterModeSampleCount.size(); ++i) {
 		std::fprintf(
 			file,
@@ -349,7 +355,7 @@ void appendFrameForensicsRecord(const rvk2::ExecutorOutput & _output)
 	}
 	std::fprintf(
 		file,
-		"\tci_switches=%llu\tci_first=0x%08X\tci_last=0x%08X\ttri_deg_reject=%llu\ttri_bounds_reject=%llu\ttri_scissor_reject=%llu\ttri_samples=%llu\ttri_alpha_reject=%llu\ttri_cvg_reject=%llu\ttri_depth_reject=%llu",
+		"\tci_switches=%llu\tci_first=0x%08X\tci_last=0x%08X\ttri_deg_reject=%llu\ttri_bounds_reject=%llu\ttri_scissor_reject=%llu\ttri_samples=%llu\ttri_alpha_reject=%llu\ttri_cvg_reject=%llu\ttri_depth_reject=%llu\ttri_nonblack=%llu\ttexrect_nonblack=%llu\ttri_luma_sum=%llu\ttexrect_luma_sum=%llu",
 		static_cast<unsigned long long>(summary.colorImageSwitchCount),
 		summary.colorImageFirstAddress,
 		summary.colorImageLastAddress,
@@ -359,7 +365,11 @@ void appendFrameForensicsRecord(const rvk2::ExecutorOutput & _output)
 		static_cast<unsigned long long>(summary.triangleSampleCandidateCount),
 		static_cast<unsigned long long>(summary.triangleAlphaRejectCount),
 		static_cast<unsigned long long>(summary.triangleCoverageRejectCount),
-		static_cast<unsigned long long>(summary.triangleDepthRejectCount));
+		static_cast<unsigned long long>(summary.triangleDepthRejectCount),
+		static_cast<unsigned long long>(summary.writeTriangleNonBlackCount),
+		static_cast<unsigned long long>(summary.writeTexRectNonBlackCount),
+		static_cast<unsigned long long>(summary.writeTriangleLumaSum),
+		static_cast<unsigned long long>(summary.writeTexRectLumaSum));
 	for (u32 i = 0U; i < summary.colorImageEventCount; ++i) {
 		std::fprintf(
 			file,

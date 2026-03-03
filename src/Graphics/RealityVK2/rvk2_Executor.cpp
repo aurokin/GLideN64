@@ -4279,12 +4279,18 @@ void writeRect(
 				combinerColor,
 				blenderColor,
 				finalColor);
+			const u64 writeLuma = static_cast<u64>(lumaFromRGBA(writeColor));
 			_surface.pixels[colorIdx] = encodeSurfaceColor(writeColor, _work.colorImageSize);
 			if (!_surface.coverage.empty())
 				_surface.coverage[colorIdx] = static_cast<u8>(resolvedCoverage & 0x7U);
 			if (!_surface.hiddenCoverage.empty())
 				_surface.hiddenCoverage[colorIdx] = resolvedHiddenCoverage ? 1U : 0U;
-			_summary.outputLumaSum += static_cast<u64>(lumaFromRGBA(writeColor));
+			_summary.outputLumaSum += writeLuma;
+			if (_work.opKind == static_cast<u8>(rvk2::RasterOpKind::kTexRect)) {
+				_summary.writeTexRectLumaSum += writeLuma;
+				if ((writeColor & 0x00FFFFFFU) != 0U)
+					++_summary.writeTexRectNonBlackCount;
+			}
 			++_summary.colorWriteCount;
 		}
 	}
@@ -4584,12 +4590,16 @@ void writeTriangle(
 				combinerColor,
 				blenderColor,
 				finalColor);
+			const u64 writeLuma = static_cast<u64>(lumaFromRGBA(writeColor));
 			_surface.pixels[colorIdx] = encodeSurfaceColor(writeColor, _work.colorImageSize);
 			if (!_surface.coverage.empty())
 				_surface.coverage[colorIdx] = static_cast<u8>(resolvedCoverage & 0x7U);
 			if (!_surface.hiddenCoverage.empty())
 				_surface.hiddenCoverage[colorIdx] = resolvedHiddenCoverage ? 1U : 0U;
-			_summary.outputLumaSum += static_cast<u64>(lumaFromRGBA(writeColor));
+			_summary.outputLumaSum += writeLuma;
+			_summary.writeTriangleLumaSum += writeLuma;
+			if ((writeColor & 0x00FFFFFFU) != 0U)
+				++_summary.writeTriangleNonBlackCount;
 			++_summary.colorWriteCount;
 		}
 	}
@@ -4979,6 +4989,7 @@ ExecutorOutput Executor::executeWithOutput(
 	u32 presentSurfaceAddress = lastSurfaceAddress;
 	if (presentSurfaceAddress != 0U && surfaces.find(presentSurfaceAddress) != surfaces.end())
 		summary.presentSelectionReason = kExecutorPresentSelectionLastSurface;
+	const bool frameHasLiveSurfaceWrites = !surfaceColorWrites.empty();
 	bool viOriginMatchedSurface = false;
 	if (m_config.viRegistersValid) {
 		const u32 viOriginAddress = m_config.viOrigin & 0x00FFFFFFU;
@@ -5006,6 +5017,35 @@ ExecutorOutput Executor::executeWithOutput(
 				exactMatch
 					? kExecutorPresentSelectionVIOriginExact
 					: kExecutorPresentSelectionVIOriginRange;
+		}
+		else if (frameHasLiveSurfaceWrites) {
+			if (presentSurfaceAddress == 0U || surfaces.find(presentSurfaceAddress) == surfaces.end()) {
+				u32 fallbackAddress = 0U;
+				if (chooseMostWrittenSurfaceAddress(
+						surfaces,
+						surfaceColorWrites,
+						surfaceWorkCounts,
+						fallbackAddress)) {
+					presentSurfaceAddress = fallbackAddress;
+					summary.presentSelectionReason = kExecutorPresentSelectionMostWrittenFallback;
+				}
+				else {
+					u32 nearestAddress = presentSurfaceAddress;
+					bool nearestExact = false;
+					if (chooseNearestSurfaceForVIOrigin(
+							surfaces,
+							viOriginAddress,
+							nearestAddress,
+							nearestExact,
+							preferSurfaceSize,
+							preferredSurfaceSize,
+							preferSurfaceWidth,
+							preferredSurfaceWidth)) {
+						presentSurfaceAddress = nearestAddress;
+						summary.presentSelectionReason = kExecutorPresentSelectionVIOriginNearest;
+					}
+				}
+			}
 		}
 		else if (!m_surfaceHistory.empty()) {
 			u32 historyMatchedAddress = presentSurfaceAddress;
@@ -5094,11 +5134,15 @@ ExecutorOutput Executor::executeWithOutput(
 		summary.presentSelectionReason = kExecutorPresentSelectionNoSurface;
 	summary.selectedPresentSurfaceAddress = presentSurfaceAddress;
 	const auto selectedWriteIt = surfaceColorWrites.find(presentSurfaceAddress);
-	if (selectedWriteIt != surfaceColorWrites.end())
+	if (selectedWriteIt != surfaceColorWrites.end()) {
+		summary.selectedPresentSurfaceLiveWriteCount = selectedWriteIt->second;
 		summary.selectedPresentSurfaceWriteCount = selectedWriteIt->second;
+	}
 	const auto selectedWorkIt = surfaceWorkCounts.find(presentSurfaceAddress);
-	if (selectedWorkIt != surfaceWorkCounts.end())
+	if (selectedWorkIt != surfaceWorkCounts.end()) {
+		summary.selectedPresentSurfaceLiveWorkCount = selectedWorkIt->second;
 		summary.selectedPresentSurfaceWorkCount = selectedWorkIt->second;
+	}
 	if (summary.selectedPresentSurfaceWriteCount == 0ULL
 		&& historyIt != m_surfaceHistory.end())
 		summary.selectedPresentSurfaceWriteCount = historyIt->second.writeCount;
@@ -5107,6 +5151,7 @@ ExecutorOutput Executor::executeWithOutput(
 		summary.selectedPresentSurfaceWorkCount = historyIt->second.workCount;
 
 	if (it != surfaces.end()) {
+		summary.selectedPresentSurfaceFromHistory = 0U;
 		summary.selectedPresentSurfaceWidth = it->second.width;
 		summary.selectedPresentSurfaceHeight = it->second.height;
 		summary.selectedPresentSurfaceSize = it->second.size;
@@ -5140,6 +5185,7 @@ ExecutorOutput Executor::executeWithOutput(
 		m_lastSelectedSurface.pixels = it->second.pixels;
 	}
 	else if (historyIt != m_surfaceHistory.end()) {
+		summary.selectedPresentSurfaceFromHistory = 1U;
 		const ExecutorCachedSurface & cached = historyIt->second;
 		summary.selectedPresentSurfaceWidth = cached.width;
 		summary.selectedPresentSurfaceHeight = cached.height;

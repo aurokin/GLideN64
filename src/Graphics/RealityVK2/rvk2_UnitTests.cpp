@@ -2197,7 +2197,7 @@ void testExecutorPreviousSurfaceFallback()
 		"Executor no-work frame should preserve previous present hash");
 }
 
-void testExecutorVIOriginHistorySelectionPreservesReason()
+void testExecutorVIOriginLiveSurfacePreferredOverHistory()
 {
 	auto makeFillWork = [](
 		u64 _packetId,
@@ -2263,23 +2263,23 @@ void testExecutorVIOriginHistorySelectionPreservesReason()
 		executor.executeWithOutput(secondWorkPackets, batches);
 	expectTrue(
 		!secondOut.presentFrame.pixels.empty(),
-		"Executor history-selection frame should produce present pixels");
+		"Executor live-surface selection frame should produce present pixels");
 	expectEq(
 		secondOut.presentFrame.pixels[0],
-		fillA.fillColor,
-		"Executor should present cached history surface when VI origin points to previous buffer");
+		fillB.fillColor,
+		"Executor should prefer current live surface writes over history when VI origin points to previous buffer");
 	expectEq(
 		secondOut.summary.selectedPresentSurfaceAddress,
-		fillA.colorImageAddress,
-		"Executor should keep selected address at history-matched surface");
+		fillB.colorImageAddress,
+		"Executor should keep selected address on the current frame surface");
 	expectEq(
 		secondOut.summary.presentSelectionReason,
-		static_cast<u8>(rvk2::kExecutorPresentSelectionVIOriginRange),
-		"Executor should preserve VI-origin range reason for history-selected surface");
+		static_cast<u8>(rvk2::kExecutorPresentSelectionLastSurface),
+		"Executor should preserve last-surface reason when current frame writes are available");
 	expectEq(
 		secondOut.summary.viOriginMatchedSurface,
-		static_cast<u8>(1U),
-		"Executor should keep VI-origin match flag for history-selected surface");
+		static_cast<u8>(0U),
+		"Executor should clear VI-origin match when selecting current frame surface without direct VI range match");
 }
 
 void testExecutorSurfaceHistoryEvictionDeterminism()
@@ -3560,7 +3560,7 @@ int main()
 	testExecutorVIOriginPresentationSelection();
 	testExecutorVIOriginWidthPreference();
 	testExecutorPreviousSurfaceFallback();
-	testExecutorVIOriginHistorySelectionPreservesReason();
+	testExecutorVIOriginLiveSurfacePreferredOverHistory();
 	testExecutorSurfaceHistoryEvictionDeterminism();
 	testExecutorTriangleCoefficientConsumption();
 	testSubmissionPlanSplitClassification();

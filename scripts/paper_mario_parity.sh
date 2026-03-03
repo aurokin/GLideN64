@@ -53,6 +53,7 @@ DEEP_TELEMETRY_DIFF_MAX_BOXES="${REALITYVK_PM_DEEP_TELEMETRY_DIFF_MAX_BOXES:-32}
 DEEP_TELEMETRY_DIFF_DILATE="${REALITYVK_PM_DEEP_TELEMETRY_DIFF_DILATE:-1}"
 DEEP_TELEMETRY_COMMAND_CENSUS="${REALITYVK_PM_DEEP_TELEMETRY_COMMAND_CENSUS:-1}"
 DEEP_TELEMETRY_COMMAND_FOCUS_WINDOW="${REALITYVK_PM_DEEP_TELEMETRY_COMMAND_FOCUS_WINDOW:-1}"
+DEEP_TELEMETRY_REQUIRE_LIVE_PRESENT_SURFACE="${REALITYVK_PM_DEEP_TELEMETRY_REQUIRE_LIVE_PRESENT_SURFACE:-1}"
 
 if [[ ! -f "${MANIFEST}" ]]; then
   echo "ERROR: scenario manifest not found: ${MANIFEST}" >&2
@@ -202,6 +203,11 @@ fi
 
 if [[ "${DEEP_TELEMETRY_COMMAND_CENSUS}" != "0" && "${DEEP_TELEMETRY_COMMAND_CENSUS}" != "1" ]]; then
   echo "ERROR: REALITYVK_PM_DEEP_TELEMETRY_COMMAND_CENSUS must be 0 or 1." >&2
+  exit 2
+fi
+
+if [[ "${DEEP_TELEMETRY_REQUIRE_LIVE_PRESENT_SURFACE}" != "0" && "${DEEP_TELEMETRY_REQUIRE_LIVE_PRESENT_SURFACE}" != "1" ]]; then
+  echo "ERROR: REALITYVK_PM_DEEP_TELEMETRY_REQUIRE_LIVE_PRESENT_SURFACE must be 0 or 1." >&2
   exit 2
 fi
 
@@ -800,6 +806,38 @@ if [[ "${DEEP_TELEMETRY}" == "1" ]]; then
     echo "command census: ${COMMAND_CENSUS_MD_OUT}"
   fi
   echo "telemetry bundle: ${TELEMETRY_BUNDLE_OUT}"
+  if [[ "${DEEP_TELEMETRY_REQUIRE_LIVE_PRESENT_SURFACE}" == "1" ]]; then
+    if ! python3 - "${TELEMETRY_BUNDLE_OUT}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+bundle_path = Path(sys.argv[1])
+if not bundle_path.is_file():
+    print(f"ERROR: telemetry bundle not found for handoff guard: {bundle_path}", file=sys.stderr)
+    raise SystemExit(2)
+
+try:
+    payload = json.loads(bundle_path.read_text(encoding="utf-8"))
+except Exception as exc:
+    print(f"ERROR: failed to parse telemetry bundle for handoff guard: {exc}", file=sys.stderr)
+    raise SystemExit(2)
+
+hard_faults = payload.get("hard_faults", [])
+if isinstance(hard_faults, list):
+    for fault in hard_faults:
+        if isinstance(fault, str) and "present-surface handoff fault" in fault:
+            print(f"ERROR: {fault}", file=sys.stderr)
+            raise SystemExit(1)
+
+print("telemetry hard-fault guard: no present-surface handoff fault detected")
+PY
+    then
+      if [[ "${VISUAL_COMPARE_EXIT_CODE}" == "0" ]]; then
+        VISUAL_COMPARE_EXIT_CODE=1
+      fi
+    fi
+  fi
 fi
 
 if [[ "${VISUAL_COMPARE_EXIT_CODE}" != "0" ]]; then
