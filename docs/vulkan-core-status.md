@@ -580,6 +580,17 @@
   - `REALITYVK_RVK2_DEBUG_TMEM32_XOR02=1`: `rmse=0.368355` (slightly worse).
   - `REALITYVK_RVK2_DEBUG_TMEM32_PACK_HIGH_TO_LOW=1`: `rmse=0.403117` (much worse).
   - Interpretation: current default TMEM32 decode path remains the best-known baseline; dominant residual is unlikely to be solved by global TMEM32 addressing/packing toggles.
+- Texture-source ordering probe:
+  - Added diagnostic toggle: `REALITYVK_RVK2_DEBUG_FORCE_TEXTURE_RDRAM_PRIMARY=1`.
+  - Result (`paper_mario_intro`, bootstrap + cross-surface): unchanged metrics versus current best (`rmse=0.367523`, `candidate_non_black_ratio=0.744787`, `candidate_mean_luma=0.281487`).
+  - Interpretation: dominant remaining mismatch is not explained by TMEM-vs-RDRAM source priority.
+- Missing-region state-dominance counters:
+  - Missing-region focus now emits per-op write-hit dominant state maps (`combine_mux`, `other_modes`, `tile_line`, `texture_image_width`, etc.).
+  - Current `paper_mario_intro` dominant texrect state in missing boxes:
+    - `combine_mux=0x00FFFFFFFFFCF279` (`56/57`),
+    - `other_modes=0x00000CFF00504340` (`57/57`),
+    - `tile_line=50`, `texture_image_width=200` (`56/57`).
+  - Interpretation: remaining mismatch is concentrated in one texrect render-state cluster, so next fix lane should target this exact state class instead of broad texture subsystem toggles.
 
 ## Debug Support Matrix (maps steps to findings)
 

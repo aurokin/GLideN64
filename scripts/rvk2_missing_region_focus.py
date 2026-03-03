@@ -410,6 +410,7 @@ def main() -> int:
             "texture_bucket_bbox_hits": {},
             "texture_bucket_write_hits": {},
             "phase_write_hits": {},
+            "write_state_hits": {},
             "write_coverage": {},
             "color_image_sequence": {},
             "history_window": {},
@@ -474,6 +475,7 @@ def main() -> int:
     bucket_bbox_hits: Counter[str] = Counter()
     bucket_write_hits: Counter[str] = Counter()
     phase_write_hits: Counter[str] = Counter()
+    write_state_counters: Dict[str, Counter[str]] = defaultdict(Counter)
     color_image_work_counts: Counter[int] = Counter()
     color_image_sequence: List[int] = []
     color_image_switch_count = 0
@@ -521,6 +523,13 @@ def main() -> int:
             phase_write_hits[f"{op_name}:{phase_name}"] += 1
             address_counter["write_hit_total"] += 1
             address_counter[f"write_hit_{op_name}"] += 1
+            write_state_counters[f"{op_name}:combine_mux"][f"0x{int(work.combine_mux):016X}"] += 1
+            write_state_counters[f"{op_name}:blend_params"][f"0x{int(work.blend_params):08X}"] += 1
+            write_state_counters[f"{op_name}:other_modes"][f"0x{int(work.other_modes):016X}"] += 1
+            write_state_counters[f"{op_name}:tile_line"][str(int(work.tile_line))] += 1
+            write_state_counters[f"{op_name}:tile_tmem"][str(int(work.tile_tmem))] += 1
+            write_state_counters[f"{op_name}:texture_image_width"][str(int(work.texture_image_width))] += 1
+            write_state_counters[f"{op_name}:texture_image_address"][f"0x{int(work.texture_image_address):08X}"] += 1
 
         if write_bounds is not None and total_pixels > 0:
             _mark_mask_bounds(write_union_mask, write_bounds, source_width, source_height)
@@ -809,6 +818,10 @@ def main() -> int:
         "texture_bucket_bbox_hits": dict(bucket_bbox_hits.most_common()),
         "texture_bucket_write_hits": dict(bucket_write_hits.most_common()),
         "phase_write_hits": dict(phase_write_hits.most_common()),
+        "write_state_hits": {
+            key: dict(counter.most_common(64))
+            for key, counter in sorted(write_state_counters.items())
+        },
         "write_coverage": {
             "total_pixels": total_pixels,
             "source_box_count": source_box_count,

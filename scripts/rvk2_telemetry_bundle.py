@@ -526,6 +526,7 @@ def _build_signals(
         counts = missing_region_focus.get("counts", {})
         bucket_bbox_hits = missing_region_focus.get("texture_bucket_hits", {})
         bucket_write_hits = missing_region_focus.get("texture_bucket_write_hits", {})
+        write_state_hits = missing_region_focus.get("write_state_hits", {})
         write_coverage = missing_region_focus.get("write_coverage", {})
         color_image_sequence = missing_region_focus.get("color_image_sequence", {})
         history_window = missing_region_focus.get("history_window", {})
@@ -594,6 +595,7 @@ def _build_signals(
             "texrect_write_hit_ratio": _ratio(tex_write_hit, tex_total),
             "texture_bucket_hits": bucket_bbox_hits if isinstance(bucket_bbox_hits, dict) else {},
             "texture_bucket_write_hits": bucket_write_hits if isinstance(bucket_write_hits, dict) else {},
+            "write_state_hits": write_state_hits if isinstance(write_state_hits, dict) else {},
             "source_boxes": missing_region_focus.get("source_boxes", []),
             "write_coverage": write_coverage if isinstance(write_coverage, dict) else {},
             "color_image_sequence": color_image_sequence if isinstance(color_image_sequence, dict) else {},
@@ -626,6 +628,48 @@ def _build_signals(
             suspected_gaps.append(
                 "missing-region triangle coverage intersects target box but write-bounds hit ratio is substantially lower (triangle bounds/scissor loss)"
             )
+
+        if isinstance(write_state_hits, dict):
+            def dominant_entry(key: str):
+                raw = write_state_hits.get(key, {})
+                if not isinstance(raw, dict) or not raw:
+                    return (None, 0, 0, None)
+                total = 0
+                top_key = None
+                top_count = 0
+                for entry_key, entry_value in raw.items():
+                    count = int(entry_value or 0)
+                    total += count
+                    if count > top_count:
+                        top_count = count
+                        top_key = str(entry_key)
+                return (top_key, top_count, total, _ratio(top_count, total))
+
+            texrect_combine = dominant_entry("texrect:combine_mux")
+            texrect_modes = dominant_entry("texrect:other_modes")
+            texrect_line = dominant_entry("texrect:tile_line")
+            texrect_width = dominant_entry("texrect:texture_image_width")
+            if tex_write_hit > 0:
+                if texrect_combine[0] is not None and texrect_combine[3] is not None and texrect_combine[3] > 0.90:
+                    suspected_gaps.append(
+                        "missing-region texrect writes are dominated by combine_mux "
+                        f"{texrect_combine[0]} ({texrect_combine[1]}/{texrect_combine[2]} hits)"
+                    )
+                if texrect_modes[0] is not None and texrect_modes[3] is not None and texrect_modes[3] > 0.90:
+                    suspected_gaps.append(
+                        "missing-region texrect writes are dominated by other_modes "
+                        f"{texrect_modes[0]} ({texrect_modes[1]}/{texrect_modes[2]} hits)"
+                    )
+                if texrect_line[0] is not None and texrect_line[3] is not None and texrect_line[3] > 0.80:
+                    suspected_gaps.append(
+                        "missing-region texrect writes are dominated by tile_line "
+                        f"{texrect_line[0]} ({texrect_line[1]}/{texrect_line[2]} hits)"
+                    )
+                if texrect_width[0] is not None and texrect_width[3] is not None and texrect_width[3] > 0.80:
+                    suspected_gaps.append(
+                        "missing-region texrect writes are dominated by texture_image_width "
+                        f"{texrect_width[0]} ({texrect_width[1]}/{texrect_width[2]} hits)"
+                    )
 
         if isinstance(write_coverage, dict):
             segments = write_coverage.get("segments", {})

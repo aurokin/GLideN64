@@ -364,6 +364,18 @@ bool debugDisableTextureLUTApply()
 	return enabled;
 }
 
+bool debugForceTextureRdramPrimary()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_FORCE_TEXTURE_RDRAM_PRIMARY");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
 bool debugCycle1CombinerUseCycle1Selectors()
 {
 	static const bool enabled = []() -> bool {
@@ -2037,68 +2049,90 @@ inline u32 samplePseudoTexelColor(
 	u32 sampledColor = 0U;
 	bool needsLUT = false;
 	u8 tmemReject = 0U;
-
-	if (gActiveExecutorSummary != nullptr)
-		++gActiveExecutorSummary->textureTmemAttemptCount;
-	if (sampleCITextureFromTMEM(
-			_work,
-			_s,
-			_t,
-			sampledColor,
-			needsLUT,
-			tmemReject)) {
-		recordTextureSampleMode(_work, needsLUT, _sampleSlot);
-		if (gActiveExecutorSummary != nullptr) {
-			++gActiveExecutorSummary->textureTmemSampleCount;
-			if (needsLUT)
-				++gActiveExecutorSummary->textureLUTSampleCount;
-		}
-		if (_sourceBits != nullptr)
-			*_sourceBits |= kTexelSourceTMEMBit;
-		if (needsLUT)
-			sampledColor = applyTextureLUTModeColor(_work, seed, sampledColor);
-		if (debugForceAllTexelAlphaOpaque())
-			sampledColor = (sampledColor & 0xFFFFFF00U) | 0x000000FFU;
-		sampledColor = applyTextureDetailModeColor(_work, seed, sampledColor);
-		if (!debugTextureBucketMaskAllowsSample(_work, needsLUT))
-			return 0x000000FFU;
-		return sampledColor;
-	}
-	if (gActiveExecutorSummary != nullptr) {
-		if (tmemReject == 1U)
-			++gActiveExecutorSummary->textureTmemRejectFormatCount;
-		else if (tmemReject == 2U)
-			++gActiveExecutorSummary->textureTmemRejectSizeCount;
-		else if (tmemReject == 3U)
-			++gActiveExecutorSummary->textureTmemRejectCoordCount;
-	}
-	needsLUT = false;
 	u8 rdramReject = 0U;
-	if (sampleTextureFromRDRAM(
-			_work,
-			_s,
-			_t,
-			sampledColor,
-			needsLUT,
-			rdramReject)) {
-		(void)rdramReject;
-		recordTextureSampleMode(_work, needsLUT, _sampleSlot);
-		if (gActiveExecutorSummary != nullptr)
-			++gActiveExecutorSummary->textureRdramSampleCount;
+	const bool forceRdramPrimary = debugForceTextureRdramPrimary();
+
+	const auto finalizeTextureSample = [&](u32 _color, bool _needsLUT, u32 _sourceBit) -> u32 {
+		recordTextureSampleMode(_work, _needsLUT, _sampleSlot);
 		if (_sourceBits != nullptr)
-			*_sourceBits |= kTexelSourceRdramBit;
-		if (needsLUT) {
+			*_sourceBits |= _sourceBit;
+		if (_needsLUT) {
 			if (gActiveExecutorSummary != nullptr)
 				++gActiveExecutorSummary->textureLUTSampleCount;
-			sampledColor = applyTextureLUTModeColor(_work, seed, sampledColor);
+			_color = applyTextureLUTModeColor(_work, seed, _color);
 		}
 		if (debugForceAllTexelAlphaOpaque())
-			sampledColor = (sampledColor & 0xFFFFFF00U) | 0x000000FFU;
-		sampledColor = applyTextureDetailModeColor(_work, seed, sampledColor);
-		if (!debugTextureBucketMaskAllowsSample(_work, needsLUT))
+			_color = (_color & 0xFFFFFF00U) | 0x000000FFU;
+		_color = applyTextureDetailModeColor(_work, seed, _color);
+		if (!debugTextureBucketMaskAllowsSample(_work, _needsLUT))
 			return 0x000000FFU;
-		return sampledColor;
+		return _color;
+	};
+
+	const auto tryTMEMSample = [&]() -> bool {
+		bool localNeedsLUT = false;
+		u8 localReject = 0U;
+		if (gActiveExecutorSummary != nullptr)
+			++gActiveExecutorSummary->textureTmemAttemptCount;
+		if (!sampleCITextureFromTMEM(
+				_work,
+				_s,
+				_t,
+				sampledColor,
+				localNeedsLUT,
+				localReject)) {
+			tmemReject = localReject;
+			if (gActiveExecutorSummary != nullptr) {
+				if (tmemReject == 1U)
+					++gActiveExecutorSummary->textureTmemRejectFormatCount;
+				else if (tmemReject == 2U)
+					++gActiveExecutorSummary->textureTmemRejectSizeCount;
+				else if (tmemReject == 3U)
+					++gActiveExecutorSummary->textureTmemRejectCoordCount;
+			}
+			return false;
+		}
+		needsLUT = localNeedsLUT;
+		if (gActiveExecutorSummary != nullptr)
+			++gActiveExecutorSummary->textureTmemSampleCount;
+		sampledColor = finalizeTextureSample(sampledColor, needsLUT, kTexelSourceTMEMBit);
+		return true;
+	};
+
+	const auto tryRdramSample = [&]() -> bool {
+		bool localNeedsLUT = false;
+		u8 localReject = 0U;
+		if (!sampleTextureFromRDRAM(
+				_work,
+				_s,
+				_t,
+				sampledColor,
+				localNeedsLUT,
+				localReject)) {
+			rdramReject = localReject;
+			return false;
+		}
+		(void)rdramReject;
+		needsLUT = localNeedsLUT;
+		if (gActiveExecutorSummary != nullptr)
+			++gActiveExecutorSummary->textureRdramSampleCount;
+		sampledColor = finalizeTextureSample(sampledColor, needsLUT, kTexelSourceRdramBit);
+		return true;
+	};
+
+	if (forceRdramPrimary) {
+		if (tryRdramSample())
+			return sampledColor;
+		if (tryTMEMSample())
+			return sampledColor;
 	}
+	else {
+		if (tryTMEMSample())
+			return sampledColor;
+		if (tryRdramSample())
+			return sampledColor;
+	}
+
 	// Keep TMEM as the primary path. If TMEM decode rejects, attempt direct
 	// RDRAM decode as a best-effort fallback before synthetic diagnostics.
 	if (gActiveExecutorSummary != nullptr)
