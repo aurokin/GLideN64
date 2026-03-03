@@ -18,6 +18,7 @@ namespace {
 
 thread_local const rvk2::TextureReplacementStore * gActiveTextureReplacementStore = nullptr;
 thread_local rvk2::ExecutorSummary * gActiveExecutorSummary = nullptr;
+thread_local const u64 * gActiveExecutorTMEMWords = nullptr;
 constexpr u64 kFnvOffset = 1469598103934665603ULL;
 constexpr u64 kFnvPrime = 1099511628211ULL;
 
@@ -25,6 +26,11 @@ inline void updateHashByte(u64 & _hash, u8 _value)
 {
 	_hash ^= static_cast<u64>(_value);
 	_hash *= kFnvPrime;
+}
+
+inline const u64 * activeTMEMWords()
+{
+	return gActiveExecutorTMEMWords != nullptr ? gActiveExecutorTMEMWords : TMEM;
 }
 
 inline bool envStringIsTrue(const char * _value)
@@ -752,7 +758,7 @@ inline u32 applyTextureLUTModeColor(
 
 	// CI decode stores index in RGB lanes.
 	const u8 index = static_cast<u8>((_rgba >> 24U) & 0xFFU);
-	const u16 tlut = static_cast<u16>(TMEM[(0x100U + static_cast<u32>(index)) & 0x1FFU] & 0xFFFFULL);
+	const u16 tlut = static_cast<u16>(activeTMEMWords()[(0x100U + static_cast<u32>(index)) & 0x1FFU] & 0xFFFFULL);
 	if (lutMode == 3U) {
 		const u8 i = static_cast<u8>((tlut >> 8U) & 0xFFU);
 		const u8 a = static_cast<u8>(tlut & 0xFFU);
@@ -836,13 +842,13 @@ inline u16 readRdramU16Wrapped(u32 _address)
 
 inline u8 readTmem4BitPaletteColor(u16 _offset, u16 _x, u16 _i)
 {
-	const u8 * tmem8 = reinterpret_cast<const u8 *>(TMEM);
+	const u8 * tmem8 = reinterpret_cast<const u8 *>(activeTMEMWords());
 	return tmem8[((static_cast<u32>(_offset) << 3U) + (((static_cast<u32>(_x) >> 1U) ^ (static_cast<u32>(_i) << 1U)))) & 0xFFFU];
 }
 
 inline u8 readTmem8BitColor(u16 _offset, u16 _x, u16 _i)
 {
-	const u8 * tmem8 = reinterpret_cast<const u8 *>(TMEM);
+	const u8 * tmem8 = reinterpret_cast<const u8 *>(activeTMEMWords());
 	const u32 oddRowXor =
 		debugAltTmem8OddXor()
 			? static_cast<u32>(_i)
@@ -852,7 +858,7 @@ inline u8 readTmem8BitColor(u16 _offset, u16 _x, u16 _i)
 
 inline u16 readTmem16BitColor(u16 _offset, u16 _x, u16 _i)
 {
-	const u16 * tmem16 = reinterpret_cast<const u16 *>(TMEM);
+	const u16 * tmem16 = reinterpret_cast<const u16 *>(activeTMEMWords());
 	u16 value = tmem16[((static_cast<u32>(_offset) << 2U) + (static_cast<u32>(_x) ^ static_cast<u32>(_i))) & 0x7FFU];
 	if (debugSwapTmem16Samples())
 		value = static_cast<u16>((value << 8U) | (value >> 8U));
@@ -906,7 +912,7 @@ inline s32 computeLegacySplit32LineStride(const rvk2::RenderWorkPacket & _work)
 
 inline u32 readTmem32SplitPacked(const rvk2::RenderWorkPacket & _work, u16 _s, u16 _t, s32 _lineStride, u32 _xor)
 {
-	const u16 * tmem16 = reinterpret_cast<const u16 *>(TMEM);
+	const u16 * tmem16 = reinterpret_cast<const u16 *>(activeTMEMWords());
 	const s32 tline =
 		(static_cast<s32>(_work.tileTmem & 0x1FFU) << 2)
 		+ _lineStride * static_cast<s32>(_t);
@@ -3938,7 +3944,9 @@ void Executor::ensureTextureReplacementLoaded()
 
 ExecutorOutput Executor::executeWithOutput(
 	const std::vector<RenderWorkPacket> & _workPackets,
-	const std::vector<SubmissionBatchPacket> & _batches)
+	const std::vector<SubmissionBatchPacket> & _batches,
+	const std::vector<ExecutorTMEMSnapshot> * _tmemSnapshots,
+	const std::vector<u32> * _workTMEMSnapshotIndices)
 {
 	ensureTextureReplacementLoaded();
 	const TextureReplacementStore * previousReplacementStore = gActiveTextureReplacementStore;
@@ -3946,6 +3954,7 @@ ExecutorOutput Executor::executeWithOutput(
 		(!m_textureReplacementStore.empty() && m_config.textureReplacementEnable)
 		? &m_textureReplacementStore
 		: nullptr;
+	const u64 * previousTMEMWords = gActiveExecutorTMEMWords;
 
 	ExecutorOutput output{};
 	ExecutorSummary & summary = output.summary;
@@ -4052,6 +4061,15 @@ ExecutorOutput Executor::executeWithOutput(
 
 		for (u32 workIndex = batch.firstWorkIndex; workIndex <= lastIndex; ++workIndex) {
 			const RenderWorkPacket & work = _workPackets[workIndex];
+			const u64 * workTMEMWords = nullptr;
+			if (_tmemSnapshots != nullptr
+				&& _workTMEMSnapshotIndices != nullptr
+				&& workIndex < _workTMEMSnapshotIndices->size()) {
+				const u32 snapshotIndex = (*_workTMEMSnapshotIndices)[workIndex];
+				if (snapshotIndex < _tmemSnapshots->size())
+					workTMEMWords = (*_tmemSnapshots)[snapshotIndex].data();
+			}
+			gActiveExecutorTMEMWords = workTMEMWords;
 			++summary.executedWorkCount;
 			if (work.opKind != static_cast<u8>(RasterOpKind::kFillRect)
 				&& work.opKind != static_cast<u8>(RasterOpKind::kTexRect)
@@ -4434,14 +4452,21 @@ ExecutorOutput Executor::executeWithOutput(
 
 	gActiveExecutorSummary = previousExecutorSummary;
 	gActiveTextureReplacementStore = previousReplacementStore;
+	gActiveExecutorTMEMWords = previousTMEMWords;
 	return output;
 }
 
 ExecutorSummary Executor::execute(
 	const std::vector<RenderWorkPacket> & _workPackets,
-	const std::vector<SubmissionBatchPacket> & _batches)
+	const std::vector<SubmissionBatchPacket> & _batches,
+	const std::vector<ExecutorTMEMSnapshot> * _tmemSnapshots,
+	const std::vector<u32> * _workTMEMSnapshotIndices)
 {
-	return executeWithOutput(_workPackets, _batches).summary;
+	return executeWithOutput(
+		_workPackets,
+		_batches,
+		_tmemSnapshots,
+		_workTMEMSnapshotIndices).summary;
 }
 
 } // namespace rvk2

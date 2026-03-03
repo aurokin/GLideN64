@@ -2,6 +2,7 @@
 
 #include <cstddef>
 
+#include "N64.h"
 #include "rvk2_Executor.h"
 
 namespace {
@@ -581,6 +582,13 @@ bool isKnownRdpOpcode(u8 _opcode)
 	return false;
 }
 
+inline bool isTMEMLoadOpcode(u8 _opcode)
+{
+	return _opcode == 0x30U // LoadTLUT
+		|| _opcode == 0x33U // LoadBlock
+		|| _opcode == 0x34U; // LoadTile
+}
+
 } // namespace
 
 namespace rvk2 {
@@ -592,7 +600,10 @@ Runtime::Runtime()
 	, m_rasterOps()
 	, m_renderPlan()
 	, m_submissionBatches()
+	, m_tmemSnapshots()
+	, m_renderWorkTMEMSnapshotIndices()
 	, m_renderPlanState()
+	, m_currentTMEMSnapshotIndex(0U)
 	, m_rdpState()
 	, m_tmemModel()
 {
@@ -606,7 +617,10 @@ void Runtime::reset()
 	m_rasterOps.clear();
 	m_renderPlan.clear();
 	m_submissionBatches.clear();
+	m_tmemSnapshots.clear();
+	m_renderWorkTMEMSnapshotIndices.clear();
 	m_renderPlanState = RenderPlanState{};
+	m_currentTMEMSnapshotIndex = 0U;
 	m_rdpState.reset();
 	m_tmemModel.reset();
 	m_unknownRdpOpcodeCount = 0U;
@@ -615,6 +629,7 @@ void Runtime::reset()
 	m_truncatedPayloadCount = 0U;
 	m_firstTruncatedPayloadPacketId = 0ULL;
 	m_firstTruncatedPayloadOpcode = 0U;
+	captureCurrentTMEMSnapshot();
 }
 
 void Runtime::beginFrame(u64 _frameId)
@@ -624,13 +639,17 @@ void Runtime::beginFrame(u64 _frameId)
 	m_rasterOps.clear();
 	m_renderPlan.clear();
 	m_submissionBatches.clear();
+	m_tmemSnapshots.clear();
+	m_renderWorkTMEMSnapshotIndices.clear();
 	m_renderPlanState = RenderPlanState{};
+	m_currentTMEMSnapshotIndex = 0U;
 	m_unknownRdpOpcodeCount = 0U;
 	m_firstUnknownRdpPacketId = 0ULL;
 	m_firstUnknownRdpOpcode = 0U;
 	m_truncatedPayloadCount = 0U;
 	m_firstTruncatedPayloadPacketId = 0ULL;
 	m_firstTruncatedPayloadOpcode = 0U;
+	captureCurrentTMEMSnapshot();
 }
 
 void Runtime::submitRDPWord(
@@ -667,6 +686,8 @@ void Runtime::submitRDPWord(
 			_tailHash,
 			_payloadWordCount,
 			_payloadWords);
+	if (m_tmemSnapshots.empty())
+		captureCurrentTMEMSnapshot();
 	m_commandStream.push(packet);
 	if (!isKnownRdpOpcode(packet.opcode)) {
 		++m_unknownRdpOpcodeCount;
@@ -686,7 +707,10 @@ void Runtime::submitRDPWord(
 	}
 	m_rdpState.apply(packet);
 	m_tmemModel.apply(packet);
+	if (isTMEMLoadOpcode(packet.opcode))
+		captureCurrentTMEMSnapshot();
 	if (isDrawOpcode(packet.opcode)) {
+		captureCurrentTMEMSnapshot();
 		const RDPStateSnapshot & rdpSnapshot = m_rdpState.snapshot();
 		const TMEMSnapshot & tmemSnapshot = m_tmemModel.snapshot();
 		const DrawSemanticPacket semantic =
@@ -700,6 +724,7 @@ void Runtime::submitRDPWord(
 					buildRenderWorkPacket(op, rdpSnapshot, tmemSnapshot, m_renderPlanState);
 				const u32 workIndex = static_cast<u32>(m_renderPlan.size());
 				m_renderPlan.push_back(work);
+				m_renderWorkTMEMSnapshotIndices.push_back(m_currentTMEMSnapshotIndex);
 				appendRenderWorkToSubmissionPlan(work, workIndex, m_submissionBatches);
 			}
 		}
@@ -768,6 +793,16 @@ const std::vector<SubmissionBatchPacket> & Runtime::submissionPlan() const
 	return m_submissionBatches;
 }
 
+const std::vector<TMEMWordsSnapshot> & Runtime::tmemSnapshots() const
+{
+	return m_tmemSnapshots;
+}
+
+const std::vector<u32> & Runtime::renderWorkTMEMSnapshotIndices() const
+{
+	return m_renderWorkTMEMSnapshotIndices;
+}
+
 const RDPStateEngine & Runtime::rdpState() const
 {
 	return m_rdpState;
@@ -795,7 +830,11 @@ FrameTraceRecord Runtime::buildFrameTrace() const
 	record.renderWorkHash = hashRenderPlan(m_renderPlan);
 	record.submissionBatchHash = hashSubmissionPlan(m_submissionBatches);
 	const ExecutorSummary execSummary =
-		Executor(loadExecutorConfigFromEnv()).execute(m_renderPlan, m_submissionBatches);
+		Executor(loadExecutorConfigFromEnv()).execute(
+			m_renderPlan,
+			m_submissionBatches,
+			&m_tmemSnapshots,
+			&m_renderWorkTMEMSnapshotIndices);
 	record.executorWorkCount = execSummary.executedWorkCount;
 	record.executorBatchCount = execSummary.executedBatchCount;
 	record.executorColorWriteCount = execSummary.colorWriteCount;
@@ -812,6 +851,29 @@ FrameTraceRecord Runtime::buildFrameTrace() const
 	record.firstTruncatedPayloadPacketId = m_firstTruncatedPayloadPacketId;
 	record.firstTruncatedPayloadOpcode = m_firstTruncatedPayloadOpcode;
 	return record;
+}
+
+void Runtime::captureCurrentTMEMSnapshot()
+{
+	TMEMWordsSnapshot snapshot{};
+	for (size_t i = 0; i < snapshot.size(); ++i)
+		snapshot[i] = TMEM[i];
+	if (!m_tmemSnapshots.empty()) {
+		const TMEMWordsSnapshot & previous = m_tmemSnapshots.back();
+		bool same = true;
+		for (size_t i = 0; i < snapshot.size(); ++i) {
+			if (snapshot[i] != previous[i]) {
+				same = false;
+				break;
+			}
+		}
+		if (same) {
+			m_currentTMEMSnapshotIndex = static_cast<u32>(m_tmemSnapshots.size() - 1U);
+			return;
+		}
+	}
+	m_tmemSnapshots.push_back(snapshot);
+	m_currentTMEMSnapshotIndex = static_cast<u32>(m_tmemSnapshots.size() - 1U);
 }
 
 Runtime & runtime()

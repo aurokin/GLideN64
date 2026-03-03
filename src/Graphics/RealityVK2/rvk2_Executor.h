@@ -10,6 +10,8 @@
 
 namespace rvk2 {
 
+using ExecutorTMEMSnapshot = std::array<u64, 512>;
+
 constexpr u32 kExecutorDebugSurfaceSlots = 4U;
 constexpr u32 kExecutorStageDeltaClassBuckets = 32U;
 
@@ -211,11 +213,15 @@ public:
 
 	ExecutorOutput executeWithOutput(
 		const std::vector<RenderWorkPacket> & _workPackets,
-		const std::vector<SubmissionBatchPacket> & _batches);
+		const std::vector<SubmissionBatchPacket> & _batches,
+		const std::vector<ExecutorTMEMSnapshot> * _tmemSnapshots = nullptr,
+		const std::vector<u32> * _workTMEMSnapshotIndices = nullptr);
 
 	ExecutorSummary execute(
 		const std::vector<RenderWorkPacket> & _workPackets,
-		const std::vector<SubmissionBatchPacket> & _batches);
+		const std::vector<SubmissionBatchPacket> & _batches,
+		const std::vector<ExecutorTMEMSnapshot> * _tmemSnapshots = nullptr,
+		const std::vector<u32> * _workTMEMSnapshotIndices = nullptr);
 
 private:
 	ExecutorConfig m_config;

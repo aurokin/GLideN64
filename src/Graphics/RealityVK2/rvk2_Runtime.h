@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <vector>
 
 #include "rvk2_CommandStream.h"
@@ -12,6 +13,8 @@
 #include "rvk2_TMEMModel.h"
 
 namespace rvk2 {
+
+using TMEMWordsSnapshot = std::array<u64, 512>;
 
 class Runtime
 {
@@ -59,6 +62,8 @@ public:
 	const std::vector<RasterOpPacket> & rasterOps() const;
 	const std::vector<RenderWorkPacket> & renderPlan() const;
 	const std::vector<SubmissionBatchPacket> & submissionPlan() const;
+	const std::vector<TMEMWordsSnapshot> & tmemSnapshots() const;
+	const std::vector<u32> & renderWorkTMEMSnapshotIndices() const;
 	const RDPStateEngine & rdpState() const;
 	const TMEMModel & tmemModel() const;
 
@@ -71,7 +76,10 @@ private:
 	std::vector<RasterOpPacket> m_rasterOps;
 	std::vector<RenderWorkPacket> m_renderPlan;
 	std::vector<SubmissionBatchPacket> m_submissionBatches;
+	std::vector<TMEMWordsSnapshot> m_tmemSnapshots;
+	std::vector<u32> m_renderWorkTMEMSnapshotIndices;
 	RenderPlanState m_renderPlanState{};
+	u32 m_currentTMEMSnapshotIndex = 0U;
 	RDPStateEngine m_rdpState;
 	TMEMModel m_tmemModel;
 	u32 m_unknownRdpOpcodeCount = 0U;
@@ -80,6 +88,8 @@ private:
 	u32 m_truncatedPayloadCount = 0U;
 	PacketId m_firstTruncatedPayloadPacketId = 0ULL;
 	u8 m_firstTruncatedPayloadOpcode = 0U;
+
+	void captureCurrentTMEMSnapshot();
 };
 
 Runtime & runtime();

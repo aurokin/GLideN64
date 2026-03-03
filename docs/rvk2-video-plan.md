@@ -29,16 +29,28 @@ Accuracy-first. RVK2-only path. No legacy renderer fallback.
 10. Hidden coverage bit-plane is now persisted per surface and consumed by blender memory-coverage alpha paths.
 11. TEXEL1 sampling from secondary tile descriptors (tile+1) is now wired into both cycle hazard paths.
 12. Triangle Y edge values are now consumed as signed 14-bit s10.2 values in both render-plan bound derivation and executor rasterization.
+13. Executor TMEM sampling is now bound to per-draw historical TMEM snapshots (instead of end-of-frame global TMEM state).
 
-## Remaining Work Map (3.8%)
+## Remaining Work Map (3.0%)
 
 1. `P5` cycle semantics closure (combiner/blender/coverage/depth): **0.6%**
-2. `P3` authoritative TMEM path closure (especially 32b): **2.2%**
+2. `P3` authoritative TMEM path closure (especially 32b): **1.4%**
 3. `P4` raster/coefficient edge behavior: **0.2%**
 4. `P2` present-source determinism polish: **0.5%**
 5. `P6` VI finishing polish: **0.3%**
 
 ## Latest Batch (2026-03-03)
+
+1. Closed major TMEM temporal-coherency gap:
+   - runtime now captures deduplicated TMEM snapshots and binds them per draw packet.
+   - executor now selects TMEM words per work item instead of sampling end-of-frame `TMEM`.
+2. Validation signal jump:
+   - Paper Mario candidate moved from near-black/noise to a high-energy textured frame (`rmse=0.284339`, `mae=0.138428` vs black-reference cache).
+   - stage sweep now shows materially non-black `texel_raw/combiner_out/blender_out/final` outputs, confirming texture data is flowing through the pipe.
+3. Local validation:
+   - `./scripts/local_gate.sh` PASS (release+debug unit+conformance).
+
+## Previous Batch (2026-03-03)
 
 1. Closed signed-triangle-Y interpretation gap:
    - render-plan triangle bounds now sign-extend `YL/YM/YH` as signed 14-bit s10.2 values.
@@ -54,8 +66,6 @@ Accuracy-first. RVK2-only path. No legacy renderer fallback.
    - metrics changed (`rmse=0.202891`, `mae=0.068396`) vs prior black-reference delta baseline.
    - triangle path activated in live capture (`write_triangle_share=0.378955`, `stage_textured_triangle_share=0.374742`; previously near-zero in this path).
    - TMEM dominance retained (`stage_texel_source_tmem_rate=0.993263`), with small synthetic spill (`0.001063`) still to close.
-
-## Previous Batch (2026-03-03)
 
 1. Reworked tile-axis coordinate mapping to match documented RDP ordering:
    - shift in fixed-point (`s10.5`) before integer texel conversion,

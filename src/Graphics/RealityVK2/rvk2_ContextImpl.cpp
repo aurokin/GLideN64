@@ -511,7 +511,11 @@ bool ContextImpl::present()
 	const ExecutorConfig config = buildExecutorConfigFromVIRegisters();
 	m_executor.updateConfig(config);
 	const ExecutorOutput output =
-		m_executor.executeWithOutput(runtime().renderPlan(), runtime().submissionPlan());
+		m_executor.executeWithOutput(
+			runtime().renderPlan(),
+			runtime().submissionPlan(),
+			&runtime().tmemSnapshots(),
+			&runtime().renderWorkTMEMSnapshotIndices());
 	if (config.textureReplacementLogSummary && output.summary.textureReplacementEnabled) {
 		LOG(
 			LOG_WARNING,
