@@ -32,6 +32,76 @@ namespace {
 #if REALITYVK_VULKAN_HEADERS_AVAILABLE
 const char * packetSourceName(u32 _source);
 
+constexpr u64 kReadbackFnvOffset = 1469598103934665603ULL;
+constexpr u64 kReadbackFnvPrime = 1099511628211ULL;
+
+struct ReadbackDebugStats
+{
+	u64 hash = kReadbackFnvOffset;
+	u64 nonZeroPixels = 0ULL;
+	u64 alphaNonZeroPixels = 0ULL;
+	u64 lumaSum = 0ULL;
+};
+
+inline void updateReadbackHash(u64 & _hash, u8 _byte)
+{
+	_hash ^= static_cast<u64>(_byte);
+	_hash *= kReadbackFnvPrime;
+}
+
+ReadbackDebugStats computeReadbackDebugStats(
+	const std::vector<u8> & _bytes,
+	u32 _width,
+	u32 _height,
+	u32 _rowBytes,
+	u32 _bytesPerPixel)
+{
+	ReadbackDebugStats stats{};
+	if (_bytes.empty() || _rowBytes == 0U || _bytesPerPixel == 0U || _width == 0U || _height == 0U)
+		return stats;
+
+	const size_t hashBytes = std::min<size_t>(
+		_bytes.size(),
+		static_cast<size_t>(_rowBytes) * static_cast<size_t>(_height));
+	for (size_t i = 0U; i < hashBytes; ++i)
+		updateReadbackHash(stats.hash, _bytes[i]);
+
+	const size_t rowBytes = static_cast<size_t>(_rowBytes);
+	const size_t bytesPerPixel = static_cast<size_t>(_bytesPerPixel);
+	const size_t activeRowBytes = static_cast<size_t>(_width) * bytesPerPixel;
+	if (activeRowBytes == 0U || activeRowBytes > rowBytes)
+		return stats;
+
+	for (u32 y = 0U; y < _height; ++y) {
+		const size_t rowStart = static_cast<size_t>(y) * rowBytes;
+		if (rowStart + activeRowBytes > _bytes.size())
+			break;
+		const u8 * row = _bytes.data() + rowStart;
+		for (u32 x = 0U; x < _width; ++x) {
+			const u8 * pixel = row + static_cast<size_t>(x) * bytesPerPixel;
+			bool nonZero = false;
+			for (u32 c = 0U; c < _bytesPerPixel; ++c) {
+				if (pixel[c] != 0U) {
+					nonZero = true;
+					break;
+				}
+			}
+			if (nonZero)
+				++stats.nonZeroPixels;
+			if (_bytesPerPixel >= 4U && pixel[3] != 0U)
+				++stats.alphaNonZeroPixels;
+			if (_bytesPerPixel >= 3U) {
+				const u64 r = static_cast<u64>(pixel[0]);
+				const u64 g = static_cast<u64>(pixel[1]);
+				const u64 b = static_cast<u64>(pixel[2]);
+				stats.lumaSum += (2126ULL * r + 7152ULL * g + 722ULL * b + 5000ULL) / 10000ULL;
+			}
+		}
+	}
+
+	return stats;
+}
+
 void attachPacketBindings(const vulkan::BindingState & _bindingState, vulkan::DrawPacket & _packet)
 {
 	static const bool debugBindings = std::getenv("REALITYVK_VK_DEBUG_BINDINGS") != nullptr;
@@ -1904,9 +1974,25 @@ graphics::PixelReadBuffer * ContextImpl::createPixelReadBuffer(size_t _sizeInByt
 					return static_cast<u32>(std::strtoul(env, nullptr, 10));
 				}();
 				if (readbackLogCount < readbackLogLimit) {
+					const ReadbackDebugStats stats = computeReadbackDebugStats(
+						_outData,
+						_width,
+						_height,
+						rowBytes,
+						bytesPerPixel);
+					const u64 pixelCount = static_cast<u64>(_width) * static_cast<u64>(_height);
+					const double nonZeroRatio = pixelCount == 0ULL
+						? 0.0
+						: static_cast<double>(stats.nonZeroPixels) / static_cast<double>(pixelCount);
+					const double alphaNonZeroRatio = (pixelCount == 0ULL || bytesPerPixel < 4U)
+						? 0.0
+						: static_cast<double>(stats.alphaNonZeroPixels) / static_cast<double>(pixelCount);
+					const double meanLuma = (pixelCount == 0ULL || bytesPerPixel < 3U)
+						? 0.0
+						: static_cast<double>(stats.lumaSum) / static_cast<double>(pixelCount);
 					LOG(
 						LOG_WARNING,
-						"VK readback debug: kind=pixel fbo=%u attachment=%s texture=%u x=%u y=%u w=%u h=%u rowBytes=%u bpp=%u bytes=%u",
+						"VK readback debug: kind=pixel fbo=%u attachment=%s texture=%u x=%u y=%u w=%u h=%u rowBytes=%u bpp=%u bytes=%u hash=0x%016llX non_zero=%llu/%llu non_zero_ratio=%0.6f alpha_non_zero=%llu alpha_non_zero_ratio=%0.6f mean_luma=%0.3f",
 						static_cast<u32>(readFramebuffer),
 						bufferAttachmentName(sourceAttachmentType),
 						static_cast<u32>(sourceAttachment->textureHandle),
@@ -1916,10 +2002,17 @@ graphics::PixelReadBuffer * ContextImpl::createPixelReadBuffer(size_t _sizeInByt
 						_height,
 						rowBytes,
 						bytesPerPixel,
-						static_cast<u32>(_outData.size()));
-					++readbackLogCount;
+						static_cast<u32>(_outData.size()),
+						static_cast<unsigned long long>(stats.hash),
+						static_cast<unsigned long long>(stats.nonZeroPixels),
+						static_cast<unsigned long long>(pixelCount),
+						nonZeroRatio,
+						static_cast<unsigned long long>(stats.alphaNonZeroPixels),
+						alphaNonZeroRatio,
+						meanLuma);
+						++readbackLogCount;
+					}
 				}
-			}
 			return true;
 #endif
 		});
@@ -1986,9 +2079,25 @@ graphics::ColorBufferReader * ContextImpl::createColorBufferReader(CachedTexture
 					return static_cast<u32>(std::strtoul(env, nullptr, 10));
 				}();
 				if (readbackLogCount < readbackLogLimit) {
+					const ReadbackDebugStats stats = computeReadbackDebugStats(
+						_outData,
+						_width,
+						_height,
+						rowBytes,
+						bytesPerPixel);
+					const u64 pixelCount = static_cast<u64>(_width) * static_cast<u64>(_height);
+					const double nonZeroRatio = pixelCount == 0ULL
+						? 0.0
+						: static_cast<double>(stats.nonZeroPixels) / static_cast<double>(pixelCount);
+					const double alphaNonZeroRatio = (pixelCount == 0ULL || bytesPerPixel < 4U)
+						? 0.0
+						: static_cast<double>(stats.alphaNonZeroPixels) / static_cast<double>(pixelCount);
+					const double meanLuma = (pixelCount == 0ULL || bytesPerPixel < 3U)
+						? 0.0
+						: static_cast<double>(stats.lumaSum) / static_cast<double>(pixelCount);
 					LOG(
 						LOG_WARNING,
-						"VK readback debug: kind=color texture=%u x=%u y=%u w=%u h=%u rowBytes=%u bpp=%u bytes=%u",
+						"VK readback debug: kind=color texture=%u x=%u y=%u w=%u h=%u rowBytes=%u bpp=%u bytes=%u hash=0x%016llX non_zero=%llu/%llu non_zero_ratio=%0.6f alpha_non_zero=%llu alpha_non_zero_ratio=%0.6f mean_luma=%0.3f",
 						static_cast<u32>(_textureHandle),
 						readX,
 						readY,
@@ -1996,10 +2105,17 @@ graphics::ColorBufferReader * ContextImpl::createColorBufferReader(CachedTexture
 						_height,
 						rowBytes,
 						bytesPerPixel,
-						static_cast<u32>(_outData.size()));
-					++readbackLogCount;
+						static_cast<u32>(_outData.size()),
+						static_cast<unsigned long long>(stats.hash),
+						static_cast<unsigned long long>(stats.nonZeroPixels),
+						static_cast<unsigned long long>(pixelCount),
+						nonZeroRatio,
+						static_cast<unsigned long long>(stats.alphaNonZeroPixels),
+						alphaNonZeroRatio,
+						meanLuma);
+						++readbackLogCount;
+					}
 				}
-			}
 			_outStridePixels = rowBytes / bytesPerPixel;
 			return _outStridePixels != 0U;
 #endif
