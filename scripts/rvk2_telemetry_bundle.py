@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import re
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -120,6 +122,49 @@ def _ratio(numer: int, denom: int) -> Optional[float]:
     if denom == 0:
         return None
     return float(numer) / float(denom)
+
+
+def _decode_combiner_cycle_selectors(combine_mux: int, cycle2: bool) -> Dict[str, int]:
+    mode0 = (combine_mux >> 32) & 0xFFFFFFFF
+    mode1 = combine_mux & 0xFFFFFFFF
+    if cycle2:
+        return {
+            "color_a": (mode0 >> 5) & 0xF,
+            "color_b": (mode1 >> 24) & 0xF,
+            "color_c": mode0 & 0x1F,
+            "color_d": (mode1 >> 6) & 0x7,
+            "alpha_a": (mode1 >> 21) & 0x7,
+            "alpha_b": (mode1 >> 3) & 0x7,
+            "alpha_c": (mode1 >> 18) & 0x7,
+            "alpha_d": mode1 & 0x7,
+        }
+    return {
+        "color_a": (mode0 >> 20) & 0xF,
+        "color_b": (mode1 >> 28) & 0xF,
+        "color_c": (mode0 >> 15) & 0x1F,
+        "color_d": (mode1 >> 15) & 0x7,
+        "alpha_a": (mode0 >> 12) & 0x7,
+        "alpha_b": (mode1 >> 12) & 0x7,
+        "alpha_c": (mode0 >> 9) & 0x7,
+        "alpha_d": (mode1 >> 9) & 0x7,
+    }
+
+
+def _decode_blend_selectors(other_modes: int, cycle2: bool) -> Dict[str, int]:
+    mode1 = other_modes & 0xFFFFFFFF
+    if cycle2:
+        return {
+            "m1a": (mode1 >> 28) & 0x3,
+            "m1b": (mode1 >> 24) & 0x3,
+            "m2a": (mode1 >> 20) & 0x3,
+            "m2b": (mode1 >> 16) & 0x3,
+        }
+    return {
+        "m1a": (mode1 >> 30) & 0x3,
+        "m1b": (mode1 >> 26) & 0x3,
+        "m2a": (mode1 >> 22) & 0x3,
+        "m2b": (mode1 >> 18) & 0x3,
+    }
 
 
 def _parse_launch_log(path: Optional[Path]) -> Dict[str, Any]:
@@ -271,6 +316,9 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
             "texture_source_bit_counts": {},
             "unique_color_image_count": 0,
             "top_color_images": [],
+            "top_source_packets": [],
+            "top_combiner_kill_source_packets": [],
+            "top_source_packet_profiles": [],
             "dominant_state": {},
             "dominant_state_ratio": None,
             "stage_black": {},
@@ -281,6 +329,8 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
     op_counts: Dict[str, int] = {}
     texture_source_bit_counts: Dict[str, int] = {}
     color_image_counts: Dict[int, int] = {}
+    source_packet_counts: Dict[int, int] = {}
+    combiner_kill_source_packet_counts: Dict[int, int] = {}
     state_counts: Dict[str, int] = {}
     state_rows: Dict[str, Dict[str, Any]] = {}
     preserved_count = 0
@@ -328,6 +378,10 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
         if _u64(record, "preserved") != 0:
             preserved_count += 1
 
+        source_packet_id = _u64(record, "source_packet_id")
+        if source_packet_id > 0:
+            source_packet_counts[source_packet_id] = source_packet_counts.get(source_packet_id, 0) + 1
+
         texture_source_bits = _u64(record, "texture_source_bits")
         source_key = f"0x{texture_source_bits:08X}"
         texture_source_bit_counts[source_key] = texture_source_bit_counts.get(source_key, 0) + 1
@@ -350,6 +404,10 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
             final_black_count += 1
         if not texel_black and combiner_black:
             kill_at_combiner_count += 1
+            if source_packet_id > 0:
+                combiner_kill_source_packet_counts[source_packet_id] = (
+                    combiner_kill_source_packet_counts.get(source_packet_id, 0) + 1
+                )
         if not combiner_black and blender_black:
             kill_at_blender_count += 1
         if not blender_black and final_black:
@@ -392,6 +450,33 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
             }
         )
 
+    top_source_packets = sorted(source_packet_counts.items(), key=lambda item: item[1], reverse=True)
+    top_source_packet_rows: List[Dict[str, Any]] = []
+    for source_packet_id, count in top_source_packets[:16]:
+        top_source_packet_rows.append(
+            {
+                "source_packet_id": int(source_packet_id),
+                "count": int(count),
+                "ratio": _ratio(int(count), record_count),
+            }
+        )
+
+    top_combiner_kill_sources = sorted(
+        combiner_kill_source_packet_counts.items(),
+        key=lambda item: item[1],
+        reverse=True,
+    )
+    top_combiner_kill_source_rows: List[Dict[str, Any]] = []
+    for source_packet_id, count in top_combiner_kill_sources[:16]:
+        top_combiner_kill_source_rows.append(
+            {
+                "source_packet_id": int(source_packet_id),
+                "count": int(count),
+                "ratio_of_combiner_kills": _ratio(int(count), kill_at_combiner_count),
+                "ratio_of_overwrite_records": _ratio(int(count), record_count),
+            }
+        )
+
     dominant_state: Dict[str, Any] = {}
     dominant_state_ratio: Optional[float] = None
     if state_counts:
@@ -409,6 +494,9 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
         "texture_source_bit_counts": dict(sorted(texture_source_bit_counts.items())),
         "unique_color_image_count": len(color_image_counts),
         "top_color_images": top_color_image_rows,
+        "top_source_packets": top_source_packet_rows,
+        "top_combiner_kill_source_packets": top_combiner_kill_source_rows,
+        "top_source_packet_profiles": [],
         "dominant_state": dominant_state,
         "dominant_state_ratio": dominant_state_ratio,
         "stage_black": {
@@ -430,6 +518,146 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
             "kill_after_blender_ratio": _ratio(kill_after_blender_count, record_count),
         },
     }
+
+
+def _load_packet_trace_replay_module() -> Optional[Any]:
+    module_path = Path(__file__).with_name("rvk2_packet_trace_replay.py")
+    if not module_path.is_file():
+        return None
+    try:
+        spec = importlib.util.spec_from_file_location("rvk2_packet_trace_replay_bundle", str(module_path))
+        if spec is None or spec.loader is None:
+            return None
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        return module
+    except Exception:
+        return None
+
+
+def _profile_overwrite_source_packets(
+    overwrite_summary: Optional[Dict[str, Any]],
+    packet_trace_path: Optional[Path],
+) -> Dict[str, Any]:
+    result: Dict[str, Any] = {
+        "profiles": [],
+        "requested_count": 0,
+        "resolved_count": 0,
+        "error": None,
+    }
+    if not isinstance(overwrite_summary, dict):
+        return result
+    if packet_trace_path is None or not packet_trace_path.is_file():
+        return result
+
+    overwrite_counts: Dict[int, int] = {}
+    for row in overwrite_summary.get("top_source_packets", []):
+        if not isinstance(row, dict):
+            continue
+        source_packet_id = _u64(row, "source_packet_id")
+        count = _u64(row, "count")
+        if source_packet_id > 0 and count > 0:
+            overwrite_counts[source_packet_id] = count
+
+    combiner_kill_counts: Dict[int, int] = {}
+    for row in overwrite_summary.get("top_combiner_kill_source_packets", []):
+        if not isinstance(row, dict):
+            continue
+        source_packet_id = _u64(row, "source_packet_id")
+        count = _u64(row, "count")
+        if source_packet_id > 0 and count > 0:
+            combiner_kill_counts[source_packet_id] = count
+
+    target_ids = set(overwrite_counts.keys()) | set(combiner_kill_counts.keys())
+    if not target_ids:
+        return result
+
+    module = _load_packet_trace_replay_module()
+    if module is None:
+        result["error"] = "packet trace replay parser is unavailable"
+        return result
+
+    try:
+        frames = module.parse_packet_trace(packet_trace_path)
+    except Exception as exc:  # pragma: no cover - defensive parse guard
+        result["error"] = f"packet trace parse failed: {exc}"
+        return result
+
+    work_by_source: Dict[int, Any] = {}
+    for frame in frames:
+        render_work_rows = getattr(frame, "render_work", [])
+        for work in render_work_rows:
+            source_packet_id = int(getattr(work, "source_packet_id", 0))
+            if source_packet_id <= 0 or source_packet_id not in target_ids:
+                continue
+            if source_packet_id not in work_by_source:
+                work_by_source[source_packet_id] = work
+        if len(work_by_source) >= len(target_ids):
+            break
+
+    ordered_sources = sorted(target_ids, key=lambda sid: overwrite_counts.get(sid, 0), reverse=True)
+    profiles: List[Dict[str, Any]] = []
+    for source_packet_id in ordered_sources:
+        overwrite_count = int(overwrite_counts.get(source_packet_id, 0))
+        combiner_kill_count = int(combiner_kill_counts.get(source_packet_id, 0))
+        work = work_by_source.get(source_packet_id)
+        if work is None:
+            profiles.append(
+                {
+                    "source_packet_id": int(source_packet_id),
+                    "overwrite_count": overwrite_count,
+                    "combiner_kill_count": combiner_kill_count,
+                    "resolved_in_packet_trace": False,
+                }
+            )
+            continue
+
+        combine_mux = int(getattr(work, "combine_mux", 0))
+        other_modes = int(getattr(work, "other_modes", 0))
+        blend_params = int(getattr(work, "blend_params", 0))
+        shade_r = int(getattr(work, "triangle_shade_r", 0))
+        shade_g = int(getattr(work, "triangle_shade_g", 0))
+        shade_b = int(getattr(work, "triangle_shade_b", 0))
+        shade_a = int(getattr(work, "triangle_shade_a", 0))
+        shade_r_byte = (shade_r >> 8) & 0xFF
+        shade_g_byte = (shade_g >> 8) & 0xFF
+        shade_b_byte = (shade_b >> 8) & 0xFF
+        shade_a_byte = (shade_a >> 8) & 0xFF
+        profile = {
+            "source_packet_id": int(source_packet_id),
+            "overwrite_count": overwrite_count,
+            "combiner_kill_count": combiner_kill_count,
+            "resolved_in_packet_trace": True,
+            "op_kind": int(getattr(work, "op_kind", 0)),
+            "phase": int(getattr(work, "phase", 0)),
+            "combine_mux": f"0x{combine_mux:016X}",
+            "other_modes": f"0x{other_modes:016X}",
+            "blend_params": f"0x{blend_params:08X}",
+            "image_read_enabled": 1 if ((other_modes & (1 << 6)) != 0) else 0,
+            "triangle_shade_enable": 1 if bool(getattr(work, "triangle_shade_enable", False)) else 0,
+            "triangle_texture_enable": 1 if bool(getattr(work, "triangle_texture_enable", False)) else 0,
+            "textured": 1 if bool(getattr(work, "textured", False)) else 0,
+            "triangle_shade_rgb_zero": 1 if (shade_r_byte == 0 and shade_g_byte == 0 and shade_b_byte == 0) else 0,
+            "triangle_shade_rgba_bytes": {
+                "r": int(shade_r_byte),
+                "g": int(shade_g_byte),
+                "b": int(shade_b_byte),
+                "a": int(shade_a_byte),
+            },
+            "prim_color": f"0x{int(getattr(work, 'prim_color', 0)) & 0xFFFFFFFF:08X}",
+            "env_color": f"0x{int(getattr(work, 'env_color', 0)) & 0xFFFFFFFF:08X}",
+            "cycle1_combiner_selectors": _decode_combiner_cycle_selectors(combine_mux, cycle2=False),
+            "cycle2_combiner_selectors": _decode_combiner_cycle_selectors(combine_mux, cycle2=True),
+            "cycle1_blend_selectors": _decode_blend_selectors(other_modes, cycle2=False),
+            "cycle2_blend_selectors": _decode_blend_selectors(other_modes, cycle2=True),
+        }
+        profiles.append(profile)
+
+    result["profiles"] = profiles
+    result["requested_count"] = len(target_ids)
+    result["resolved_count"] = len(work_by_source)
+    return result
 
 
 def _summarize_replay(replay: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -705,6 +933,9 @@ def _build_signals(
         overwrite_op_counts = overwrite_summary.get("op_counts", {})
         overwrite_texture_source_bit_counts = overwrite_summary.get("texture_source_bit_counts", {})
         overwrite_top_color_images = overwrite_summary.get("top_color_images", [])
+        overwrite_top_source_packets = overwrite_summary.get("top_source_packets", [])
+        overwrite_top_combiner_kill_source_packets = overwrite_summary.get("top_combiner_kill_source_packets", [])
+        overwrite_top_source_packet_profiles = overwrite_summary.get("top_source_packet_profiles", [])
         overwrite_dominant_state = overwrite_summary.get("dominant_state", {})
         overwrite_dominant_state_ratio = overwrite_summary.get("dominant_state_ratio")
         overwrite_stage_black = overwrite_summary.get("stage_black", {})
@@ -719,6 +950,17 @@ def _build_signals(
             ),
             "unique_color_image_count": int(overwrite_summary.get("unique_color_image_count", 0) or 0),
             "top_color_images": overwrite_top_color_images if isinstance(overwrite_top_color_images, list) else [],
+            "top_source_packets": (
+                overwrite_top_source_packets if isinstance(overwrite_top_source_packets, list) else []
+            ),
+            "top_combiner_kill_source_packets": (
+                overwrite_top_combiner_kill_source_packets
+                if isinstance(overwrite_top_combiner_kill_source_packets, list)
+                else []
+            ),
+            "top_source_packet_profiles": (
+                overwrite_top_source_packet_profiles if isinstance(overwrite_top_source_packet_profiles, list) else []
+            ),
             "dominant_state": overwrite_dominant_state if isinstance(overwrite_dominant_state, dict) else {},
             "dominant_state_ratio": overwrite_dominant_state_ratio,
             "stage_black": overwrite_stage_black if isinstance(overwrite_stage_black, dict) else {},
@@ -767,6 +1009,44 @@ def _build_signals(
                 suspected_gaps.append(
                     "many overwrite-to-black events transition non-black combiner output to black at blender stage (>25%)"
                 )
+        if isinstance(overwrite_top_source_packet_profiles, list) and overwrite_top_source_packet_profiles:
+            total_profiled_overwrite = 0
+            zero_shade_overwrite = 0
+            cycle1_shade_modulate_overwrite = 0
+            cycle2_memory_blend_overwrite = 0
+            for profile in overwrite_top_source_packet_profiles:
+                if not isinstance(profile, dict):
+                    continue
+                overwrite_count = int(profile.get("overwrite_count", 0) or 0)
+                if overwrite_count <= 0:
+                    continue
+                total_profiled_overwrite += overwrite_count
+                if int(profile.get("triangle_shade_rgb_zero", 0) or 0) != 0:
+                    zero_shade_overwrite += overwrite_count
+                cycle1_combiner = profile.get("cycle1_combiner_selectors", {})
+                if isinstance(cycle1_combiner, dict):
+                    if int(cycle1_combiner.get("color_c", -1)) == 4:
+                        cycle1_shade_modulate_overwrite += overwrite_count
+                cycle2_blend = profile.get("cycle2_blend_selectors", {})
+                if isinstance(cycle2_blend, dict):
+                    if int(cycle2_blend.get("m2a", -1)) == 1:
+                        cycle2_memory_blend_overwrite += overwrite_count
+            if total_profiled_overwrite > 0:
+                zero_shade_ratio = float(zero_shade_overwrite) / float(total_profiled_overwrite)
+                cycle1_shade_modulate_ratio = float(cycle1_shade_modulate_overwrite) / float(total_profiled_overwrite)
+                cycle2_memory_blend_ratio = float(cycle2_memory_blend_overwrite) / float(total_profiled_overwrite)
+                if zero_shade_ratio > 0.50:
+                    suspected_gaps.append(
+                        "dominant overwrite source packets carry zero shade RGB; verify triangle shade coefficient decode and shade routing"
+                    )
+                if cycle1_shade_modulate_ratio > 0.50:
+                    suspected_gaps.append(
+                        "dominant overwrite source packets use cycle-1 combiner C=shade modulation; shading lane parity is high leverage"
+                    )
+                if cycle2_memory_blend_ratio > 0.50:
+                    suspected_gaps.append(
+                        "dominant overwrite source packets rely on cycle-2 blender memory input; validate cycle handoff and memory-color feed"
+                    )
         if (
             overwrite_record_count > 0
             and isinstance(overwrite_dominant_state_ratio, (int, float))
@@ -1755,6 +2035,18 @@ def main() -> int:
     missing_region_focus = _load_json(missing_region_focus_path)
     history_merge_summary = _parse_history_merge_log(history_merge_log_path)
     overwrite_summary = _parse_overwrite_log(overwrite_log_path)
+    overwrite_source_profile_summary = _profile_overwrite_source_packets(overwrite_summary, packet_trace)
+    if isinstance(overwrite_summary, dict):
+        overwrite_summary["top_source_packet_profiles"] = overwrite_source_profile_summary.get("profiles", [])
+        overwrite_summary["source_profile_requested_count"] = int(
+            overwrite_source_profile_summary.get("requested_count", 0) or 0
+        )
+        overwrite_summary["source_profile_resolved_count"] = int(
+            overwrite_source_profile_summary.get("resolved_count", 0) or 0
+        )
+        source_profile_error = overwrite_source_profile_summary.get("error")
+        if isinstance(source_profile_error, str) and source_profile_error:
+            overwrite_summary["source_profile_error"] = source_profile_error
     command_census = _load_json(command_census_path)
 
     forensics_data = _parse_forensics(forensics)
