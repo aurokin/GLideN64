@@ -9,20 +9,14 @@
 #include <Graphics/Parameters.h>
 #include <N64.h>
 
+#include "rvk2_Env.h"
 #include "rvk2_Runtime.h"
 
 namespace {
 
 bool envFlagEnabled(const char * _key, bool _defaultValue)
 {
-	const char * value = std::getenv(_key);
-	if (value == nullptr || value[0] == '\0')
-		return _defaultValue;
-
-	char first = static_cast<char>(std::tolower(static_cast<unsigned char>(value[0])));
-	if (first == '0' || first == 'f' || first == 'n')
-		return false;
-	return true;
+	return rvk2::envFlagEnabled(_key, _defaultValue);
 }
 
 bool shouldFlipPresentedFrameY()
@@ -76,10 +70,7 @@ bool debugDisableSameFramePresentAccumRequested()
 const char * debugExecutorPresentDumpPath()
 {
 	static const char * path = []() -> const char * {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_EXECUTOR_PRESENT_DUMP");
-		if (raw == nullptr || raw[0] == '\0')
-			return nullptr;
-		return raw;
+		return rvk2::envStringOrNull("REALITYVK_RVK2_DEBUG_EXECUTOR_PRESENT_DUMP");
 	}();
 	return path;
 }
@@ -87,14 +78,10 @@ const char * debugExecutorPresentDumpPath()
 u64 debugExecutorPresentDumpFrame()
 {
 	static const u64 frame = []() -> u64 {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_EXECUTOR_PRESENT_DUMP_FRAME");
-		if (raw == nullptr || raw[0] == '\0')
+		uint64_t parsed = 0ULL;
+		if (!rvk2::envUnsigned("REALITYVK_RVK2_DEBUG_EXECUTOR_PRESENT_DUMP_FRAME", parsed))
 			return 0ULL;
-		char * end = nullptr;
-		const unsigned long long value = std::strtoull(raw, &end, 10);
-		if (end == raw)
-			return 0ULL;
-		return static_cast<u64>(value);
+		return static_cast<u64>(parsed);
 	}();
 	return frame;
 }

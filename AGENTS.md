@@ -99,6 +99,7 @@ python3 scripts/rvk2_knob_history.py summary \
 
 ## Debug Toggle Safety Policy
 - `REALITYVK_RVK2_DEBUG_*` toggles are probe-only unless explicitly promoted.
+- Runtime emits a one-time active-toggle summary when non-default `REALITYVK_RVK2_DEBUG_*` values are detected (`REALITYVK_RVK2_DEBUG_LOG_ACTIVE=0` disables summary logging).
 - Do not land behavior fixes that require permanent debug toggles.
 - Revert temporary source probes before merge unless converted into intentional telemetry with docs.
 - Keep release-path defaults stable; drive experiments through smoke env vars.

@@ -1,7 +1,6 @@
 #include "rvk2_TMEMModel.h"
 
-#include <cctype>
-#include <cstdlib>
+#include "rvk2_Env.h"
 
 namespace {
 
@@ -31,13 +30,7 @@ inline bool decodeTileIndex(u32 _w1, u8 & _tileIndex)
 bool normalizeTileMasks()
 {
 	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_SETTILE_MASK_NORMALIZE");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		const char first = static_cast<char>(std::tolower(static_cast<unsigned char>(raw[0])));
-		if (first == '0' || first == 'f' || first == 'n')
-			return false;
-		return true;
+		return rvk2::envFlagEnabled("REALITYVK_RVK2_DEBUG_SETTILE_MASK_NORMALIZE", false);
 	}();
 	return enabled;
 }

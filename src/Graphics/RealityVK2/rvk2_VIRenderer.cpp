@@ -7,6 +7,8 @@
 #include <cstdio>
 #include <cstdlib>
 
+#include "rvk2_Env.h"
+
 namespace {
 
 constexpr u64 kFnvOffset = 1469598103934665603ULL;
@@ -49,13 +51,7 @@ struct VIResolvedState
 
 bool envFlagEnabled(const char * _key, bool _defaultValue)
 {
-	const char * raw = std::getenv(_key);
-	if (raw == nullptr || raw[0] == '\0')
-		return _defaultValue;
-	const char first = static_cast<char>(std::tolower(static_cast<unsigned char>(raw[0])));
-	if (first == '0' || first == 'f' || first == 'n')
-		return false;
-	return true;
+	return rvk2::envFlagEnabled(_key, _defaultValue);
 }
 
 bool debugDisableVIOriginOffset()

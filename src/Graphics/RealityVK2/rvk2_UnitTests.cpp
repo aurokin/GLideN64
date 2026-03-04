@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 
 #include "rvk2_CommandStream.h"
+#include "rvk2_Env.h"
 #include "rvk2_Executor.h"
 #include "rvk2_RDPState.h"
 #include "rvk2_RenderPlan.h"
@@ -76,6 +77,29 @@ void testSchemaVersion()
 {
 	expectEq(rvk2::kSchemaVersion, 1U, "schema version must be 1");
 	expectTrue(std::string(rvk2::kSchemaName) == "rvk2_schema_v1", "schema name must match freeze tag");
+}
+
+void testEnvHelpers()
+{
+	ScopedEnvVar boolVar("REALITYVK_RVK2_TEST_ENV_BOOL");
+	boolVar.clear();
+	expectTrue(!rvk2::envFlagEnabled("REALITYVK_RVK2_TEST_ENV_BOOL", false), "env bool default false mismatch");
+	expectTrue(rvk2::envFlagEnabled("REALITYVK_RVK2_TEST_ENV_BOOL", true), "env bool default true mismatch");
+
+	boolVar.set("true");
+	expectTrue(rvk2::envFlagEnabled("REALITYVK_RVK2_TEST_ENV_BOOL", false), "env bool true token mismatch");
+	boolVar.set("off");
+	expectTrue(!rvk2::envFlagEnabled("REALITYVK_RVK2_TEST_ENV_BOOL", true), "env bool off token mismatch");
+	boolVar.set("nonsense");
+	expectTrue(rvk2::envFlagEnabled("REALITYVK_RVK2_TEST_ENV_BOOL", true), "env bool fallback default mismatch");
+
+	ScopedEnvVar u32Var("REALITYVK_RVK2_TEST_ENV_U32");
+	u32Var.clear();
+	expectEq(rvk2::envU32Clamped("REALITYVK_RVK2_TEST_ENV_U32", 7U, 9U, 10), 7U, "env u32 default mismatch");
+	u32Var.set("11");
+	expectEq(rvk2::envU32Clamped("REALITYVK_RVK2_TEST_ENV_U32", 7U, 9U, 10), 9U, "env u32 clamp mismatch");
+	u32Var.set("4");
+	expectEq(rvk2::envU32Clamped("REALITYVK_RVK2_TEST_ENV_U32", 7U, 9U, 10), 4U, "env u32 parse mismatch");
 }
 
 void testOpcodeDecodeIdentity()
@@ -3650,6 +3674,7 @@ void testExecutorTextureReplacementControlFileLifecycle()
 int main()
 {
 	testSchemaVersion();
+	testEnvHelpers();
 	testOpcodeDecodeIdentity();
 	testCommandHashStability();
 	testExtendedPayloadCaptureAndHash();

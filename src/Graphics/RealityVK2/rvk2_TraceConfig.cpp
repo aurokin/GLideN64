@@ -1,7 +1,8 @@
 #include "rvk2_TraceConfig.h"
 
 #include <atomic>
-#include <cstdlib>
+
+#include "rvk2_Env.h"
 
 namespace rvk2 {
 
@@ -11,17 +12,17 @@ std::atomic<u64> g_traceFrameId{1ULL};
 
 const char * getTraceOutputPath()
 {
-	return std::getenv("REALITYVK2_TRACE_FILE");
+	return rvk2::envStringOrNull("REALITYVK2_TRACE_FILE");
 }
 
 const char * getPacketTraceOutputPath()
 {
-	return std::getenv("REALITYVK2_PACKET_TRACE_FILE");
+	return rvk2::envStringOrNull("REALITYVK2_PACKET_TRACE_FILE");
 }
 
 bool shouldLogTraceSummary()
 {
-	return std::getenv("REALITYVK2_TRACE_LOG_SUMMARY") != nullptr;
+	return rvk2::envFlagEnabled("REALITYVK2_TRACE_LOG_SUMMARY", false);
 }
 
 u64 allocateTraceFrameId()

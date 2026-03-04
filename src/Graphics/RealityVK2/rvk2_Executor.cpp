@@ -2,6 +2,7 @@
 
 #include <array>
 #include <algorithm>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <cerrno>
@@ -13,6 +14,7 @@
 #include <vector>
 
 #include "N64.h"
+#include "rvk2_Env.h"
 #include "rvk2_VIRenderer.h"
 
 namespace {
@@ -143,14 +145,10 @@ inline bool envStringIsTrue(const char * _value)
 
 inline bool parseEnvUnsigned(const char * _value, u64 & _out)
 {
-	if (_value == nullptr || _value[0] == '\0')
+	uint64_t parsed = 0ULL;
+	if (!rvk2::parseEnvUnsignedValue(_value, parsed))
 		return false;
-	char * end = nullptr;
-	errno = 0;
-	const unsigned long long value = std::strtoull(_value, &end, 0);
-	if (errno != 0 || end == nullptr || *end != '\0')
-		return false;
-	_out = static_cast<u64>(value);
+	_out = static_cast<u64>(parsed);
 	return true;
 }
 
@@ -234,591 +232,188 @@ DebugStageViewMode debugStageViewMode()
 	return mode;
 }
 
-bool debugDisableCycle2PrevMemoryColor()
+#define RVK2_EXECUTOR_DEBUG_BOOL_OPTIONS(_X) \
+	_X(debugDisableCycle2PrevMemoryColor, "REALITYVK_RVK2_DEBUG_DISABLE_CYCLE2_PREV_MEMORY", false) \
+	_X(debugForceBlenderDivide, "REALITYVK_RVK2_DEBUG_FORCE_BLEND_DIVIDE", false) \
+	_X(debugEnableLegacyMemoryAlphaBlend, "REALITYVK_RVK2_DEBUG_ENABLE_LEGACY_MEMORY_ALPHA_BLEND", false) \
+	_X(debugSwapTmem16Samples, "REALITYVK_RVK2_DEBUG_SWAP_TMEM16", false) \
+	_X(debugDisableTriangleWrites, "REALITYVK_RVK2_DEBUG_DISABLE_TRIANGLE_WRITES", false) \
+	_X(debugPreserveTriangleNonBlackOverwrites, "REALITYVK_RVK2_DEBUG_TRIANGLE_PRESERVE_NON_BLACK", false) \
+	_X(debugDisableTexRectWrites, "REALITYVK_RVK2_DEBUG_DISABLE_TEXRECT_WRITES", false) \
+	_X(debugPreserveTexRectNonBlackOverwrites, "REALITYVK_RVK2_DEBUG_TEXRECT_PRESERVE_NON_BLACK", false) \
+	_X(debugSwapTmem4Nibbles, "REALITYVK_RVK2_DEBUG_SWAP_TMEM4_NIBBLES", false) \
+	_X(debugAltTmem8OddXor, "REALITYVK_RVK2_DEBUG_ALT_TMEM8_XOR", false) \
+	_X(debugTmem8UseLoadKindAwareXor, "REALITYVK_RVK2_DEBUG_TMEM8_LOADKIND_XOR", false) \
+	_X(debugTmem8UseXor13, "REALITYVK_RVK2_DEBUG_TMEM8_XOR13", false) \
+	_X(debugDisableTexturePerspCoord, "REALITYVK_RVK2_DEBUG_DISABLE_TEXTURE_PERSP_COORD", false) \
+	_X(debugDisableTextureLodCoord, "REALITYVK_RVK2_DEBUG_DISABLE_TEXTURE_LOD_COORD", false) \
+	_X(debugDisableCoverageControls, "REALITYVK_RVK2_DEBUG_DISABLE_COVERAGE_CONTROLS", false) \
+	_X(debugDisableColorOnCvgInhibit, "REALITYVK_RVK2_DEBUG_DISABLE_COLOR_ON_CVG_INHIBIT", false) \
+	_X(debugDisableBlendEnGating, "REALITYVK_RVK2_DEBUG_DISABLE_BLEND_EN_GATING", false) \
+	_X(debugDisableLegacyMemoryAlphaShift, "REALITYVK_RVK2_DEBUG_DISABLE_LEGACY_MEMORY_ALPHA_SHIFT", false) \
+	_X(debugUseWideMemoryAlphaModel, "REALITYVK_RVK2_DEBUG_USE_WIDE_MEMORY_ALPHA", false) \
+	_X(debugBypassBlender, "REALITYVK_RVK2_DEBUG_BYPASS_BLENDER", false) \
+	_X(debugDisableBlenderDither, "REALITYVK_RVK2_DEBUG_DISABLE_BLENDER_DITHER", false) \
+	_X(debugDisableFillWrites, "REALITYVK_RVK2_DEBUG_DISABLE_FILL_WRITES", false) \
+	_X(debugDisableBlendMemoryColorSource, "REALITYVK_RVK2_DEBUG_DISABLE_BLEND_MEMORY_COLOR_SOURCE", false) \
+	_X(debugDisableImageRead, "REALITYVK_RVK2_DEBUG_DISABLE_IMAGE_READ", false) \
+	_X(debugForceTexelAlphaOpaque, "REALITYVK_RVK2_DEBUG_FORCE_TEXEL_ALPHA_OPAQUE", false) \
+	_X(debugCycle2SecondPassMemoryFromCycle1, "REALITYVK_RVK2_DEBUG_CYCLE2_SECOND_PASS_MEMORY_FROM_CYCLE1", true) \
+	_X(debugDisableTextureLUTApply, "REALITYVK_RVK2_DEBUG_DISABLE_TEXTURE_LUT_APPLY", false) \
+	_X(debugDisableTLUTRGBA16Swap, "REALITYVK_RVK2_DEBUG_DISABLE_TLUT_RGBA16_SWAP", false) \
+	_X(debugDisableCopyModeDSDXDiv4, "REALITYVK_RVK2_DEBUG_DISABLE_COPY_DSDX_DIV4", false) \
+	_X(debugForceTextureRdramPrimary, "REALITYVK_RVK2_DEBUG_FORCE_TEXTURE_RDRAM_PRIMARY", false) \
+	_X(debugTexelFallbackRdramIfTmemBlack, "REALITYVK_RVK2_DEBUG_TEXEL_FALLBACK_RDRAM_IF_TMEM_BLACK", false) \
+	_X(debugForceCopyCI8RdramPrimary, "REALITYVK_RVK2_DEBUG_FORCE_COPY_CI8_RDRAM_PRIMARY", false) \
+	_X(debugCycle1CombinerUseCycle1Selectors, "REALITYVK_RVK2_DEBUG_CYCLE1_COMBINER_USE_CYCLE1_SELECTORS", false) \
+	_X(debugTmem32UseDirectLinearFetch, "REALITYVK_RVK2_DEBUG_TMEM32_DIRECT_LINEAR", false) \
+	_X(debugTmem32UseXor02, "REALITYVK_RVK2_DEBUG_TMEM32_XOR02", false) \
+	_X(debugTmem32PackHighToLowRGBA, "REALITYVK_RVK2_DEBUG_TMEM32_PACK_HIGH_TO_LOW", false) \
+	_X(debugTmem32UseLoadKindAwareXor, "REALITYVK_RVK2_DEBUG_TMEM32_LOADKIND_XOR", false) \
+	_X(debugTmem32UseCanonicalFetch, "REALITYVK_RVK2_DEBUG_TMEM32_CANONICAL_FETCH", false) \
+	_X(debugDisableVIHistoryPresentSelection, "REALITYVK_RVK2_DEBUG_DISABLE_VI_HISTORY_PRESENT", false) \
+	_X(debugPreferLiveSurfaceOverHistory, "REALITYVK_RVK2_DEBUG_PREFER_LIVE_SURFACE_OVER_HISTORY", true) \
+	_X(debugKeepVIMatchedHistorySelection, "REALITYVK_RVK2_DEBUG_KEEP_VI_MATCHED_HISTORY_SELECTION", false) \
+	_X(debugEnableSurfaceHistoryBootstrap, "REALITYVK_RVK2_DEBUG_ENABLE_SURFACE_HISTORY_BOOTSTRAP", false) \
+	_X(debugEnableCrossSurfaceBootstrap, "REALITYVK_RVK2_DEBUG_ENABLE_CROSS_SURFACE_BOOTSTRAP", false) \
+	_X(debugCrossSurfaceBootstrapCopyAllFromLastSurface, "REALITYVK_RVK2_DEBUG_CROSS_SURFACE_BOOTSTRAP_COPY_ALL", false) \
+	_X(debugEnableUntouchedPresentCarry, "REALITYVK_RVK2_DEBUG_ENABLE_UNTOUCHED_PRESENT_CARRY", false) \
+	_X(debugHistoryMergeCopyNonBlack, "REALITYVK_RVK2_DEBUG_HISTORY_MERGE_COPY_NONBLACK", false) \
+	_X(debugAllowDepthAliasHistoryCarry, "REALITYVK_RVK2_DEBUG_ALLOW_DEPTH_ALIAS_HISTORY_CARRY", false) \
+	_X(debugOverwriteLogIncludeBlackWrites, "REALITYVK_RVK2_DEBUG_OVERWRITE_LOG_INCLUDE_BLACK_WRITES", false) \
+	_X(debugOverwriteLogIncludeAllWrites, "REALITYVK_RVK2_DEBUG_OVERWRITE_LOG_INCLUDE_ALL_WRITES", false) \
+	_X(debugOverwriteLogIncludeTexelDetail, "REALITYVK_RVK2_DEBUG_OVERWRITE_LOG_INCLUDE_TEXEL_DETAIL", false) \
+	_X(debugTextureFilterStrictPrimary, "REALITYVK_RVK2_DEBUG_TEXTURE_FILTER_STRICT_PRIMARY", false) \
+	_X(debugTextureFilterMode3UsesBilerp, "REALITYVK_RVK2_DEBUG_TEXTURE_FILTER_MODE3_BILERP", false) \
+	_X(debugTextureFilterMode2UsesAverage, "REALITYVK_RVK2_DEBUG_TEXTURE_FILTER_MODE2_AVERAGE", false) \
+	_X(debugPseudoTriangleUsePrimColor, "REALITYVK_RVK2_DEBUG_PSEUDO_TRIANGLE_USE_PRIM_COLOR", false) \
+	_X(debugForceAllTexelAlphaOpaque, "REALITYVK_RVK2_DEBUG_FORCE_ALL_TEXEL_ALPHA_OPAQUE", false) \
+	_X(debugTmem32CompareAlternates, "REALITYVK_RVK2_DEBUG_TMEM32_COMPARE", false) \
+	_X(debugInvertTriangleLMajor, "REALITYVK_RVK2_DEBUG_TRIANGLE_INVERT_LMAJOR", false) \
+	_X(debugForceTexel1UsesTile0, "REALITYVK_RVK2_DEBUG_FORCE_TEXEL1_TILE0", false) \
+	_X(debugCopyPhaseUseTexel1, "REALITYVK_RVK2_DEBUG_COPY_USE_TEXEL1", false) \
+	_X(debugForcePipelineModeOn, "REALITYVK_RVK2_DEBUG_FORCE_PIPELINE_MODE_ON", false) \
+	_X(debugForcePipelineModeOff, "REALITYVK_RVK2_DEBUG_FORCE_PIPELINE_MODE_OFF", false) \
+	_X(debugDisableColorImage16Quantize, "REALITYVK_RVK2_DEBUG_DISABLE_COLOR_IMAGE_16_QUANTIZE", false) \
+	_X(debugForceColorImage16Quantize, "REALITYVK_RVK2_DEBUG_FORCE_COLOR_IMAGE_16_QUANTIZE", false)
+
+#define RVK2_DEFINE_EXECUTOR_DEBUG_BOOL(_name, _key, _defaultValue) \
+	bool _name() \
+	{ \
+		static const bool enabled = rvk2::envFlagEnabled((_key), (_defaultValue)); \
+		return enabled; \
+	}
+
+RVK2_EXECUTOR_DEBUG_BOOL_OPTIONS(RVK2_DEFINE_EXECUTOR_DEBUG_BOOL)
+
+#undef RVK2_DEFINE_EXECUTOR_DEBUG_BOOL
+
+const char * debugStageViewModeName(DebugStageViewMode _mode)
 {
-	static const bool disabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_DISABLE_CYCLE2_PREV_MEMORY");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return disabled;
+	switch (_mode) {
+	case DebugStageViewMode::kTexelRaw:
+		return "texel_raw";
+	case DebugStageViewMode::kCombinerOut:
+		return "combiner_out";
+	case DebugStageViewMode::kBlenderOut:
+		return "blender_out";
+	case DebugStageViewMode::kVISource:
+		return "vi_source";
+	case DebugStageViewMode::kWriteMask:
+		return "write_mask";
+	case DebugStageViewMode::kFinal:
+	default:
+		return "final";
+	}
 }
 
-bool debugForceBlenderDivide()
+void appendDebugEntry(std::vector<std::string> & _out, const char * _key, const std::string & _value)
 {
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_FORCE_BLEND_DIVIDE");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
+	std::string entry(_key);
+	entry += "=";
+	entry += _value;
+	_out.push_back(std::move(entry));
+}
+
+bool shouldLogActiveDebugToggles()
+{
+	static const bool enabled = rvk2::envFlagEnabled("REALITYVK_RVK2_DEBUG_LOG_ACTIVE", true);
 	return enabled;
 }
 
-bool debugEnableLegacyMemoryAlphaBlend()
+void collectActiveDebugToggles(std::vector<std::string> & _out)
 {
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_ENABLE_LEGACY_MEMORY_ALPHA_BLEND");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
+#define RVK2_COLLECT_ACTIVE_BOOL(_name, _key, _defaultValue) \
+	{ \
+		const bool value = _name(); \
+		if (value != (_defaultValue)) \
+			appendDebugEntry(_out, (_key), value ? "1" : "0"); \
+	}
+
+	RVK2_EXECUTOR_DEBUG_BOOL_OPTIONS(RVK2_COLLECT_ACTIVE_BOOL)
+
+#undef RVK2_COLLECT_ACTIVE_BOOL
+
+	const DebugStageViewMode stageView = debugStageViewMode();
+	if (stageView != DebugStageViewMode::kFinal)
+		appendDebugEntry(_out, "REALITYVK_RVK2_DEBUG_STAGE_VIEW", debugStageViewModeName(stageView));
+
+	if (const char * path = rvk2::envStringOrNull("REALITYVK_RVK2_DEBUG_HISTORY_MERGE_LOG"))
+		appendDebugEntry(_out, "REALITYVK_RVK2_DEBUG_HISTORY_MERGE_LOG", path);
+	if (const char * path = rvk2::envStringOrNull("REALITYVK_RVK2_DEBUG_OVERWRITE_LOG"))
+		appendDebugEntry(_out, "REALITYVK_RVK2_DEBUG_OVERWRITE_LOG", path);
+	if (const char * path = rvk2::envStringOrNull("REALITYVK_RVK2_DEBUG_TRIANGLE_PACKET_LOG"))
+		appendDebugEntry(_out, "REALITYVK_RVK2_DEBUG_TRIANGLE_PACKET_LOG", path);
+	if (const char * raw = rvk2::envStringOrNull("REALITYVK_RVK2_DEBUG_OVERWRITE_LOG_LIMIT"))
+		appendDebugEntry(_out, "REALITYVK_RVK2_DEBUG_OVERWRITE_LOG_LIMIT", raw);
+	if (const char * raw = rvk2::envStringOrNull("REALITYVK_RVK2_DEBUG_TRIANGLE_PACKET_LOG_LIMIT"))
+		appendDebugEntry(_out, "REALITYVK_RVK2_DEBUG_TRIANGLE_PACKET_LOG_LIMIT", raw);
+	if (const char * raw = rvk2::envStringOrNull("REALITYVK_RVK2_DEBUG_FORCE_PRESENT_SURFACE"))
+		appendDebugEntry(_out, "REALITYVK_RVK2_DEBUG_FORCE_PRESENT_SURFACE", raw);
+	if (const char * raw = rvk2::envStringOrNull("REALITYVK_RVK2_DEBUG_TLUT_LOOKUP_OFFSET"))
+		appendDebugEntry(_out, "REALITYVK_RVK2_DEBUG_TLUT_LOOKUP_OFFSET", raw);
+	if (const char * raw = rvk2::envStringOrNull("REALITYVK_RVK2_DEBUG_TRIANGLE_SAMPLE_Y_SUBPIXEL_BIAS"))
+		appendDebugEntry(_out, "REALITYVK_RVK2_DEBUG_TRIANGLE_SAMPLE_Y_SUBPIXEL_BIAS", raw);
+	if (const char * raw = rvk2::envStringOrNull("REALITYVK_RVK2_DEBUG_TRIANGLE_SAMPLE_X_SUBPIXEL_BIAS"))
+		appendDebugEntry(_out, "REALITYVK_RVK2_DEBUG_TRIANGLE_SAMPLE_X_SUBPIXEL_BIAS", raw);
+	if (const char * raw = rvk2::envStringOrNull("REALITYVK_RVK2_DEBUG_TEXTURE_BUCKET_MASK"))
+		appendDebugEntry(_out, "REALITYVK_RVK2_DEBUG_TEXTURE_BUCKET_MASK", raw);
 }
 
-bool debugSwapTmem16Samples()
+void logActiveDebugTogglesOnce()
 {
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_SWAP_TMEM16");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
+	static std::atomic<bool> logged{false};
+	if (logged.exchange(true, std::memory_order_relaxed))
+		return;
+	if (!shouldLogActiveDebugToggles())
+		return;
+
+	std::vector<std::string> active;
+	collectActiveDebugToggles(active);
+	if (active.empty())
+		return;
+	std::sort(active.begin(), active.end());
+	std::fprintf(stderr, "rvk2 debug toggles active (%u):\n", static_cast<unsigned>(active.size()));
+	for (const std::string & entry : active)
+		std::fprintf(stderr, "  %s\n", entry.c_str());
 }
 
-bool debugDisableTriangleWrites()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_DISABLE_TRIANGLE_WRITES");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugPreserveTriangleNonBlackOverwrites()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TRIANGLE_PRESERVE_NON_BLACK");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugDisableTexRectWrites()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_DISABLE_TEXRECT_WRITES");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugPreserveTexRectNonBlackOverwrites()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TEXRECT_PRESERVE_NON_BLACK");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugSwapTmem4Nibbles()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_SWAP_TMEM4_NIBBLES");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugAltTmem8OddXor()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_ALT_TMEM8_XOR");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugTmem8UseLoadKindAwareXor()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TMEM8_LOADKIND_XOR");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugTmem8UseXor13()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TMEM8_XOR13");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugDisableTexturePerspCoord()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_DISABLE_TEXTURE_PERSP_COORD");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugDisableTextureLodCoord()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_DISABLE_TEXTURE_LOD_COORD");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugDisableCoverageControls()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_DISABLE_COVERAGE_CONTROLS");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugDisableColorOnCvgInhibit()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_DISABLE_COLOR_ON_CVG_INHIBIT");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugDisableBlendEnGating()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_DISABLE_BLEND_EN_GATING");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugDisableLegacyMemoryAlphaShift()
-{
-	static const bool disabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_DISABLE_LEGACY_MEMORY_ALPHA_SHIFT");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return disabled;
-}
-
-bool debugUseWideMemoryAlphaModel()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_USE_WIDE_MEMORY_ALPHA");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugBypassBlender()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_BYPASS_BLENDER");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugDisableBlenderDither()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_DISABLE_BLENDER_DITHER");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugDisableFillWrites()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_DISABLE_FILL_WRITES");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugDisableBlendMemoryColorSource()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_DISABLE_BLEND_MEMORY_COLOR_SOURCE");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugDisableImageRead()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_DISABLE_IMAGE_READ");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugForceTexelAlphaOpaque()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_FORCE_TEXEL_ALPHA_OPAQUE");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugCycle2SecondPassMemoryFromCycle1()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_CYCLE2_SECOND_PASS_MEMORY_FROM_CYCLE1");
-		if (raw == nullptr || raw[0] == '\0')
-			return true;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : true;
-	}();
-	return enabled;
-}
-
-bool debugDisableTextureLUTApply()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_DISABLE_TEXTURE_LUT_APPLY");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugDisableTLUTRGBA16Swap()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_DISABLE_TLUT_RGBA16_SWAP");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
+#undef RVK2_EXECUTOR_DEBUG_BOOL_OPTIONS
 
 u32 debugTLUTLookupOffset()
 {
 	static const u32 offset = []() -> u32 {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TLUT_LOOKUP_OFFSET");
-		if (raw == nullptr || raw[0] == '\0')
-			return 0U;
-		char * end = nullptr;
-		const unsigned long value = std::strtoul(raw, &end, 10);
-		if (end == raw)
-			return 0U;
-		return static_cast<u32>(std::min<unsigned long>(value, 3UL));
+		return rvk2::envU32Clamped("REALITYVK_RVK2_DEBUG_TLUT_LOOKUP_OFFSET", 0U, 3U, 10);
 	}();
 	return offset;
-}
-
-bool debugDisableCopyModeDSDXDiv4()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_DISABLE_COPY_DSDX_DIV4");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugForceTextureRdramPrimary()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_FORCE_TEXTURE_RDRAM_PRIMARY");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugTexelFallbackRdramIfTmemBlack()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TEXEL_FALLBACK_RDRAM_IF_TMEM_BLACK");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugForceCopyCI8RdramPrimary()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_FORCE_COPY_CI8_RDRAM_PRIMARY");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugCycle1CombinerUseCycle1Selectors()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_CYCLE1_COMBINER_USE_CYCLE1_SELECTORS");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugTmem32UseDirectLinearFetch()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TMEM32_DIRECT_LINEAR");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugTmem32UseXor02()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TMEM32_XOR02");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugTmem32PackHighToLowRGBA()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TMEM32_PACK_HIGH_TO_LOW");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugTmem32UseLoadKindAwareXor()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TMEM32_LOADKIND_XOR");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugTmem32UseCanonicalFetch()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TMEM32_CANONICAL_FETCH");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugDisableVIHistoryPresentSelection()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_DISABLE_VI_HISTORY_PRESENT");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugPreferLiveSurfaceOverHistory()
-{
-	const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_PREFER_LIVE_SURFACE_OVER_HISTORY");
-	if (raw == nullptr || raw[0] == '\0')
-		return true;
-	bool parsed = false;
-	return parseBooleanToken(raw, parsed) ? parsed : true;
-}
-
-bool debugKeepVIMatchedHistorySelection()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_KEEP_VI_MATCHED_HISTORY_SELECTION");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugEnableSurfaceHistoryBootstrap()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_ENABLE_SURFACE_HISTORY_BOOTSTRAP");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugEnableCrossSurfaceBootstrap()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_ENABLE_CROSS_SURFACE_BOOTSTRAP");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugCrossSurfaceBootstrapCopyAllFromLastSurface()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_CROSS_SURFACE_BOOTSTRAP_COPY_ALL");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugEnableUntouchedPresentCarry()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_ENABLE_UNTOUCHED_PRESENT_CARRY");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
 }
 
 const char * debugHistoryMergeLogPath()
 {
 	static const char * path = []() -> const char * {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_HISTORY_MERGE_LOG");
-		if (raw == nullptr || raw[0] == '\0')
-			return nullptr;
-		return raw;
+		return rvk2::envStringOrNull("REALITYVK_RVK2_DEBUG_HISTORY_MERGE_LOG");
 	}();
 	return path;
-}
-
-bool debugHistoryMergeCopyNonBlack()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_HISTORY_MERGE_COPY_NONBLACK");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugAllowDepthAliasHistoryCarry()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_ALLOW_DEPTH_ALIAS_HISTORY_CARRY");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
 }
 
 bool debugForcedPresentSurfaceAddress(u32 & _outAddress)
@@ -828,13 +423,11 @@ bool debugForcedPresentSurfaceAddress(u32 & _outAddress)
 	static bool parsed = false;
 	if (!parsed) {
 		parsed = true;
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_FORCE_PRESENT_SURFACE");
-		if (raw != nullptr && raw[0] != '\0') {
-			char * end = nullptr;
-			const unsigned long long value = std::strtoull(raw, &end, 0);
-			if (end != raw)
-				hasAddress = true;
-			address = static_cast<u32>(value & 0x00FFFFFFULL);
+		const char * raw = rvk2::envStringOrNull("REALITYVK_RVK2_DEBUG_FORCE_PRESENT_SURFACE");
+		uint64_t parsedAddress = 0ULL;
+		if (rvk2::parseEnvUnsignedValue(raw, parsedAddress)) {
+			hasAddress = true;
+			address = static_cast<u32>(parsedAddress & 0x00FFFFFFULL);
 		}
 	}
 	if (!hasAddress)
@@ -872,10 +465,7 @@ void appendHistoryMergeLog(
 const char * debugOverwriteLogPath()
 {
 	static const char * path = []() -> const char * {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_OVERWRITE_LOG");
-		if (raw == nullptr || raw[0] == '\0')
-			return nullptr;
-		return raw;
+		return rvk2::envStringOrNull("REALITYVK_RVK2_DEBUG_OVERWRITE_LOG");
 	}();
 	return path;
 }
@@ -883,61 +473,19 @@ const char * debugOverwriteLogPath()
 u32 debugOverwriteLogLimit()
 {
 	static const u32 limit = []() -> u32 {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_OVERWRITE_LOG_LIMIT");
-		if (raw == nullptr || raw[0] == '\0')
-			return 200000U;
-		char * end = nullptr;
-		const unsigned long value = std::strtoul(raw, &end, 10);
-		if (end == raw)
-			return 200000U;
-		return static_cast<u32>(std::min<unsigned long>(value, std::numeric_limits<u32>::max()));
+		return rvk2::envU32Clamped(
+			"REALITYVK_RVK2_DEBUG_OVERWRITE_LOG_LIMIT",
+			200000U,
+			std::numeric_limits<u32>::max(),
+			10);
 	}();
 	return limit;
-}
-
-bool debugOverwriteLogIncludeBlackWrites()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_OVERWRITE_LOG_INCLUDE_BLACK_WRITES");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugOverwriteLogIncludeAllWrites()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_OVERWRITE_LOG_INCLUDE_ALL_WRITES");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugOverwriteLogIncludeTexelDetail()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_OVERWRITE_LOG_INCLUDE_TEXEL_DETAIL");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
 }
 
 const char * debugTrianglePacketLogPath()
 {
 	static const char * path = []() -> const char * {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TRIANGLE_PACKET_LOG");
-		if (raw == nullptr || raw[0] == '\0')
-			return nullptr;
-		return raw;
+		return rvk2::envStringOrNull("REALITYVK_RVK2_DEBUG_TRIANGLE_PACKET_LOG");
 	}();
 	return path;
 }
@@ -945,14 +493,11 @@ const char * debugTrianglePacketLogPath()
 u32 debugTrianglePacketLogLimit()
 {
 	static const u32 limit = []() -> u32 {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TRIANGLE_PACKET_LOG_LIMIT");
-		if (raw == nullptr || raw[0] == '\0')
-			return 200000U;
-		char * end = nullptr;
-		const unsigned long value = std::strtoul(raw, &end, 10);
-		if (end == raw)
-			return 200000U;
-		return static_cast<u32>(std::min<unsigned long>(value, std::numeric_limits<u32>::max()));
+		return rvk2::envU32Clamped(
+			"REALITYVK_RVK2_DEBUG_TRIANGLE_PACKET_LOG_LIMIT",
+			200000U,
+			std::numeric_limits<u32>::max(),
+			10);
 	}();
 	return limit;
 }
@@ -1237,101 +782,10 @@ void appendOverwriteLog(
 	++emitted;
 }
 
-bool debugTextureFilterStrictPrimary()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TEXTURE_FILTER_STRICT_PRIMARY");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugTextureFilterMode3UsesBilerp()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TEXTURE_FILTER_MODE3_BILERP");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugTextureFilterMode2UsesAverage()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TEXTURE_FILTER_MODE2_AVERAGE");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugPseudoTriangleUsePrimColor()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_PSEUDO_TRIANGLE_USE_PRIM_COLOR");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugForceAllTexelAlphaOpaque()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_FORCE_ALL_TEXEL_ALPHA_OPAQUE");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugTmem32CompareAlternates()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TMEM32_COMPARE");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugInvertTriangleLMajor()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TRIANGLE_INVERT_LMAJOR");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
 u32 debugTriangleSampleYSubpixelBias()
 {
 	static const u32 bias = []() -> u32 {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TRIANGLE_SAMPLE_Y_SUBPIXEL_BIAS");
-		if (raw == nullptr || raw[0] == '\0')
-			return 2U;
-		char * end = nullptr;
-		const unsigned long value = std::strtoul(raw, &end, 10);
-		if (end == raw)
-			return 2U;
-		return static_cast<u32>(std::min<unsigned long>(value, 3UL));
+		return rvk2::envU32Clamped("REALITYVK_RVK2_DEBUG_TRIANGLE_SAMPLE_Y_SUBPIXEL_BIAS", 2U, 3U, 10);
 	}();
 	return bias;
 }
@@ -1339,88 +793,13 @@ u32 debugTriangleSampleYSubpixelBias()
 u32 debugTriangleSampleXSubpixelBias()
 {
 	static const u32 bias = []() -> u32 {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TRIANGLE_SAMPLE_X_SUBPIXEL_BIAS");
-		if (raw == nullptr || raw[0] == '\0')
-			return 0x8000U;
-		char * end = nullptr;
-		const unsigned long value = std::strtoul(raw, &end, 10);
-		if (end == raw)
-			return 0x8000U;
-		return static_cast<u32>(std::min<unsigned long>(value, 0xFFFFUL));
+		return rvk2::envU32Clamped(
+			"REALITYVK_RVK2_DEBUG_TRIANGLE_SAMPLE_X_SUBPIXEL_BIAS",
+			0x8000U,
+			0xFFFFU,
+			10);
 	}();
 	return bias;
-}
-
-bool debugForceTexel1UsesTile0()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_FORCE_TEXEL1_TILE0");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugCopyPhaseUseTexel1()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_COPY_USE_TEXEL1");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugForcePipelineModeOn()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_FORCE_PIPELINE_MODE_ON");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugForcePipelineModeOff()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_FORCE_PIPELINE_MODE_OFF");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugDisableColorImage16Quantize()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_DISABLE_COLOR_IMAGE_16_QUANTIZE");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
-bool debugForceColorImage16Quantize()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_FORCE_COLOR_IMAGE_16_QUANTIZE");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
 }
 
 bool shouldQuantizeColorImage16Surface()
@@ -6611,6 +5990,7 @@ ExecutorOutput Executor::executeWithOutput(
 	const std::vector<u32> * _workTMEMSnapshotIndices)
 {
 	ensureTextureReplacementLoaded();
+	logActiveDebugTogglesOnce();
 	const TextureReplacementStore * previousReplacementStore = gActiveTextureReplacementStore;
 	gActiveTextureReplacementStore =
 		(!m_textureReplacementStore.empty() && m_config.textureReplacementEnable)
