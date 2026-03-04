@@ -701,6 +701,15 @@ bool debugDisableVIHistoryPresentSelection()
 	return enabled;
 }
 
+bool debugPreferLiveSurfaceOverHistory()
+{
+	const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_PREFER_LIVE_SURFACE_OVER_HISTORY");
+	if (raw == nullptr || raw[0] == '\0')
+		return true;
+	bool parsed = false;
+	return parseBooleanToken(raw, parsed) ? parsed : true;
+}
+
 bool debugEnableSurfaceHistoryBootstrap()
 {
 	static const bool enabled = []() -> bool {
@@ -1349,6 +1358,24 @@ bool debugDisableColorImage16Quantize()
 	return enabled;
 }
 
+bool debugForceColorImage16Quantize()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_FORCE_COLOR_IMAGE_16_QUANTIZE");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool shouldQuantizeColorImage16Surface()
+{
+	return debugForceColorImage16Quantize()
+		&& !debugDisableColorImage16Quantize();
+}
+
 inline bool parseUnsignedToken(const std::string & _token, u64 & _out)
 {
 	const std::string token = trimAsciiWhitespace(_token);
@@ -1611,7 +1638,7 @@ inline u32 decodeFillColor(u32 _fillColor, u8 _colorImageSize)
 
 inline u32 encodeSurfaceColor(u32 _rgba, u8 _colorImageSize)
 {
-	if (_colorImageSize != 2U || debugDisableColorImage16Quantize())
+	if (_colorImageSize != 2U || !shouldQuantizeColorImage16Surface())
 		return _rgba;
 
 	const u8 r = static_cast<u8>((_rgba >> 24) & 0xFFU);
@@ -5878,7 +5905,7 @@ void writeRect(
 			const u32 previousEncodedColor = _surface.pixels[colorIdx];
 			const bool quantizedToBlack =
 				(_work.colorImageSize == 2U)
-				&& !debugDisableColorImage16Quantize()
+				&& shouldQuantizeColorImage16Surface()
 				&& pixelHasVisibleColor(writeColor)
 				&& !pixelHasVisibleColor(encodedWriteColor);
 			const bool overwriteToBlack =
@@ -6314,7 +6341,7 @@ void writeTriangle(
 			const u32 previousEncodedColor = _surface.pixels[colorIdx];
 			const bool quantizedToBlack =
 				(_work.colorImageSize == 2U)
-				&& !debugDisableColorImage16Quantize()
+				&& shouldQuantizeColorImage16Surface()
 				&& pixelHasVisibleColor(writeColor)
 				&& !pixelHasVisibleColor(encodedWriteColor);
 			const bool overwriteToBlack =
@@ -7024,6 +7051,7 @@ ExecutorOutput Executor::executeWithOutput(
 		summary.presentSelectionReason = kExecutorPresentSelectionLastSurface;
 	const bool frameHasLiveSurfaceWrites = !surfaceColorWrites.empty();
 	const bool allowVIHistorySelection = !debugDisableVIHistoryPresentSelection();
+	summary.historySurfaceCount = static_cast<u32>(m_surfaceHistory.size());
 	bool viOriginMatchedSurface = false;
 	if (m_config.viRegistersValid) {
 		const u32 viOriginAddress = m_config.viOrigin & 0x00FFFFFFU;
@@ -7057,8 +7085,15 @@ ExecutorOutput Executor::executeWithOutput(
 			const u64 historyAge = frameStamp >= historyMatchedIt->second.lastTouched
 				? (frameStamp - historyMatchedIt->second.lastTouched)
 				: 0ULL;
+			summary.historyVIOriginCandidateFound = 1U;
+			summary.historyVIOriginCandidateAddress = historyMatchedAddress;
+			summary.historyVIOriginCandidateExact = historyExact ? 1U : 0U;
+			summary.historyVIOriginCandidateAge = historyAge;
 			if (_requireRecentHistory && historyAge > kExecutorVIHistorySelectionMaxAge)
+			{
+				summary.historyVIOriginCandidateRejectedByAge = 1U;
 				return false;
+			}
 			presentSurfaceAddress = historyMatchedAddress;
 			viOriginMatchedSurface = true;
 			summary.selectedPresentSurfaceHistoryAge = historyAge;
@@ -7203,7 +7238,7 @@ ExecutorOutput Executor::executeWithOutput(
 					: kExecutorPresentSelectionPreviousSurface;
 		}
 	}
-	if (historyIt != m_surfaceHistory.end()) {
+	if (historyIt != m_surfaceHistory.end() && debugPreferLiveSurfaceOverHistory()) {
 		const auto selectedLiveWriteIt = surfaceColorWrites.find(presentSurfaceAddress);
 		const bool selectedHasLiveWrites =
 			selectedLiveWriteIt != surfaceColorWrites.end()

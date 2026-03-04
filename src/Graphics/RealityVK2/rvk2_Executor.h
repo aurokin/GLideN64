@@ -107,6 +107,13 @@ struct ExecutorSummary {
 	u64 selectedPresentSurfaceHistoryMergeCopiedCount = 0ULL;
 	u32 selectedPresentSurfaceUntouchedCarrySourceAddress = 0U;
 	u64 selectedPresentSurfaceHistoryAge = 0ULL;
+	u32 historySurfaceCount = 0U;
+	u32 historyVIOriginCandidateAddress = 0U;
+	u64 historyVIOriginCandidateAge = 0ULL;
+	u8 historyVIOriginCandidateFound = 0U;
+	u8 historyVIOriginCandidateExact = 0U;
+	u8 historyVIOriginCandidateRejectedByAge = 0U;
+	u8 reservedHistoryDebug = 0U;
 	u64 selectedPresentSurfaceHash = 1469598103934665603ULL;
 	u64 surfaceBootstrapSameAddressAttemptCount = 0ULL;
 	u64 surfaceBootstrapSameAddressSuccessCount = 0ULL;

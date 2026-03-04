@@ -50,7 +50,7 @@ bool debugDisableVIHistoryPresentRequested()
 
 bool debugPreferLiveSurfaceOverHistoryRequested()
 {
-	return envFlagEnabled("REALITYVK_RVK2_DEBUG_PREFER_LIVE_SURFACE_OVER_HISTORY", false);
+	return envFlagEnabled("REALITYVK_RVK2_DEBUG_PREFER_LIVE_SURFACE_OVER_HISTORY", true);
 }
 
 bool debugEnableSurfaceHistoryBootstrapRequested()
@@ -420,11 +420,17 @@ void appendFrameForensicsRecord(
 		static_cast<unsigned long long>(summary.viOutputNonBlackCount));
 	std::fprintf(
 		file,
-		"\tselected_surface_live_writes=%llu\tselected_surface_live_works=%llu\tselected_surface_from_history=%u\tselected_surface_history_age=%llu\tselected_surface_overwrite_black=%llu\tselected_surface_overwrite_black_texrect=%llu\tselected_surface_overwrite_black_triangle=%llu\tselected_surface_quantized_black=%llu\tselected_surface_quantized_black_texrect=%llu\tselected_surface_quantized_black_triangle=%llu\tselected_surface_triangle_preserve_non_black=%llu\tselected_surface_texrect_nonblack=%llu\tselected_surface_triangle_nonblack=%llu\tselected_surface_untouched_carry=%llu\tselected_surface_history_merge_candidates=%llu\tselected_surface_history_merge_potential_black_fill=%llu\tselected_surface_history_merge_potential_nonblack_diff=%llu\tselected_surface_history_merge_copied=%llu\tselected_surface_untouched_carry_src=0x%08X\tdbg_disable_vi_history_present=%u\tdbg_prefer_live_surface_over_history=%u\tdbg_enable_surface_history_bootstrap=%u\tdbg_enable_cross_surface_bootstrap=%u\tdbg_cross_surface_bootstrap_copy_all=%u\tdbg_disable_same_frame_present_accum=%u\tboot_same_attempt=%llu\tboot_same_success=%llu\tboot_same_pixels=%llu\tboot_fallback_success=%llu\tboot_fallback_pixels=%llu\tboot_cross_candidates=%llu\tboot_cross_pixels=%llu\tboot_cross_copy_all_pixels=%llu\toverwrite_black_total=%llu\toverwrite_black_texrect=%llu\toverwrite_black_triangle=%llu\toverwrite_black_triangle_preserved=%llu\tquantized_black_total=%llu\tquantized_black_texrect=%llu\tquantized_black_triangle=%llu\tblend_eq_bypass_ops=%llu\tblend_mem_alpha_shift_ops=%llu",
+		"\tselected_surface_live_writes=%llu\tselected_surface_live_works=%llu\tselected_surface_from_history=%u\tselected_surface_history_age=%llu\thistory_surface_count=%u\thistory_vi_candidate_found=%u\thistory_vi_candidate_addr=0x%08X\thistory_vi_candidate_exact=%u\thistory_vi_candidate_age=%llu\thistory_vi_candidate_reject_age=%u\tselected_surface_overwrite_black=%llu\tselected_surface_overwrite_black_texrect=%llu\tselected_surface_overwrite_black_triangle=%llu\tselected_surface_quantized_black=%llu\tselected_surface_quantized_black_texrect=%llu\tselected_surface_quantized_black_triangle=%llu\tselected_surface_triangle_preserve_non_black=%llu\tselected_surface_texrect_nonblack=%llu\tselected_surface_triangle_nonblack=%llu\tselected_surface_untouched_carry=%llu\tselected_surface_history_merge_candidates=%llu\tselected_surface_history_merge_potential_black_fill=%llu\tselected_surface_history_merge_potential_nonblack_diff=%llu\tselected_surface_history_merge_copied=%llu\tselected_surface_untouched_carry_src=0x%08X\tdbg_disable_vi_history_present=%u\tdbg_prefer_live_surface_over_history=%u\tdbg_enable_surface_history_bootstrap=%u\tdbg_enable_cross_surface_bootstrap=%u\tdbg_cross_surface_bootstrap_copy_all=%u\tdbg_disable_same_frame_present_accum=%u\tboot_same_attempt=%llu\tboot_same_success=%llu\tboot_same_pixels=%llu\tboot_fallback_success=%llu\tboot_fallback_pixels=%llu\tboot_cross_candidates=%llu\tboot_cross_pixels=%llu\tboot_cross_copy_all_pixels=%llu\toverwrite_black_total=%llu\toverwrite_black_texrect=%llu\toverwrite_black_triangle=%llu\toverwrite_black_triangle_preserved=%llu\tquantized_black_total=%llu\tquantized_black_texrect=%llu\tquantized_black_triangle=%llu\tblend_eq_bypass_ops=%llu\tblend_mem_alpha_shift_ops=%llu",
 		static_cast<unsigned long long>(summary.selectedPresentSurfaceLiveWriteCount),
 		static_cast<unsigned long long>(summary.selectedPresentSurfaceLiveWorkCount),
 		static_cast<u32>(summary.selectedPresentSurfaceFromHistory),
 		static_cast<unsigned long long>(summary.selectedPresentSurfaceHistoryAge),
+		static_cast<u32>(summary.historySurfaceCount),
+		static_cast<u32>(summary.historyVIOriginCandidateFound),
+		summary.historyVIOriginCandidateAddress,
+		static_cast<u32>(summary.historyVIOriginCandidateExact),
+		static_cast<unsigned long long>(summary.historyVIOriginCandidateAge),
+		static_cast<u32>(summary.historyVIOriginCandidateRejectedByAge),
 		static_cast<unsigned long long>(summary.selectedPresentSurfaceOverwriteBlackCount),
 		static_cast<unsigned long long>(summary.selectedPresentSurfaceOverwriteBlackTexRectCount),
 		static_cast<unsigned long long>(summary.selectedPresentSurfaceOverwriteBlackTriangleCount),
