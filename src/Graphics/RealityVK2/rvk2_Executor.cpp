@@ -675,6 +675,91 @@ void appendHistoryMergeLog(
 	std::fclose(file);
 }
 
+const char * debugOverwriteLogPath()
+{
+	static const char * path = []() -> const char * {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_OVERWRITE_LOG");
+		if (raw == nullptr || raw[0] == '\0')
+			return nullptr;
+		return raw;
+	}();
+	return path;
+}
+
+u32 debugOverwriteLogLimit()
+{
+	static const u32 limit = []() -> u32 {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_OVERWRITE_LOG_LIMIT");
+		if (raw == nullptr || raw[0] == '\0')
+			return 200000U;
+		char * end = nullptr;
+		const unsigned long value = std::strtoul(raw, &end, 10);
+		if (end == raw)
+			return 200000U;
+		return static_cast<u32>(std::min<unsigned long>(value, std::numeric_limits<u32>::max()));
+	}();
+	return limit;
+}
+
+void appendOverwriteLog(
+	u64 _workOrdinal,
+	u64 _sourcePacketId,
+	u8 _opKind,
+	u32 _colorImageAddress,
+	u32 _x,
+	u32 _y,
+	u32 _previousEncodedColor,
+	u32 _newEncodedColor,
+	bool _preservedNonBlack,
+	const rvk2::RenderWorkPacket & _work)
+{
+	const char * logPath = debugOverwriteLogPath();
+	if (logPath == nullptr)
+		return;
+
+	static u32 emitted = 0U;
+	const u32 limit = debugOverwriteLogLimit();
+	if (limit != 0U && emitted >= limit)
+		return;
+
+	std::FILE * file = std::fopen(logPath, "ab");
+	if (file == nullptr)
+		return;
+
+	const char * opName =
+		_opKind == static_cast<u8>(rvk2::RasterOpKind::kTriangle)
+			? "triangle"
+			: (_opKind == static_cast<u8>(rvk2::RasterOpKind::kTexRect)
+				? "texrect"
+				: (_opKind == static_cast<u8>(rvk2::RasterOpKind::kFillRect) ? "fill" : "other"));
+	std::fprintf(
+		file,
+		"work_ordinal=%llu\tsource_packet_id=%llu\top_kind=%u\top_name=%s\tphase=%u\tcolor_image=0x%08X\tx=%u\ty=%u\tprev=0x%08X\tnew=0x%08X\tpreserved=%u\tcombine_mux=0x%016llX\tother_modes=0x%016llX\tblend_params=0x%08X\ttile=%u\ttile_format=%u\ttile_size=%u\ttile_line=%u\ttile_tmem=%u\ttexture_image_width=%u\ttexture_image_address=0x%08X\n",
+		static_cast<unsigned long long>(_workOrdinal),
+		static_cast<unsigned long long>(_sourcePacketId),
+		static_cast<unsigned>(_opKind),
+		opName,
+		static_cast<unsigned>(_work.phase),
+		_colorImageAddress,
+		_x,
+		_y,
+		_previousEncodedColor,
+		_newEncodedColor,
+		_preservedNonBlack ? 1U : 0U,
+		static_cast<unsigned long long>(_work.combineMux),
+		static_cast<unsigned long long>(_work.otherModes),
+		_work.blendParams,
+		static_cast<unsigned>(_work.tile),
+		static_cast<unsigned>(_work.tileFormat),
+		static_cast<unsigned>(_work.tileSize),
+		static_cast<unsigned>(_work.tileLine),
+		static_cast<unsigned>(_work.tileTmem),
+		static_cast<unsigned>(_work.textureImageWidth),
+		_work.textureImageAddress);
+	std::fclose(file);
+	++emitted;
+}
+
 bool debugTextureFilterStrictPrimary()
 {
 	static const bool enabled = []() -> bool {
@@ -4764,6 +4849,19 @@ void writeRect(
 			}
 			if (preserveTexRectNonBlack)
 				encodedWriteColor = previousEncodedColor;
+			if (overwriteToBlack) {
+				appendOverwriteLog(
+					_summary.executedWorkCount,
+					_work.sourcePacketId,
+					_work.opKind,
+					_work.colorImageAddress,
+					x,
+					y,
+					previousEncodedColor,
+					encodedWriteColor,
+					preserveTexRectNonBlack,
+					_work);
+			}
 			_surface.pixels[colorIdx] = encodedWriteColor;
 			if (!_surface.writeMask.empty())
 				_surface.writeMask[colorIdx] = 1U;
@@ -5098,6 +5196,19 @@ void writeTriangle(
 				if (preserveNonBlackOverwrite) {
 					encodedWriteColor = previousEncodedColor;
 					++_summary.writeTrianglePreserveNonBlackCount;
+				}
+				if (overwriteToBlack) {
+					appendOverwriteLog(
+						_summary.executedWorkCount,
+						_work.sourcePacketId,
+						_work.opKind,
+						_work.colorImageAddress,
+						x,
+						y,
+						previousEncodedColor,
+						encodedWriteColor,
+						preserveNonBlackOverwrite,
+						_work);
 				}
 				_surface.pixels[colorIdx] = encodedWriteColor;
 				if (!_surface.writeMask.empty())

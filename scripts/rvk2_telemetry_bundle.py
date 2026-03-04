@@ -261,6 +261,120 @@ def _parse_history_merge_log(path: Optional[Path]) -> Dict[str, Any]:
     }
 
 
+def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
+    if path is None or not path.is_file():
+        return {
+            "record_count": 0,
+            "preserved_count": 0,
+            "preserved_ratio": None,
+            "op_counts": {},
+            "unique_color_image_count": 0,
+            "top_color_images": [],
+            "dominant_state": {},
+            "dominant_state_ratio": None,
+        }
+
+    records: List[Dict[str, Any]] = []
+    op_counts: Dict[str, int] = {}
+    color_image_counts: Dict[int, int] = {}
+    state_counts: Dict[str, int] = {}
+    state_rows: Dict[str, Dict[str, Any]] = {}
+    preserved_count = 0
+
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        record: Dict[str, Any] = {}
+        for token in stripped.split("\t"):
+            if "=" not in token:
+                continue
+            key, raw = token.split("=", 1)
+            key = key.strip()
+            raw = raw.strip()
+            if not key:
+                continue
+            parsed = _parse_int(raw)
+            record[key] = parsed if parsed is not None else raw
+        if not record:
+            continue
+        records.append(record)
+
+        op_name_raw = record.get("op_name")
+        op_name = str(op_name_raw).strip() if isinstance(op_name_raw, str) else ""
+        if not op_name:
+            op_kind = _u64(record, "op_kind")
+            if op_kind == 1:
+                op_name = "triangle"
+            elif op_kind == 2:
+                op_name = "texrect"
+            elif op_kind == 3:
+                op_name = "fill"
+            else:
+                op_name = "other"
+        op_counts[op_name] = op_counts.get(op_name, 0) + 1
+
+        if _u64(record, "preserved") != 0:
+            preserved_count += 1
+
+        color_image = _u64(record, "color_image")
+        if color_image > 0:
+            color_image_counts[color_image] = color_image_counts.get(color_image, 0) + 1
+
+        combine = _u64(record, "combine_mux")
+        other_modes = _u64(record, "other_modes")
+        blend = _u64(record, "blend_params")
+        tile_line = _u64(record, "tile_line")
+        texture_width = _u64(record, "texture_image_width")
+        state_key = (
+            f"{op_name}|{combine:016X}|{other_modes:016X}|{blend:08X}|"
+            f"{tile_line}|{texture_width}"
+        )
+        state_counts[state_key] = state_counts.get(state_key, 0) + 1
+        if state_key not in state_rows:
+            state_rows[state_key] = {
+                "op_name": op_name,
+                "combine_mux": f"0x{combine:016X}",
+                "other_modes": f"0x{other_modes:016X}",
+                "blend_params": f"0x{blend:08X}",
+                "tile_line": tile_line,
+                "texture_image_width": texture_width,
+            }
+
+    record_count = len(records)
+    top_color_images = sorted(color_image_counts.items(), key=lambda item: item[1], reverse=True)
+    top_color_image_rows: List[Dict[str, Any]] = []
+    for address, count in top_color_images[:8]:
+        top_color_image_rows.append(
+            {
+                "color_image_address": int(address),
+                "color_image_address_hex": f"0x{int(address):08X}",
+                "count": int(count),
+                "ratio": _ratio(int(count), record_count),
+            }
+        )
+
+    dominant_state: Dict[str, Any] = {}
+    dominant_state_ratio: Optional[float] = None
+    if state_counts:
+        state_key, state_count = max(state_counts.items(), key=lambda item: item[1])
+        dominant_state = dict(state_rows.get(state_key, {}))
+        dominant_state["count"] = int(state_count)
+        dominant_state["ratio"] = _ratio(int(state_count), record_count)
+        dominant_state_ratio = dominant_state["ratio"]
+
+    return {
+        "record_count": record_count,
+        "preserved_count": preserved_count,
+        "preserved_ratio": _ratio(preserved_count, record_count),
+        "op_counts": dict(sorted(op_counts.items())),
+        "unique_color_image_count": len(color_image_counts),
+        "top_color_images": top_color_image_rows,
+        "dominant_state": dominant_state,
+        "dominant_state_ratio": dominant_state_ratio,
+    }
+
+
 def _summarize_replay(replay: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     if replay is None:
         return {
@@ -323,6 +437,7 @@ def _build_signals(
     replay_summary: Dict[str, Any],
     launch_summary: Dict[str, Any],
     history_merge_summary: Dict[str, Any],
+    overwrite_summary: Dict[str, Any],
     depth_summary: Optional[Dict[str, Any]],
     metrics: Optional[Dict[str, Any]],
     command_census: Optional[Dict[str, Any]],
@@ -484,6 +599,9 @@ def _build_signals(
         "depth_summary": depth_summary,
     }
 
+    suspected_gaps: List[str] = []
+    hard_faults: List[str] = []
+
     history_merge_signal: Dict[str, Any] = {}
     if isinstance(history_merge_summary, dict):
         history_merge_record_count = int(history_merge_summary.get("record_count", 0) or 0)
@@ -522,8 +640,56 @@ def _build_signals(
             "forensics_selected_surface_untouched_carry": selected_surface_untouched_carry,
         }
 
-    suspected_gaps: List[str] = []
-    hard_faults: List[str] = []
+    overwrite_signal: Dict[str, Any] = {}
+    if isinstance(overwrite_summary, dict):
+        overwrite_record_count = int(overwrite_summary.get("record_count", 0) or 0)
+        overwrite_preserved_count = int(overwrite_summary.get("preserved_count", 0) or 0)
+        overwrite_preserved_ratio = overwrite_summary.get("preserved_ratio")
+        overwrite_op_counts = overwrite_summary.get("op_counts", {})
+        overwrite_top_color_images = overwrite_summary.get("top_color_images", [])
+        overwrite_dominant_state = overwrite_summary.get("dominant_state", {})
+        overwrite_dominant_state_ratio = overwrite_summary.get("dominant_state_ratio")
+        overwrite_signal = {
+            "record_count": overwrite_record_count,
+            "preserved_count": overwrite_preserved_count,
+            "preserved_ratio": overwrite_preserved_ratio,
+            "op_counts": overwrite_op_counts if isinstance(overwrite_op_counts, dict) else {},
+            "unique_color_image_count": int(overwrite_summary.get("unique_color_image_count", 0) or 0),
+            "top_color_images": overwrite_top_color_images if isinstance(overwrite_top_color_images, list) else [],
+            "dominant_state": overwrite_dominant_state if isinstance(overwrite_dominant_state, dict) else {},
+            "dominant_state_ratio": overwrite_dominant_state_ratio,
+        }
+        if overwrite_record_count > 0 and overwrite_preserved_count == 0:
+            suspected_gaps.append(
+                "overwrite-to-black events were logged but preserve-on-black path never retained prior non-black pixels"
+            )
+        if overwrite_record_count > 0 and isinstance(overwrite_preserved_ratio, (int, float)) and overwrite_preserved_ratio < 0.02:
+            suspected_gaps.append(
+                "overwrite-to-black preserve ratio is below 2%; missing content may depend on preserving prior non-black texels"
+            )
+        tri_overwrite = 0
+        texrect_overwrite = 0
+        if isinstance(overwrite_op_counts, dict):
+            tri_overwrite = int(overwrite_op_counts.get("triangle", 0) or 0)
+            texrect_overwrite = int(overwrite_op_counts.get("texrect", 0) or 0)
+        if texrect_overwrite > 0 and tri_overwrite * 3 < texrect_overwrite:
+            suspected_gaps.append(
+                "overwrite-to-black events are texrect dominated; prioritize texrect combiner/texture-state parity for missing scene content"
+            )
+        if (
+            overwrite_record_count > 0
+            and isinstance(overwrite_dominant_state_ratio, (int, float))
+            and overwrite_dominant_state_ratio > 0.90
+            and isinstance(overwrite_dominant_state, dict)
+            and overwrite_dominant_state
+        ):
+            state_op = overwrite_dominant_state.get("op_name")
+            state_combine = overwrite_dominant_state.get("combine_mux")
+            state_modes = overwrite_dominant_state.get("other_modes")
+            suspected_gaps.append(
+                "overwrite-to-black stream is dominated by a single state cluster "
+                f"(op={state_op} combine={state_combine} other_modes={state_modes}); target this cluster first"
+            )
 
     if tx_samples > 0 and tx_tmem == 0 and tx_rdram == 0 and tx_synth == 0:
         suspected_gaps.append("texture samples were recorded but no source bucket advanced (TMEM/RDRAM/synth all zero)")
@@ -1138,6 +1304,7 @@ def _build_signals(
         "geometry": geometry_signal,
         "depth": depth_signal,
         "history_merge": history_merge_signal,
+        "overwrite": overwrite_signal,
         "visibility": visibility_signal,
         "command": command_signal,
         "missing_region": missing_region_signal,
@@ -1454,6 +1621,7 @@ def main() -> int:
     parser.add_argument("--diff-playbook-snippet")
     parser.add_argument("--missing-region-focus")
     parser.add_argument("--history-merge-log")
+    parser.add_argument("--overwrite-log")
     parser.add_argument("--command-census")
     parser.add_argument("--packet-replay-exit", type=int, default=-1)
     parser.add_argument("--forensics-summary-exit", type=int, default=-1)
@@ -1481,6 +1649,7 @@ def main() -> int:
     diff_playbook_snippet_path = Path(args.diff_playbook_snippet) if args.diff_playbook_snippet else None
     missing_region_focus_path = Path(args.missing_region_focus) if args.missing_region_focus else None
     history_merge_log_path = Path(args.history_merge_log) if args.history_merge_log else None
+    overwrite_log_path = Path(args.overwrite_log) if args.overwrite_log else None
     command_census_path = Path(args.command_census) if args.command_census else None
 
     metrics = _load_json(metrics_path)
@@ -1492,6 +1661,7 @@ def main() -> int:
     diff_playbook_snippet = _load_text(diff_playbook_snippet_path)
     missing_region_focus = _load_json(missing_region_focus_path)
     history_merge_summary = _parse_history_merge_log(history_merge_log_path)
+    overwrite_summary = _parse_overwrite_log(overwrite_log_path)
     command_census = _load_json(command_census_path)
 
     forensics_data = _parse_forensics(forensics)
@@ -1513,6 +1683,7 @@ def main() -> int:
         replay_summary,
         launch_summary,
         history_merge_summary,
+        overwrite_summary,
         depth_summary,
         metrics,
         command_census,
@@ -1552,6 +1723,7 @@ def main() -> int:
             "diff_playbook_snippet": _file_meta(diff_playbook_snippet_path),
             "missing_region_focus": _file_meta(missing_region_focus_path),
             "history_merge_log": _file_meta(history_merge_log_path),
+            "overwrite_log": _file_meta(overwrite_log_path),
             "command_census": _file_meta(command_census_path),
         },
         "metrics": metrics,
@@ -1563,6 +1735,7 @@ def main() -> int:
         },
         "missing_region_focus": missing_region_focus,
         "history_merge_summary": history_merge_summary,
+        "overwrite_summary": overwrite_summary,
         "command_census": command_census,
         "packet_replay_summary": replay_summary,
         "forensics": {
@@ -1578,6 +1751,7 @@ def main() -> int:
             "geometry": signal_summary["geometry"],
             "depth": signal_summary["depth"],
             "history_merge": signal_summary["history_merge"],
+            "overwrite": signal_summary["overwrite"],
             "visibility": signal_summary["visibility"],
             "command": signal_summary["command"],
             "missing_region": signal_summary["missing_region"],
