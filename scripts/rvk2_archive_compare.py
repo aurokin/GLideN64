@@ -134,10 +134,12 @@ def _select_rows(
 
 
 def _resolve_bundle_path(row: ArchiveIndexRow) -> Optional[Path]:
-    candidates = [
-        row.bundle_path,
-        row.archive_dir / "telemetry" / f"{row.scenario}.telemetry.bundle.json",
-    ]
+    archived_bundle = row.archive_dir / "telemetry" / f"{row.scenario}.telemetry.bundle.json"
+    candidates = [archived_bundle]
+    if str(row.bundle_path).strip() and row.bundle_path != archived_bundle:
+        # Index rows keep a live bundle pointer that gets overwritten by subsequent runs.
+        # Prefer per-run archived telemetry so historical comparisons stay stable.
+        candidates.append(row.bundle_path)
     for candidate in candidates:
         if str(candidate).strip() and candidate.is_file():
             return candidate
