@@ -77,6 +77,7 @@ Fix missing textures and missing geometry in `paper_mario_intro` on Vulkan `rvk2
 |---|---|---|---|---|
 | 2026-03-04 | Setup | Created plan doc | N/A | Active |
 | 2026-03-04 22:20Z | Lane 1 | Deep baseline (`paper_mario_focus_deep --frames 10`) | Archive + bundle | Captured |
-| 2026-03-04 22:27Z | Lane 1 | Added per-sample `LoadBlock` context telemetry in executor overwrite logs | Pending build/gate | In progress |
+| 2026-03-04 22:27Z | Lane 1 | Added per-sample `LoadBlock` context telemetry in executor overwrite logs | `local_gate` + smoke | Completed |
 | 2026-03-04 22:41Z | Lane 2 | Added TLUT lookup telemetry and traced CI+LUT black-write cluster | Detailed overwrite probe | Confirmed |
 | 2026-03-04 22:52Z | Lane 2 | Applied temporary CI+LUT RDRAM-primary heuristic | Deep checkpoint + archive compare | Structural improvement; keep iterating |
+| 2026-03-04 23:03Z | Lane 2 | Checkpoint commit/push (`70895391`) | pre-push gate | Pushed |
