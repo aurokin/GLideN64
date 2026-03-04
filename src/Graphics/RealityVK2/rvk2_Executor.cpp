@@ -544,18 +544,6 @@ bool debugDisableVIHistoryPresentSelection()
 	return enabled;
 }
 
-bool debugPreferLiveSurfaceOverHistory()
-{
-	static const bool enabled = []() -> bool {
-		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_PREFER_LIVE_SURFACE_OVER_HISTORY");
-		if (raw == nullptr || raw[0] == '\0')
-			return false;
-		bool parsed = false;
-		return parseBooleanToken(raw, parsed) ? parsed : false;
-	}();
-	return enabled;
-}
-
 bool debugEnableSurfaceHistoryBootstrap()
 {
 	static const bool enabled = []() -> bool {
@@ -1179,6 +1167,11 @@ inline u32 encodeSurfaceColor(u32 _rgba, u8 _colorImageSize)
 	const u16 a1 = a >= 128U ? 1U : 0U;
 	const u16 packed = static_cast<u16>((r5 << 11U) | (g5 << 6U) | (b5 << 1U) | a1);
 	return decodeFillColor(static_cast<u32>(packed), 2U);
+}
+
+inline bool pixelHasVisibleColor(u32 _encodedColor)
+{
+	return ((_encodedColor >> 8U) & 0x00FFFFFFU) != 0U;
 }
 
 inline u32 mode0Word(const rvk2::RenderWorkPacket & _work)
@@ -4868,9 +4861,9 @@ void writeRect(
 			u32 encodedWriteColor = encodeSurfaceColor(writeColor, _work.colorImageSize);
 			const u32 previousEncodedColor = _surface.pixels[colorIdx];
 			const bool overwriteToBlack =
-				(previousEncodedColor & 0x00FFFFFFU) != 0U
-				&& (encodedWriteColor & 0x00FFFFFFU) == 0U;
-			const bool finalBlackWrite = (encodedWriteColor & 0x00FFFFFFU) == 0U;
+				pixelHasVisibleColor(previousEncodedColor)
+				&& !pixelHasVisibleColor(encodedWriteColor);
+			const bool finalBlackWrite = !pixelHasVisibleColor(encodedWriteColor);
 			const bool logBlackWrite =
 				overwriteToBlack
 				|| (finalBlackWrite && debugOverwriteLogIncludeBlackWrites());
@@ -4918,7 +4911,7 @@ void writeRect(
 			_summary.outputLumaSum += effectiveWriteLuma;
 			if (_work.opKind == static_cast<u8>(rvk2::RasterOpKind::kTexRect)) {
 				_summary.writeTexRectLumaSum += effectiveWriteLuma;
-				if ((effectiveWriteColor & 0x00FFFFFFU) != 0U)
+				if (pixelHasVisibleColor(effectiveWriteColor))
 					++_summary.writeTexRectNonBlackCount;
 			}
 			++_summary.colorWriteCount;
@@ -5227,9 +5220,9 @@ void writeTriangle(
 				u32 encodedWriteColor = encodeSurfaceColor(writeColor, _work.colorImageSize);
 				const u32 previousEncodedColor = _surface.pixels[colorIdx];
 				const bool overwriteToBlack =
-					(previousEncodedColor & 0x00FFFFFFU) != 0U
-					&& (encodedWriteColor & 0x00FFFFFFU) == 0U;
-				const bool finalBlackWrite = (encodedWriteColor & 0x00FFFFFFU) == 0U;
+					pixelHasVisibleColor(previousEncodedColor)
+					&& !pixelHasVisibleColor(encodedWriteColor);
+				const bool finalBlackWrite = !pixelHasVisibleColor(encodedWriteColor);
 				const bool logBlackWrite =
 					overwriteToBlack
 					|| (finalBlackWrite && debugOverwriteLogIncludeBlackWrites());
@@ -5273,10 +5266,10 @@ void writeTriangle(
 				const u64 effectiveWriteLuma = preserveNonBlackOverwrite ? static_cast<u64>(lumaFromRGBA(previousEncodedColor)) : writeLuma;
 				_summary.outputLumaSum += effectiveWriteLuma;
 				_summary.writeTriangleLumaSum += effectiveWriteLuma;
-				if ((effectiveWriteColor & 0x00FFFFFFU) != 0U)
+				if (pixelHasVisibleColor(effectiveWriteColor))
 					++_summary.writeTriangleNonBlackCount;
 				++_summary.colorWriteCount;
-			}
+		}
 	}
 }
 } // namespace
@@ -5661,7 +5654,7 @@ ExecutorOutput Executor::executeWithOutput(
 							if (_copiedNonBlackPixels != nullptr) {
 								u64 copied = 0ULL;
 								for (size_t i = 0U; i < restoredPixelCount; ++i) {
-								if ((surface.pixels[i] & 0x00FFFFFFU) != 0U)
+								if (pixelHasVisibleColor(surface.pixels[i]))
 									++copied;
 							}
 							*_copiedNonBlackPixels = copied;
@@ -5730,9 +5723,9 @@ ExecutorOutput Executor::executeWithOutput(
 							for (size_t i = 0U; i < pixelCount; ++i) {
 								const u32 previousPixel = _cached.pixels[i];
 								if (!_copyAll) {
-									if ((surface.pixels[i] & 0x00FFFFFFU) != 0U)
+									if (pixelHasVisibleColor(surface.pixels[i]))
 										continue;
-									if ((previousPixel & 0x00FFFFFFU) == 0U)
+									if (!pixelHasVisibleColor(previousPixel))
 										continue;
 								}
 								if (surface.pixels[i] != previousPixel) {
@@ -6071,25 +6064,36 @@ ExecutorOutput Executor::executeWithOutput(
 					: kExecutorPresentSelectionPreviousSurface;
 		}
 	}
-	if (debugPreferLiveSurfaceOverHistory()
-		&& it == surfaces.end()
-		&& historyIt != m_surfaceHistory.end()) {
-		u32 fallbackAddress = 0U;
-		if (chooseMostWrittenSurfaceAddress(
-				surfaces,
-				surfaceColorWrites,
-				surfaceWorkCounts,
-				fallbackAddress)
-			&& fallbackAddress != 0U
-			&& fallbackAddress != presentSurfaceAddress) {
-			presentSurfaceAddress = fallbackAddress;
-			it = surfaces.find(presentSurfaceAddress);
-			historyIt = allowVIHistorySelection
-				? m_surfaceHistory.find(presentSurfaceAddress)
-				: m_surfaceHistory.end();
-			viOriginMatchedSurface = false;
-			summary.viOriginMatchedSurface = 0U;
-			summary.presentSelectionReason = kExecutorPresentSelectionMostWrittenFallback;
+	if (historyIt != m_surfaceHistory.end()) {
+		const auto selectedLiveWriteIt = surfaceColorWrites.find(presentSurfaceAddress);
+		const bool selectedHasLiveWrites =
+			selectedLiveWriteIt != surfaceColorWrites.end()
+			&& selectedLiveWriteIt->second > 0ULL;
+		if (it == surfaces.end() || !selectedHasLiveWrites) {
+			u32 fallbackAddress = 0U;
+			if (chooseMostWrittenSurfaceAddress(
+					surfaces,
+					surfaceColorWrites,
+					surfaceWorkCounts,
+					fallbackAddress)) {
+				const auto fallbackWriteIt = surfaceColorWrites.find(fallbackAddress);
+				const u64 fallbackWrites =
+					fallbackWriteIt != surfaceColorWrites.end()
+					? fallbackWriteIt->second
+					: 0ULL;
+				if (fallbackAddress != 0U
+					&& fallbackAddress != presentSurfaceAddress
+					&& fallbackWrites > 0ULL) {
+					presentSurfaceAddress = fallbackAddress;
+					it = surfaces.find(presentSurfaceAddress);
+					historyIt = allowVIHistorySelection
+						? m_surfaceHistory.find(presentSurfaceAddress)
+						: m_surfaceHistory.end();
+					viOriginMatchedSurface = false;
+					summary.viOriginMatchedSurface = 0U;
+					summary.presentSelectionReason = kExecutorPresentSelectionMostWrittenFallback;
+				}
+			}
 		}
 	}
 	if (it == surfaces.end() && historyIt == m_surfaceHistory.end())
@@ -6155,7 +6159,7 @@ ExecutorOutput Executor::executeWithOutput(
 				for (size_t i = 0U; i < pixelCount; ++i) {
 					if (selectedSurface.writeMask[i] != 0U)
 						continue;
-					if ((_candidate.pixels[i] & 0x00FFFFFFU) != 0U)
+					if (pixelHasVisibleColor(_candidate.pixels[i]))
 						++score;
 				}
 				return score;
@@ -6185,7 +6189,7 @@ ExecutorOutput Executor::executeWithOutput(
 					if (selectedSurface.writeMask[i] != 0U)
 						continue;
 					const u32 sourcePixel = bestSource->pixels[i];
-					if ((sourcePixel & 0x00FFFFFFU) == 0U)
+					if (!pixelHasVisibleColor(sourcePixel))
 						continue;
 					if (selectedSurface.pixels[i] != sourcePixel) {
 						selectedSurface.pixels[i] = sourcePixel;
@@ -6331,10 +6335,10 @@ ExecutorOutput Executor::executeWithOutput(
 				u64 potentialNonBlackDiff = 0ULL;
 				for (size_t i = 0U; i < presentPixelCount; ++i) {
 					const u32 sourcePixel = _candidatePixels[i];
-					if ((sourcePixel & 0x00FFFFFFU) == 0U)
+					if (!pixelHasVisibleColor(sourcePixel))
 						continue;
 					const u32 destinationPixel = presentCached.pixels[i];
-					const bool destinationVisible = (destinationPixel & 0x00FFFFFFU) != 0U;
+					const bool destinationVisible = pixelHasVisibleColor(destinationPixel);
 					if (!destinationVisible)
 						++potentialBlackFill;
 					else if (destinationPixel != sourcePixel)
