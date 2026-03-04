@@ -1495,12 +1495,12 @@ void testVIRendererAspectScaling()
 	expectEq(pixelAdvanceShiftedSummary.presentWidth, 2U, "VIRenderer pixel-advance shifted width mismatch");
 	expectEq(pixelAdvanceShiftedSummary.presentHeight, 2U, "VIRenderer pixel-advance shifted height mismatch");
 	expectTrue(
-		pixelAdvanceBaseSummary.presentHash != pixelAdvanceShiftedSummary.presentHash,
-		"VIRenderer pixel-advance should alter present hash");
+		pixelAdvanceBaseSummary.presentHash == pixelAdvanceShiftedSummary.presentHash,
+		"VIRenderer pixel-advance should be disabled by default");
 	expectEq(
 		pixelAdvanceShiftedPixels[0],
-		pixelAdvanceBasePixels[1],
-		"VIRenderer pixel-advance first sample mismatch");
+		pixelAdvanceBasePixels[0],
+		"VIRenderer pixel-advance default first sample mismatch");
 
 	pixelAdvanceInput.registers.status = (3U | (3U << 8U)) | (12U << 12U);
 	std::vector<u32> pixelAdvanceOverflowPixels;
@@ -1516,12 +1516,12 @@ void testVIRendererAspectScaling()
 		"VIRenderer pixel-advance overflow height mismatch");
 	expectEq(
 		pixelAdvanceOverflowPixels[0],
-		pixelAdvanceSource[3],
-		"VIRenderer pixel-advance overflow first sample mismatch");
+		pixelAdvanceBasePixels[0],
+		"VIRenderer pixel-advance overflow default first sample mismatch");
 	expectEq(
 		pixelAdvanceOverflowPixels[1],
-		0x00000000U,
-		"VIRenderer pixel-advance overflow second sample mismatch");
+		pixelAdvanceBasePixels[1],
+		"VIRenderer pixel-advance overflow default second sample mismatch");
 
 	std::vector<u32> viTypeSource{
 		0x12345678U, 0x89ABCDEFU, 0x0A1B2C3DU, 0x44556677U,

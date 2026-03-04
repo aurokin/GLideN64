@@ -103,6 +103,43 @@ inline u32 packTexRectDelta(f32 _delta)
 	return static_cast<u32>(static_cast<u16>(fixed));
 }
 
+inline void submitRvk2SyntheticSetTextureImageState()
+{
+	const u32 packedWidth = gDP.textureImage.width > 0U
+		? (gDP.textureImage.width - 1U)
+		: 0U;
+	const u32 w0 = (0x3DU << 24)
+		| ((gDP.textureImage.format & 0x7U) << 21)
+		| ((gDP.textureImage.size & 0x3U) << 19)
+		| (packedWidth & 0x0FFFU);
+	submitRvk2SyntheticRdp(w0, gDP.textureImage.address);
+}
+
+inline void submitRvk2SyntheticTexRect(
+	u32 _op,
+	f32 _ulx,
+	f32 _uly,
+	f32 _lrx,
+	f32 _lry,
+	s32 _tile,
+	s16 _s,
+	s16 _t,
+	f32 _dsdx,
+	f32 _dtdy)
+{
+	const u32 packedULX = packTexRectCoord(_ulx);
+	const u32 packedULY = packTexRectCoord(_uly);
+	const u32 packedLRX = packTexRectCoord(_lrx);
+	const u32 packedLRY = packTexRectCoord(_lry);
+	const u32 w0 = (_op << 24) | (packedLRX << 12) | packedLRY;
+	const u32 w1 = ((static_cast<u32>(_tile) & 0x7U) << 24) | (packedULX << 12) | packedULY;
+	const u32 w2 = (static_cast<u32>(static_cast<u16>(_s)) << 16)
+		| static_cast<u32>(static_cast<u16>(_t));
+	const u32 w3 = (packTexRectDelta(_dsdx) << 16)
+		| packTexRectDelta(_dtdy);
+	submitRvk2SyntheticRdp(w0, w1, 2U, w2, w3, 4U);
+}
+
 inline void applyTileSizeState(u32 _tile, u32 _uls, u32 _ult, u32 _lrs, u32 _lrt)
 {
 	gDP.tiles[_tile].uls = _SHIFTR( _uls, 2, 10 );
@@ -295,12 +332,6 @@ void gDPSetColorImage( u32 format, u32 size, u32 width, u32 address )
 void gDPSetTextureImage(u32 format, u32 size, u32 width, u32 address)
 {
 	const u32 physicalAddress = RSP_SegmentToPhysical(address);
-	const u32 packedWidth = width > 0U ? (width - 1U) : 0U;
-	const u32 w0 = (0x3DU << 24)
-		| ((format & 0x7U) << 21)
-		| ((size & 0x3U) << 19)
-		| (packedWidth & 0x0FFFU);
-	submitRvk2SyntheticRdp(w0, physicalAddress);
 
 	gDP.textureImage.format = format;
 	gDP.textureImage.size = size;
@@ -318,6 +349,9 @@ void gDPSetTextureImage(u32 format, u32 size, u32 width, u32 address)
 			gSP.DMAOffsets.tex_count = 0;
 		}
 	}
+	// Keep RVK2 synthetic stream aligned with the effective address used by gDP state
+	// (including DMA texture shifts), otherwise TMEM loads can sample from stale sources.
+	submitRvk2SyntheticSetTextureImageState();
 #ifdef DEBUG_DUMP
 	DebugMsg( DEBUG_NORMAL, "gDPSetTextureImage( %s, %s, %i, 0x%08X );\n",
 		ImageFormatText[gDP.textureImage.format],
@@ -802,6 +836,22 @@ void gDPLoadBlock32(u32 uls,u32 lrs, u32 dxt)
 
 void gDPLoadBlock(u32 tile, u32 uls, u32 ult, u32 lrs, u32 dxt)
 {
+	if (gSP.DMAOffsets.tex_offset != 0) {
+		const u32 loadBlockSpanBytes = (((lrs >> 2) + 1U) << 3U);
+		if (gSP.DMAOffsets.tex_shift % loadBlockSpanBytes) {
+			gDP.textureImage.address -= gSP.DMAOffsets.tex_shift;
+			// The DMA offset path mutates texture image state without an explicit
+			// SetTextureImage command. Emit a synthetic update before LoadBlock so
+			// RVK2 resolves TMEM loads from the same effective source as gDP.
+			submitRvk2SyntheticSetTextureImageState();
+			gSP.DMAOffsets.tex_offset = 0;
+			gSP.DMAOffsets.tex_shift = 0;
+			gSP.DMAOffsets.tex_count = 0;
+		} else {
+			++gSP.DMAOffsets.tex_count;
+		}
+	}
+
 	const u32 w0 = (0x33U << 24)
 		| ((uls & 0x0FFFU) << 12)
 		| (ult & 0x0FFFU);
@@ -815,15 +865,6 @@ void gDPLoadBlock(u32 tile, u32 uls, u32 ult, u32 lrs, u32 dxt)
 	gDP.loadTile = &gDP.tiles[tile];
 	gDP.loadTile->loadType = LOADTYPE_BLOCK;
 
-	if (gSP.DMAOffsets.tex_offset != 0) {
-		if (gSP.DMAOffsets.tex_shift % (((lrs>>2) + 1) << 3)) {
-			gDP.textureImage.address -= gSP.DMAOffsets.tex_shift;
-			gSP.DMAOffsets.tex_offset = 0;
-			gSP.DMAOffsets.tex_shift = 0;
-			gSP.DMAOffsets.tex_count = 0;
-		} else
-			++gSP.DMAOffsets.tex_count;
-	}
 	gDP.loadTile->imageAddress = gDP.textureImage.address;
 
 	gDPLoadTileInfo &info = gDP.loadInfo[gDP.loadTile->tmem];
@@ -1206,17 +1247,6 @@ void gDPSetKeyGB(u32 cG, u32 sG, u32 wG, u32 cB, u32 sB, u32 wB )
 void gDPTextureRectangle(f32 ulx, f32 uly, f32 lrx, f32 lry, s32 tile, s16 s, s16 t, f32 dsdx, f32 dtdy , bool flip)
 {
 	const u32 op = flip ? 0x25U : 0x24U;
-	const u32 packedULX = packTexRectCoord(ulx);
-	const u32 packedULY = packTexRectCoord(uly);
-	const u32 packedLRX = packTexRectCoord(lrx);
-	const u32 packedLRY = packTexRectCoord(lry);
-	const u32 w0 = (op << 24) | (packedLRX << 12) | packedLRY;
-	const u32 w1 = ((static_cast<u32>(tile) & 0x7U) << 24) | (packedULX << 12) | packedULY;
-	const u32 w2 = (static_cast<u32>(static_cast<u16>(s)) << 16)
-		| static_cast<u32>(static_cast<u16>(t));
-	const u32 w3 = (packTexRectDelta(dsdx) << 16)
-		| packTexRectDelta(dtdy);
-	submitRvk2SyntheticRdp(w0, w1, 2U, w2, w3, 4U);
 
 	if (gDP.otherMode.cycleType == G_CYC_COPY) {
 		dsdx /= 4.0f;
@@ -1269,6 +1299,19 @@ void gDPTextureRectangle(f32 ulx, f32 uly, f32 lrx, f32 lry, s32 tile, s16 s, s1
 		flip, false, true, frameBufferList().getCurrent());
 	if (config.graphics2D.enableNativeResTexrects == 0 && config.graphics2D.correctTexrectCoords != Config::tcDisable)
 		drawer.correctTexturedRectParams(params);
+
+	submitRvk2SyntheticTexRect(
+		op,
+		params.ulx,
+		params.uly,
+		params.lrx,
+		params.lry,
+		tile,
+		params.s,
+		params.t,
+		params.dsdx,
+		params.dtdy);
+
 	drawer.drawTexturedRect(params);
 
 	gSP.textureTile[0] = textureTileOrg[0];

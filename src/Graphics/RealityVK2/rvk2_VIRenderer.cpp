@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
@@ -45,6 +46,38 @@ struct VIResolvedState
 	u32 pixelAdvance = 0U;
 	u8 rejectReason = rvk2::kVIRejectNone;
 };
+
+bool envFlagEnabled(const char * _key, bool _defaultValue)
+{
+	const char * raw = std::getenv(_key);
+	if (raw == nullptr || raw[0] == '\0')
+		return _defaultValue;
+	const char first = static_cast<char>(std::tolower(static_cast<unsigned char>(raw[0])));
+	if (first == '0' || first == 'f' || first == 'n')
+		return false;
+	return true;
+}
+
+bool debugDisableVIOriginOffset()
+{
+	static const bool disabled =
+		envFlagEnabled("REALITYVK_RVK2_DEBUG_DISABLE_VI_ORIGIN_OFFSET", false);
+	return disabled;
+}
+
+bool debugDisableVIPixelAdvance()
+{
+	static const bool disabled =
+		envFlagEnabled("REALITYVK_RVK2_DEBUG_DISABLE_VI_PIXEL_ADVANCE", false);
+	return disabled;
+}
+
+bool debugEnableVIPixelAdvance()
+{
+	static const bool enabled =
+		envFlagEnabled("REALITYVK_RVK2_DEBUG_ENABLE_VI_PIXEL_ADVANCE", false);
+	return enabled;
+}
 
 inline u32 clampU32(u32 _value, u32 _minimum, u32 _maximum)
 {
@@ -380,6 +413,11 @@ VIResolvedState resolveVIState(
 	state.interlaceField = static_cast<u8>(_input.registers.vCurrentLine & 0x1U);
 	state.aaMode = static_cast<u8>((_input.registers.status & kVIStatusAAModeMask) >> 8U);
 	state.pixelAdvance = (_input.registers.status & kVIStatusPixelAdvanceMask) >> 12U;
+	// Most reference implementations effectively ignore VI pixel advance in scanout
+	// for common game paths (including Paper Mario title). Keep it off by default
+	// and allow opt-in for focused experiments.
+	if (!debugEnableVIPixelAdvance() || debugDisableVIPixelAdvance())
+		state.pixelAdvance = 0U;
 	const u32 viWidth = _input.registers.width & 0x0FFFU;
 	if (viWidth == 0U) {
 		state.outputWidth = 0U;
@@ -414,7 +452,7 @@ VIResolvedState resolveVIState(
 		return state;
 	}
 
-	if (_input.sourceAddressValid) {
+	if (_input.sourceAddressValid && !debugDisableVIOriginOffset()) {
 		const u32 baseAddress = _input.sourceAddress & 0x00FFFFFFU;
 		const u32 originAddress = _input.registers.origin & 0x00FFFFFFU;
 		if (originAddress >= baseAddress)

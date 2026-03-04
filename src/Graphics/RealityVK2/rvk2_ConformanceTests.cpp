@@ -4216,12 +4216,12 @@ void testVIPixelAdvanceConformance()
 		baseOut.presentFrame.height,
 		"VI pixel-advance should preserve present height");
 	expectTrue(
-		shiftedOut.summary.presentHash != baseOut.summary.presentHash,
-		"VI pixel-advance should alter present hash");
+		shiftedOut.summary.presentHash == baseOut.summary.presentHash,
+		"VI pixel-advance should be disabled by default");
 	expectEq(
 		shiftedOut.presentFrame.pixels[0],
-		baseOut.presentFrame.pixels[1],
-		"VI pixel-advance should shift first visible sample");
+		baseOut.presentFrame.pixels[0],
+		"VI pixel-advance default first sample mismatch");
 
 	rvk2::ExecutorConfig overflowConfig = baseConfig;
 	overflowConfig.viStatus = (3U | (3U << 8U)) | (12U << 12U);
@@ -4229,12 +4229,12 @@ void testVIPixelAdvanceConformance()
 	const rvk2::ExecutorOutput overflowOut =
 		overflowExecutor.executeWithOutput(workPackets, batches);
 	expectTrue(
-		overflowOut.summary.presentHash != baseOut.summary.presentHash,
-		"VI pixel-advance overflow should alter present hash");
+		overflowOut.summary.presentHash == baseOut.summary.presentHash,
+		"VI pixel-advance overflow should be disabled by default");
 	expectEq(
 		overflowOut.presentFrame.pixels[1],
-		0x00000000U,
-		"VI pixel-advance overflow should clip out-of-range sample to black");
+		baseOut.presentFrame.pixels[1],
+		"VI pixel-advance overflow default second sample mismatch");
 }
 
 } // namespace
