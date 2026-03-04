@@ -1,5 +1,6 @@
 #include "rvk2_Executor.h"
 
+#include <array>
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -19,6 +20,88 @@ namespace {
 thread_local const rvk2::TextureReplacementStore * gActiveTextureReplacementStore = nullptr;
 thread_local rvk2::ExecutorSummary * gActiveExecutorSummary = nullptr;
 thread_local const u64 * gActiveExecutorTMEMWords = nullptr;
+
+enum : u8
+{
+	kDebugTexSampleSourceNone = 0U,
+	kDebugTexSampleSourceReplacement = 1U,
+	kDebugTexSampleSourceTMEM = 2U,
+	kDebugTexSampleSourceRDRAM = 3U,
+	kDebugTexSampleSourceSynthetic = 4U,
+};
+
+enum : u8
+{
+	kDebugTexFetchVariantNone = 0U,
+	kDebugTexFetchVariantTMEM4 = 1U,
+	kDebugTexFetchVariantTMEM8 = 2U,
+	kDebugTexFetchVariantTMEM16 = 3U,
+	kDebugTexFetchVariantTMEM32Split = 4U,
+	kDebugTexFetchVariantTMEM32Direct = 5U,
+	kDebugTexFetchVariantTMEM32Canonical = 6U,
+	kDebugTexFetchVariantRDRAM4 = 7U,
+	kDebugTexFetchVariantRDRAM8 = 8U,
+	kDebugTexFetchVariantRDRAM16 = 9U,
+	kDebugTexFetchVariantRDRAM32 = 10U,
+};
+
+struct DebugTextureSampleLogEntry
+{
+	bool valid = false;
+	u8 sourceKind = kDebugTexSampleSourceNone;
+	u8 sampleSlot = 0U;
+	u8 format = 0U;
+	u8 size = 0U;
+	u8 filterMode = 0U;
+	u8 lutMode = 0U;
+	u8 includeW = 0U;
+	u8 needsLUT = 0U;
+	u8 tmemReject = 0U;
+	u8 rdramReject = 0U;
+	u8 tmemLoadKind = 0U;
+	u8 tmemFetchVariant = kDebugTexFetchVariantNone;
+	u8 reserved0 = 0U;
+	u16 tile = 0U;
+	u16 tileLine = 0U;
+	u16 tileTmem = 0U;
+	u16 tilePalette = 0U;
+	u16 textureImageWidth = 0U;
+	u16 tmemOffset = 0U;
+	u16 tmemS = 0U;
+	u16 tmemT = 0U;
+	u16 tmemI = 0U;
+	u32 tmemRowXor = 0U;
+	s32 tmemLineStride = 0;
+	u32 tmemIndexA = 0U;
+	u32 tmemIndexB = 0U;
+	u32 tmemRawA = 0U;
+	u32 tmemRawB = 0U;
+	u32 tmemPacked32 = 0U;
+	u32 rdramBaseAddress = 0U;
+	u64 rdramTexelIndex = 0ULL;
+	u32 rdramWordAddress = 0U;
+	u32 rdramRaw = 0U;
+	s32 requestedS = 0;
+	s32 requestedT = 0;
+	s32 requestedW = 0;
+	u32 pixelX = 0U;
+	u32 pixelY = 0U;
+	u32 sampledColor = 0U;
+	u32 finalColor = 0U;
+	u32 sourceBits = 0U;
+	u8 rdramProbeValid = 0U;
+	u8 rdramProbeNeedsLUT = 0U;
+	u8 rdramProbeReject = 0U;
+	u8 reserved1 = 0U;
+	u32 rdramProbeSampledColor = 0U;
+	u32 rdramProbeFinalColor = 0U;
+	u32 rdramProbeWordAddress = 0U;
+	u32 rdramProbeRaw = 0U;
+};
+
+thread_local std::array<DebugTextureSampleLogEntry, rvk2::kExecutorTextureSampleSlotBuckets>
+	gDebugTextureSampleLogSlots{};
+
 constexpr u64 kFnvOffset = 1469598103934665603ULL;
 constexpr u64 kFnvPrime = 1099511628211ULL;
 
@@ -462,6 +545,18 @@ bool debugForceTextureRdramPrimary()
 	return enabled;
 }
 
+bool debugTexelFallbackRdramIfTmemBlack()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TEXEL_FALLBACK_RDRAM_IF_TMEM_BLACK");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
 bool debugForceCopyCI8RdramPrimary()
 {
 	static const bool enabled = []() -> bool {
@@ -526,6 +621,18 @@ bool debugTmem32UseLoadKindAwareXor()
 {
 	static const bool enabled = []() -> bool {
 		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TMEM32_LOADKIND_XOR");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugTmem32UseCanonicalFetch()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TMEM32_CANONICAL_FETCH");
 		if (raw == nullptr || raw[0] == '\0')
 			return false;
 		bool parsed = false;
@@ -703,6 +810,38 @@ bool debugOverwriteLogIncludeBlackWrites()
 	return enabled;
 }
 
+bool debugOverwriteLogIncludeAllWrites()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_OVERWRITE_LOG_INCLUDE_ALL_WRITES");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugOverwriteLogIncludeTexelDetail()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_OVERWRITE_LOG_INCLUDE_TEXEL_DETAIL");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+inline void resetDebugTextureSampleLogSlots()
+{
+	if (!debugOverwriteLogIncludeTexelDetail())
+		return;
+	for (DebugTextureSampleLogEntry & entry : gDebugTextureSampleLogSlots)
+		entry = DebugTextureSampleLogEntry{};
+}
+
 struct DebugOverwriteLogFilterConfig
 {
 	bool hasWorkOrdinalMin = false;
@@ -833,7 +972,7 @@ void appendOverwriteLog(
 				: (_opKind == static_cast<u8>(rvk2::RasterOpKind::kFillRect) ? "fill" : "other"));
 	std::fprintf(
 		file,
-		"work_ordinal=%llu\tsource_packet_id=%llu\top_kind=%u\top_name=%s\tphase=%u\tcolor_image=0x%08X\tx=%u\ty=%u\tprev=0x%08X\tnew=0x%08X\ttexel=0x%08X\tcombiner=0x%08X\tblender=0x%08X\tfinal=0x%08X\ttexture_source_bits=0x%08X\toverwrite_to_black=%u\tpreserved=%u\tcombine_mux=0x%016llX\tother_modes=0x%016llX\tblend_params=0x%08X\ttile=%u\ttile_format=%u\ttile_size=%u\ttile_line=%u\ttile_tmem=%u\ttexture_image_width=%u\ttexture_image_address=0x%08X\n",
+		"work_ordinal=%llu\tsource_packet_id=%llu\top_kind=%u\top_name=%s\tphase=%u\tcolor_image=0x%08X\tx=%u\ty=%u\tprev=0x%08X\tnew=0x%08X\ttexel=0x%08X\tcombiner=0x%08X\tblender=0x%08X\tfinal=0x%08X\ttexture_source_bits=0x%08X\toverwrite_to_black=%u\tpreserved=%u\tcombine_mux=0x%016llX\tother_modes=0x%016llX\tblend_params=0x%08X\ttile=%u\ttile_format=%u\ttile_size=%u\ttile_line=%u\ttile_tmem=%u\ttexture_image_width=%u\ttexture_image_address=0x%08X",
 		static_cast<unsigned long long>(_workOrdinal),
 		static_cast<unsigned long long>(_sourcePacketId),
 		static_cast<unsigned>(_opKind),
@@ -861,6 +1000,113 @@ void appendOverwriteLog(
 		static_cast<unsigned>(_work.tileTmem),
 		static_cast<unsigned>(_work.textureImageWidth),
 		_work.textureImageAddress);
+	if (debugOverwriteLogIncludeTexelDetail()) {
+		const auto appendSampleSlot = [&](const char * _prefix, const DebugTextureSampleLogEntry & _entry) {
+			std::fprintf(
+				file,
+				"\t%s_valid=%u\t%s_source_kind=%u\t%s_sample_slot=%u\t%s_format=%u\t%s_size=%u\t%s_filter_mode=%u\t%s_lut_mode=%u\t%s_include_w=%u\t%s_needs_lut=%u\t%s_tmem_reject=%u\t%s_rdram_reject=%u\t%s_tmem_load_kind=%u\t%s_tmem_fetch_variant=%u\t%s_tile=%u\t%s_tile_line=%u\t%s_tile_tmem=%u\t%s_tile_palette=%u\t%s_texture_image_width=%u\t%s_tmem_offset=%u\t%s_tmem_s=%u\t%s_tmem_t=%u\t%s_tmem_i=%u\t%s_tmem_row_xor=%u\t%s_tmem_line_stride=%d\t%s_tmem_index_a=%u\t%s_tmem_index_b=%u\t%s_tmem_raw_a=0x%08X\t%s_tmem_raw_b=0x%08X\t%s_tmem_packed32=0x%08X\t%s_rdram_base=0x%08X\t%s_rdram_texel_index=%llu\t%s_rdram_word_address=0x%08X\t%s_rdram_raw=0x%08X\t%s_requested_s=%d\t%s_requested_t=%d\t%s_requested_w=%d\t%s_pixel_x=%u\t%s_pixel_y=%u\t%s_sampled_color=0x%08X\t%s_final_color=0x%08X\t%s_source_bits=0x%08X\t%s_rdram_probe_valid=%u\t%s_rdram_probe_needs_lut=%u\t%s_rdram_probe_reject=%u\t%s_rdram_probe_sampled_color=0x%08X\t%s_rdram_probe_final_color=0x%08X\t%s_rdram_probe_word_address=0x%08X\t%s_rdram_probe_raw=0x%08X",
+				_prefix,
+				_entry.valid ? 1U : 0U,
+				_prefix,
+				static_cast<unsigned>(_entry.sourceKind),
+				_prefix,
+				static_cast<unsigned>(_entry.sampleSlot),
+				_prefix,
+				static_cast<unsigned>(_entry.format),
+				_prefix,
+				static_cast<unsigned>(_entry.size),
+				_prefix,
+				static_cast<unsigned>(_entry.filterMode),
+				_prefix,
+				static_cast<unsigned>(_entry.lutMode),
+				_prefix,
+				static_cast<unsigned>(_entry.includeW),
+				_prefix,
+				static_cast<unsigned>(_entry.needsLUT),
+				_prefix,
+				static_cast<unsigned>(_entry.tmemReject),
+				_prefix,
+				static_cast<unsigned>(_entry.rdramReject),
+				_prefix,
+				static_cast<unsigned>(_entry.tmemLoadKind),
+				_prefix,
+				static_cast<unsigned>(_entry.tmemFetchVariant),
+				_prefix,
+				static_cast<unsigned>(_entry.tile),
+				_prefix,
+				static_cast<unsigned>(_entry.tileLine),
+				_prefix,
+				static_cast<unsigned>(_entry.tileTmem),
+				_prefix,
+				static_cast<unsigned>(_entry.tilePalette),
+				_prefix,
+				static_cast<unsigned>(_entry.textureImageWidth),
+				_prefix,
+				static_cast<unsigned>(_entry.tmemOffset),
+				_prefix,
+				static_cast<unsigned>(_entry.tmemS),
+				_prefix,
+				static_cast<unsigned>(_entry.tmemT),
+				_prefix,
+				static_cast<unsigned>(_entry.tmemI),
+				_prefix,
+				_entry.tmemRowXor,
+				_prefix,
+				_entry.tmemLineStride,
+				_prefix,
+				_entry.tmemIndexA,
+				_prefix,
+				_entry.tmemIndexB,
+				_prefix,
+				_entry.tmemRawA,
+				_prefix,
+				_entry.tmemRawB,
+				_prefix,
+				_entry.tmemPacked32,
+				_prefix,
+				_entry.rdramBaseAddress,
+				_prefix,
+				static_cast<unsigned long long>(_entry.rdramTexelIndex),
+				_prefix,
+				_entry.rdramWordAddress,
+				_prefix,
+				_entry.rdramRaw,
+				_prefix,
+				_entry.requestedS,
+				_prefix,
+				_entry.requestedT,
+				_prefix,
+				_entry.requestedW,
+				_prefix,
+				_entry.pixelX,
+				_prefix,
+				_entry.pixelY,
+				_prefix,
+					_entry.sampledColor,
+					_prefix,
+					_entry.finalColor,
+					_prefix,
+					_entry.sourceBits,
+					_prefix,
+					static_cast<unsigned>(_entry.rdramProbeValid),
+					_prefix,
+					static_cast<unsigned>(_entry.rdramProbeNeedsLUT),
+					_prefix,
+					static_cast<unsigned>(_entry.rdramProbeReject),
+					_prefix,
+					_entry.rdramProbeSampledColor,
+					_prefix,
+					_entry.rdramProbeFinalColor,
+					_prefix,
+					_entry.rdramProbeWordAddress,
+					_prefix,
+					_entry.rdramProbeRaw);
+		};
+		appendSampleSlot("tex0", gDebugTextureSampleLogSlots[rvk2::kExecutorTextureSampleSlotTexel0]);
+		appendSampleSlot("tex1", gDebugTextureSampleLogSlots[rvk2::kExecutorTextureSampleSlotTexel1]);
+		appendSampleSlot("tex0_next", gDebugTextureSampleLogSlots[rvk2::kExecutorTextureSampleSlotTexel0Next]);
+	}
+	std::fputc('\n', file);
 	std::fclose(file);
 	++emitted;
 }
@@ -1861,7 +2107,8 @@ inline bool sampleTextureFromRDRAM(
 	s32 _t,
 	u32 & _outRgba,
 	bool & _outNeedsLUT,
-	u8 & _outRejectReason)
+	u8 & _outRejectReason,
+	DebugTextureSampleLogEntry * _debug = nullptr)
 {
 	_outRejectReason = 0U;
 	if (!rdramReadable()) {
@@ -1879,11 +2126,29 @@ inline bool sampleTextureFromRDRAM(
 	const u32 t = static_cast<u32>(_t & 0xFFFF);
 	const u64 texelIndex = static_cast<u64>(t) * static_cast<u64>(imageWidth) + static_cast<u64>(s);
 	const u8 lutMode = decodeTextureLUTMode(_work);
+	if (_debug != nullptr) {
+		_debug->format = format;
+		_debug->size = size;
+		_debug->lutMode = lutMode;
+		_debug->textureImageWidth = imageWidth;
+		_debug->rdramBaseAddress = baseAddress;
+		_debug->rdramTexelIndex = texelIndex;
+	}
 
 	_outNeedsLUT = false;
 	switch (size) {
 	case 0U: { // 4b
-		const u8 value4 = readRdramPacked4(baseAddress, texelIndex);
+		const u32 byteAddress = baseAddress + static_cast<u32>(texelIndex >> 1U);
+		const u8 packed = readRdramByteWrapped(byteAddress);
+		const bool lowNibble = (texelIndex & 1ULL) != 0ULL;
+		const u8 value4 = lowNibble
+			? static_cast<u8>(packed & 0x0FU)
+			: static_cast<u8>((packed >> 4U) & 0x0FU);
+		if (_debug != nullptr) {
+			_debug->tmemFetchVariant = kDebugTexFetchVariantRDRAM4;
+			_debug->rdramWordAddress = byteAddress;
+			_debug->rdramRaw = static_cast<u32>(packed);
+		}
 		switch (format) {
 		case 2U: { // CI4
 			u8 index = value4;
@@ -1912,7 +2177,13 @@ inline bool sampleTextureFromRDRAM(
 	}
 
 	case 1U: { // 8b
-		const u8 value8 = readRdramTexel8(baseAddress, texelIndex);
+		const u32 byteAddress = baseAddress + static_cast<u32>(texelIndex);
+		const u8 value8 = readRdramByteWrapped(byteAddress);
+		if (_debug != nullptr) {
+			_debug->tmemFetchVariant = kDebugTexFetchVariantRDRAM8;
+			_debug->rdramWordAddress = byteAddress;
+			_debug->rdramRaw = static_cast<u32>(value8);
+		}
 		switch (format) {
 		case 2U: { // CI8
 			u8 index = value8;
@@ -1938,7 +2209,13 @@ inline bool sampleTextureFromRDRAM(
 	}
 
 	case 2U: { // 16b
-		const u16 value16 = readRdramTexel16(baseAddress, texelIndex);
+		const u32 texelAddress = baseAddress + static_cast<u32>(texelIndex << 1U);
+		const u16 value16 = readRdramU16Wrapped(texelAddress);
+		if (_debug != nullptr) {
+			_debug->tmemFetchVariant = kDebugTexFetchVariantRDRAM16;
+			_debug->rdramWordAddress = texelAddress;
+			_debug->rdramRaw = static_cast<u32>(value16);
+		}
 		switch (format) {
 		case 0U: { // RGBA16
 			const u8 r5 = static_cast<u8>((value16 >> 11U) & 0x1FU);
@@ -1955,6 +2232,14 @@ inline bool sampleTextureFromRDRAM(
 			const u8 y0 = readRdramByteWrapped(pairAddress + 1U);
 			const u8 v = readRdramByteWrapped(pairAddress + 2U);
 			const u8 y1 = readRdramByteWrapped(pairAddress + 3U);
+			if (_debug != nullptr) {
+				_debug->rdramWordAddress = pairAddress;
+				_debug->rdramRaw =
+					(static_cast<u32>(u) << 24U)
+					| (static_cast<u32>(y0) << 16U)
+					| (static_cast<u32>(v) << 8U)
+					| static_cast<u32>(y1);
+			}
 			const u8 y = (texelIndex & 1ULL) != 0ULL ? y1 : y0;
 			_outRgba = decodeYUVSampleToPseudoRGBA(y, u, v);
 			return true;
@@ -1983,7 +2268,13 @@ inline bool sampleTextureFromRDRAM(
 			_outRejectReason = 1U;
 			return false;
 		}
-		const u32 value32 = readRdramTexel32(baseAddress, texelIndex);
+		const u32 texelAddress = baseAddress + static_cast<u32>(texelIndex << 2U);
+		const u32 value32 = readRdramU32Wrapped(texelAddress);
+		if (_debug != nullptr) {
+			_debug->tmemFetchVariant = kDebugTexFetchVariantRDRAM32;
+			_debug->rdramWordAddress = texelAddress;
+			_debug->rdramRaw = value32;
+		}
 		const u8 r = static_cast<u8>((value32 >> 24U) & 0xFFU);
 		const u8 g = static_cast<u8>((value32 >> 16U) & 0xFFU);
 		const u8 b = static_cast<u8>((value32 >> 8U) & 0xFFU);
@@ -2092,6 +2383,18 @@ inline u32 readTmem32SplitPacked(const rvk2::RenderWorkPacket & _work, u16 _s, u
 	return (static_cast<u32>(ab) << 16U) | static_cast<u32>(gr);
 }
 
+inline u32 readTmem32CanonicalPacked(const rvk2::RenderWorkPacket & _work, u16 _s, u16 _t, u32 _xor)
+{
+	const u16 * tmem16 = reinterpret_cast<const u16 *>(activeTMEMWords());
+	const u32 tbase =
+		(static_cast<u32>(_work.tileLine) * static_cast<u32>(_t & 0x00FFU))
+		+ static_cast<u32>(_work.tileTmem & 0x1FFU);
+	const u32 taddr = (((tbase << 2U) + static_cast<u32>(_s)) ^ _xor) & 0x3FFU;
+	const u16 gr = tmem16[taddr];
+	const u16 ab = tmem16[taddr | 0x400U];
+	return (static_cast<u32>(ab) << 16U) | static_cast<u32>(gr);
+}
+
 inline u32 packSplit32ToRGBA(u32 _packed, bool _highToLowRGBA)
 {
 	const u8 r = _highToLowRGBA
@@ -2112,24 +2415,10 @@ inline u32 packSplit32ToRGBA(u32 _packed, bool _highToLowRGBA)
 inline u32 decodeAuthoritativeTMEM32Color(
 	const rvk2::RenderWorkPacket & _work,
 	u16 _s,
-	u16 _t)
+	u16 _t,
+	DebugTextureSampleLogEntry * _debug = nullptr)
 {
 	const bool highToLowRGBA = debugTmem32PackHighToLowRGBA();
-	if (debugTmem32UseDirectLinearFetch()) {
-		const u32 * tmem32 = reinterpret_cast<const u32 *>(activeTMEMWords());
-		const u16 i = static_cast<u16>((_t & 1U) << 1U);
-		const u16 tmemOffset = static_cast<u16>(
-			(_work.tileTmem + static_cast<u16>(_work.tileLine * _t)) & 0x1FFU);
-		const u32 packed = tmem32[
-			((static_cast<u32>(tmemOffset) << 1U)
-				+ (static_cast<u32>(_s) ^ static_cast<u32>(i)))
-			& 0x3FFU];
-		return packSplit32ToRGBA(packed, highToLowRGBA);
-	}
-
-	// Authoritative 32b TMEM path follows legacy loader addressing:
-	// split GR/AB words, odd/even row XOR, and line32 stride derived from tile span.
-	const s32 lineStride = computeLegacySplit32LineStride(_work);
 	u32 rowXor = xorForTmem32T(_t);
 	if (debugTmem32UseLoadKindAwareXor()) {
 		if (_work.tmemLoadKind == static_cast<u8>(rvk2::TmemLoadKind::kTile))
@@ -2139,9 +2428,73 @@ inline u32 decodeAuthoritativeTMEM32Color(
 		else
 			rowXor = xor13ForT(_t);
 	}
-	return packSplit32ToRGBA(
-		readTmem32SplitPacked(_work, _s, _t, lineStride, rowXor),
-		highToLowRGBA);
+	if (_debug != nullptr)
+		_debug->tmemRowXor = rowXor;
+
+	if (debugTmem32UseDirectLinearFetch()) {
+		const u32 * tmem32 = reinterpret_cast<const u32 *>(activeTMEMWords());
+		const u16 i = static_cast<u16>((_t & 1U) << 1U);
+		const u16 tmemOffset = static_cast<u16>(
+			(_work.tileTmem + static_cast<u16>(_work.tileLine * _t)) & 0x1FFU);
+		const u32 taddr = ((static_cast<u32>(tmemOffset) << 1U)
+			+ (static_cast<u32>(_s) ^ static_cast<u32>(i)))
+			& 0x3FFU;
+		const u32 packed = tmem32[taddr];
+		if (_debug != nullptr) {
+			_debug->tmemFetchVariant = kDebugTexFetchVariantTMEM32Direct;
+			_debug->tmemOffset = tmemOffset;
+			_debug->tmemI = i;
+			_debug->tmemIndexA = taddr;
+			_debug->tmemPacked32 = packed;
+			_debug->tmemRawA = packed;
+		}
+		return packSplit32ToRGBA(packed, highToLowRGBA);
+	}
+
+	if (debugTmem32UseCanonicalFetch()) {
+		const u16 * tmem16 = reinterpret_cast<const u16 *>(activeTMEMWords());
+		const u32 tbase =
+			(static_cast<u32>(_work.tileLine) * static_cast<u32>(_t & 0x00FFU))
+			+ static_cast<u32>(_work.tileTmem & 0x1FFU);
+		const u32 taddr = (((tbase << 2U) + static_cast<u32>(_s)) ^ rowXor) & 0x3FFU;
+		const u16 gr = tmem16[taddr];
+		const u16 ab = tmem16[taddr | 0x400U];
+		const u32 packed = (static_cast<u32>(ab) << 16U) | static_cast<u32>(gr);
+		if (_debug != nullptr) {
+			_debug->tmemFetchVariant = kDebugTexFetchVariantTMEM32Canonical;
+			_debug->tmemIndexA = taddr;
+			_debug->tmemIndexB = taddr | 0x400U;
+			_debug->tmemRawA = static_cast<u32>(gr);
+			_debug->tmemRawB = static_cast<u32>(ab);
+			_debug->tmemPacked32 = packed;
+		}
+		return packSplit32ToRGBA(packed, highToLowRGBA);
+	}
+
+	// Default 32b TMEM path follows the legacy loader addressing:
+	// split GR/AB words, odd/even row XOR, and line32 stride derived from tile span.
+	const s32 lineStride = computeLegacySplit32LineStride(_work);
+	if (_debug != nullptr)
+		_debug->tmemLineStride = lineStride;
+	const u16 * tmem16 = reinterpret_cast<const u16 *>(activeTMEMWords());
+	const s32 tline =
+		(static_cast<s32>(_work.tileTmem & 0x1FFU) << 2)
+		+ lineStride * static_cast<s32>(_t);
+	const u32 taddr = (static_cast<u32>(tline + static_cast<s32>(_s)) ^ rowXor) & 0x3FFU;
+	const u16 grRaw = tmem16[taddr];
+	const u16 abRaw = tmem16[taddr | 0x400U];
+	const u16 gr = swapU16(grRaw);
+	const u16 ab = swapU16(abRaw);
+	const u32 packed = (static_cast<u32>(ab) << 16U) | static_cast<u32>(gr);
+	if (_debug != nullptr) {
+		_debug->tmemFetchVariant = kDebugTexFetchVariantTMEM32Split;
+		_debug->tmemIndexA = taddr;
+		_debug->tmemIndexB = taddr | 0x400U;
+		_debug->tmemRawA = static_cast<u32>(grRaw);
+		_debug->tmemRawB = static_cast<u32>(abRaw);
+		_debug->tmemPacked32 = packed;
+	}
+	return packSplit32ToRGBA(packed, highToLowRGBA);
 }
 
 inline u32 decodeTMEM32SplitVariantColor(
@@ -2315,7 +2668,8 @@ inline bool sampleCITextureFromTMEM(
 	s32 _t,
 	u32 & _outRgba,
 	bool & _outNeedsLUT,
-	u8 & _outRejectReason)
+	u8 & _outRejectReason,
+	DebugTextureSampleLogEntry * _debug = nullptr)
 {
 	_outRejectReason = 0U;
 	const u8 format = (_work.tileFormat & 0x7U) <= 4U
@@ -2332,11 +2686,35 @@ inline bool sampleCITextureFromTMEM(
 	const u16 tmemOffset = static_cast<u16>(
 		(_work.tileTmem + static_cast<u16>(_work.tileLine * t)) & tMemMask);
 	const u16 i = static_cast<u16>((t & 1U) << 1U);
+	if (_debug != nullptr) {
+		_debug->format = format;
+		_debug->size = size;
+		_debug->lutMode = lutMode;
+		_debug->tile = _work.tile;
+		_debug->tileLine = _work.tileLine;
+		_debug->tileTmem = _work.tileTmem;
+		_debug->tilePalette = _work.tilePalette;
+		_debug->textureImageWidth = _work.textureImageWidth;
+		_debug->tmemOffset = tmemOffset;
+		_debug->tmemS = s;
+		_debug->tmemT = t;
+		_debug->tmemI = i;
+		_debug->tmemLoadKind = _work.tmemLoadKind;
+	}
 
 	_outNeedsLUT = false;
 	switch (size) {
 		case 0U: { // 4b
-			const u8 packed = readTmem4BitPaletteColor(tmemOffset, s, i);
+			const u8 * tmem8 = reinterpret_cast<const u8 *>(activeTMEMWords());
+			const u32 byteIndex = ((static_cast<u32>(tmemOffset) << 3U)
+				+ (((static_cast<u32>(s) >> 1U) ^ (static_cast<u32>(i) << 1U))))
+				& 0xFFFU;
+			const u8 packed = tmem8[byteIndex];
+			if (_debug != nullptr) {
+				_debug->tmemFetchVariant = kDebugTexFetchVariantTMEM4;
+				_debug->tmemIndexA = byteIndex;
+				_debug->tmemRawA = static_cast<u32>(packed);
+			}
 			const bool lowNibble = (s & 1U) != 0U;
 			const bool selectLowNibble =
 				debugSwapTmem4Nibbles() ? !lowNibble : lowNibble;
@@ -2371,11 +2749,11 @@ inline bool sampleCITextureFromTMEM(
 		}
 	}
 
-	case 1U: { // 8b
-		u32 oddRowXor =
-			debugAltTmem8OddXor()
-				? static_cast<u32>(i)
-				: (static_cast<u32>(i) << 1U);
+		case 1U: { // 8b
+			u32 oddRowXor =
+				debugAltTmem8OddXor()
+					? static_cast<u32>(i)
+					: (static_cast<u32>(i) << 1U);
 		if (debugTmem8UseXor13())
 			oddRowXor = (t & 1U) != 0U ? 3U : 1U;
 		if (debugTmem8UseLoadKindAwareXor()) {
@@ -2383,14 +2761,23 @@ inline bool sampleCITextureFromTMEM(
 				oddRowXor = 0U;
 			else if (_work.tmemLoadKind == static_cast<u8>(rvk2::TmemLoadKind::kBlock))
 				oddRowXor = static_cast<u32>(i) << 1U;
-			else
-				oddRowXor = static_cast<u32>(i);
-		}
-		const u8 value8 = readTmem8BitColorWithXor(tmemOffset, s, oddRowXor);
-		switch (format) {
-		case 2U: { // CI8
-			u8 index = value8;
-			if (lutMode != 0U)
+				else
+					oddRowXor = static_cast<u32>(i);
+			}
+			const u8 * tmem8 = reinterpret_cast<const u8 *>(activeTMEMWords());
+			const u32 byteIndex =
+				((static_cast<u32>(tmemOffset) << 3U) + (static_cast<u32>(s) ^ oddRowXor)) & 0xFFFU;
+			const u8 value8 = tmem8[byteIndex];
+			if (_debug != nullptr) {
+				_debug->tmemFetchVariant = kDebugTexFetchVariantTMEM8;
+				_debug->tmemRowXor = oddRowXor;
+				_debug->tmemIndexA = byteIndex;
+				_debug->tmemRawA = static_cast<u32>(value8);
+			}
+			switch (format) {
+			case 2U: { // CI8
+				u8 index = value8;
+				if (lutMode != 0U)
 				_outNeedsLUT = true;
 			_outRgba = packRgba8(index, index, index, 255U);
 			return true;
@@ -2411,11 +2798,23 @@ inline bool sampleCITextureFromTMEM(
 		}
 	}
 
-	case 2U: { // 16b
-		const u16 value16 = readTmem16BitColor(tmemOffset, s, i);
-		switch (format) {
-		case 0U: { // RGBA16
-			const u8 r5 = static_cast<u8>((value16 >> 11U) & 0x1FU);
+		case 2U: { // 16b
+			const u16 * tmem16 = reinterpret_cast<const u16 *>(activeTMEMWords());
+			const u32 index16 =
+				((static_cast<u32>(tmemOffset) << 2U) + (static_cast<u32>(s) ^ static_cast<u32>(i))) & 0x7FFU;
+			const u16 raw16 = tmem16[index16];
+			u16 value16 = raw16;
+			if (debugSwapTmem16Samples())
+				value16 = static_cast<u16>((value16 << 8U) | (value16 >> 8U));
+			if (_debug != nullptr) {
+				_debug->tmemFetchVariant = kDebugTexFetchVariantTMEM16;
+				_debug->tmemIndexA = index16;
+				_debug->tmemRawA = static_cast<u32>(raw16);
+				_debug->tmemRawB = static_cast<u32>(value16);
+			}
+			switch (format) {
+			case 0U: { // RGBA16
+				const u8 r5 = static_cast<u8>((value16 >> 11U) & 0x1FU);
 			const u8 g5 = static_cast<u8>((value16 >> 6U) & 0x1FU);
 			const u8 b5 = static_cast<u8>((value16 >> 1U) & 0x1FU);
 			const u8 a = (value16 & 0x1U) != 0U ? 255U : 0U;
@@ -2441,15 +2840,15 @@ inline bool sampleCITextureFromTMEM(
 		}
 	}
 
-	case 3U: { // 32b
-		if (format != 0U) {
-			_outRejectReason = 1U;
-			return false;
+		case 3U: { // 32b
+			if (format != 0U) {
+				_outRejectReason = 1U;
+				return false;
+			}
+			_outRgba = decodeAuthoritativeTMEM32Color(_work, s, t, _debug);
+			recordTMEM32AlternateComparisons(_work, texelS, texelT, _outRgba);
+			return true;
 		}
-		_outRgba = decodeAuthoritativeTMEM32Color(_work, s, t);
-		recordTMEM32AlternateComparisons(_work, texelS, texelT, _outRgba);
-		return true;
-	}
 
 	default:
 		_outRejectReason = 2U;
@@ -2596,15 +2995,81 @@ inline u32 samplePseudoTexelColor(
 	if (gActiveExecutorSummary != nullptr)
 		++gActiveExecutorSummary->textureSampleCount;
 	const bool lutModeEnabled = decodeTextureLUTMode(_work) != 0U;
+	const bool captureSampleDetail =
+		debugOverwriteLogIncludeTexelDetail()
+		&& _sampleSlot < rvk2::kExecutorTextureSampleSlotBuckets;
+	DebugTextureSampleLogEntry * sampleDetail =
+		captureSampleDetail ? &gDebugTextureSampleLogSlots[_sampleSlot] : nullptr;
+	if (sampleDetail != nullptr) {
+		*sampleDetail = DebugTextureSampleLogEntry{};
+		sampleDetail->sampleSlot = _sampleSlot;
+		sampleDetail->requestedS = _s;
+		sampleDetail->requestedT = _t;
+		sampleDetail->requestedW = _w;
+		sampleDetail->pixelX = _x;
+		sampleDetail->pixelY = _y;
+		sampleDetail->includeW = _includeW ? 1U : 0U;
+		sampleDetail->lutMode = decodeTextureLUTMode(_work);
+		sampleDetail->format = effectiveTextureFormat(_work);
+		sampleDetail->size = effectiveTextureSize(_work);
+		sampleDetail->filterMode =
+			_work.phase == static_cast<u8>(rvk2::RenderPhase::kCopy)
+				? 0U
+				: static_cast<u8>(decodeTextureFilterMode(_work) & 0x3U);
+		sampleDetail->tile = _work.tile;
+		sampleDetail->tileLine = _work.tileLine;
+		sampleDetail->tileTmem = _work.tileTmem;
+		sampleDetail->tilePalette = _work.tilePalette;
+		sampleDetail->textureImageWidth = _work.textureImageWidth;
+		sampleDetail->tmemLoadKind = _work.tmemLoadKind;
+	}
+
+	const auto commitSampleDetail = [&](
+		u8 _sourceKind,
+		u32 _sampledColor,
+		u32 _finalColor,
+		bool _needsLUT,
+		u8 _tmemReject,
+		u8 _rdramReject) {
+		if (sampleDetail == nullptr)
+			return;
+		sampleDetail->valid = true;
+		sampleDetail->sourceKind = _sourceKind;
+		sampleDetail->sampledColor = _sampledColor;
+		sampleDetail->finalColor = _finalColor;
+		sampleDetail->needsLUT = _needsLUT ? 1U : 0U;
+		sampleDetail->tmemReject = _tmemReject;
+		sampleDetail->rdramReject = _rdramReject;
+		if (_sourceBits != nullptr)
+			sampleDetail->sourceBits = *_sourceBits;
+		else if (_sourceKind == kDebugTexSampleSourceReplacement)
+			sampleDetail->sourceBits = kTexelSourceReplacementBit;
+		else if (_sourceKind == kDebugTexSampleSourceTMEM)
+			sampleDetail->sourceBits = kTexelSourceTMEMBit;
+		else if (_sourceKind == kDebugTexSampleSourceRDRAM)
+			sampleDetail->sourceBits = kTexelSourceRdramBit;
+		else if (_sourceKind == kDebugTexSampleSourceSynthetic)
+			sampleDetail->sourceBits = kTexelSourceSyntheticBit;
+	};
+
 	if (const rvk2::TextureReplacementImage * replacement =
 			findTextureReplacementImage(_work, _s, _t, _w, _includeW)) {
 		if (_sourceBits != nullptr)
 			*_sourceBits |= kTexelSourceReplacementBit;
 		const u32 replacementColor =
 			rvk2::sampleTextureReplacementImage(*replacement, _s, _t);
-		if (!debugTextureBucketMaskAllowsSample(_work, lutModeEnabled))
-			return 0x000000FFU;
-		return replacementColor;
+		const u32 finalReplacementColor =
+			debugTextureBucketMaskAllowsSample(_work, lutModeEnabled)
+				? replacementColor
+				: 0x000000FFU;
+		commitSampleDetail(
+			kDebugTexSampleSourceReplacement,
+			replacementColor,
+			finalReplacementColor,
+			false,
+			0U,
+			0U);
+		return finalReplacementColor;
 	}
 
 	u64 seed = buildTextureSeedBase(_work);
@@ -2626,22 +3091,66 @@ inline u32 samplePseudoTexelColor(
 		&& effectiveTextureFormat(_work) == 2U
 		&& effectiveTextureSize(_work) == 1U;
 	const bool forceRdramPrimary = debugForceTextureRdramPrimary() || copyCI8RdramProbe;
+	const bool fallbackRdramIfTmemBlack =
+		debugTexelFallbackRdramIfTmemBlack() && !forceRdramPrimary;
 
-	const auto finalizeTextureSample = [&](u32 _color, bool _needsLUT, u32 _sourceBit) -> u32 {
+	const auto finalizeTextureSample = [&](u32 _rawColor, bool _needsLUT, u32 _sourceBit, u8 _sourceKind) -> u32 {
 		recordTextureSampleMode(_work, _needsLUT, _sampleSlot);
 		if (_sourceBits != nullptr)
 			*_sourceBits |= _sourceBit;
+		u32 color = _rawColor;
 		if (_needsLUT) {
 			if (gActiveExecutorSummary != nullptr)
 				++gActiveExecutorSummary->textureLUTSampleCount;
-			_color = applyTextureLUTModeColor(_work, seed, _color);
+			color = applyTextureLUTModeColor(_work, seed, color);
 		}
 		if (debugForceAllTexelAlphaOpaque())
-			_color = (_color & 0xFFFFFF00U) | 0x000000FFU;
-		_color = applyTextureDetailModeColor(_work, seed, _color);
+			color = (color & 0xFFFFFF00U) | 0x000000FFU;
+		color = applyTextureDetailModeColor(_work, seed, color);
 		if (!debugTextureBucketMaskAllowsSample(_work, _needsLUT))
-			return 0x000000FFU;
-		return _color;
+			color = 0x000000FFU;
+		commitSampleDetail(_sourceKind, _rawColor, color, _needsLUT, tmemReject, rdramReject);
+		return color;
+	};
+
+	const auto captureRdramProbeForTMEM = [&]() {
+		if (sampleDetail == nullptr)
+			return;
+		u32 probeColor = 0U;
+		bool probeNeedsLUT = false;
+		u8 probeReject = 0U;
+		DebugTextureSampleLogEntry probeDetail{};
+		if (!sampleTextureFromRDRAM(
+				_work,
+				_s,
+				_t,
+				probeColor,
+				probeNeedsLUT,
+				probeReject,
+				&probeDetail)) {
+			sampleDetail->rdramProbeValid = 0U;
+			sampleDetail->rdramProbeNeedsLUT = 0U;
+			sampleDetail->rdramProbeReject = probeReject;
+			sampleDetail->rdramProbeSampledColor = 0U;
+			sampleDetail->rdramProbeFinalColor = 0U;
+			sampleDetail->rdramProbeWordAddress = probeDetail.rdramWordAddress;
+			sampleDetail->rdramProbeRaw = probeDetail.rdramRaw;
+			return;
+		}
+
+		u32 probeFinal = probeColor;
+		if (probeNeedsLUT)
+			probeFinal = applyTextureLUTModeColor(_work, seed, probeFinal);
+		if (debugForceAllTexelAlphaOpaque())
+			probeFinal = (probeFinal & 0xFFFFFF00U) | 0x000000FFU;
+		probeFinal = applyTextureDetailModeColor(_work, seed, probeFinal);
+		sampleDetail->rdramProbeValid = 1U;
+		sampleDetail->rdramProbeNeedsLUT = probeNeedsLUT ? 1U : 0U;
+		sampleDetail->rdramProbeReject = 0U;
+		sampleDetail->rdramProbeSampledColor = probeColor;
+		sampleDetail->rdramProbeFinalColor = probeFinal;
+		sampleDetail->rdramProbeWordAddress = probeDetail.rdramWordAddress;
+		sampleDetail->rdramProbeRaw = probeDetail.rdramRaw;
 	};
 
 	const auto tryTMEMSample = [&]() -> bool {
@@ -2655,8 +3164,11 @@ inline u32 samplePseudoTexelColor(
 				_t,
 				sampledColor,
 				localNeedsLUT,
-				localReject)) {
+				localReject,
+				sampleDetail)) {
 			tmemReject = localReject;
+			if (sampleDetail != nullptr)
+				sampleDetail->tmemReject = tmemReject;
 			if (gActiveExecutorSummary != nullptr) {
 				if (tmemReject == 1U)
 					++gActiveExecutorSummary->textureTmemRejectFormatCount;
@@ -2670,9 +3182,14 @@ inline u32 samplePseudoTexelColor(
 		needsLUT = localNeedsLUT;
 		if (gActiveExecutorSummary != nullptr)
 			++gActiveExecutorSummary->textureTmemSampleCount;
-		sampledColor = finalizeTextureSample(sampledColor, needsLUT, kTexelSourceTMEMBit);
-		return true;
-	};
+			sampledColor = finalizeTextureSample(
+				sampledColor,
+				needsLUT,
+				kTexelSourceTMEMBit,
+				kDebugTexSampleSourceTMEM);
+			captureRdramProbeForTMEM();
+			return true;
+		};
 
 	const auto tryRdramSample = [&]() -> bool {
 		bool localNeedsLUT = false;
@@ -2683,15 +3200,22 @@ inline u32 samplePseudoTexelColor(
 				_t,
 				sampledColor,
 				localNeedsLUT,
-				localReject)) {
+				localReject,
+				sampleDetail)) {
 			rdramReject = localReject;
+			if (sampleDetail != nullptr)
+				sampleDetail->rdramReject = rdramReject;
 			return false;
 		}
 		(void)rdramReject;
 		needsLUT = localNeedsLUT;
 		if (gActiveExecutorSummary != nullptr)
 			++gActiveExecutorSummary->textureRdramSampleCount;
-		sampledColor = finalizeTextureSample(sampledColor, needsLUT, kTexelSourceRdramBit);
+		sampledColor = finalizeTextureSample(
+			sampledColor,
+			needsLUT,
+			kTexelSourceRdramBit,
+			kDebugTexSampleSourceRDRAM);
 		return true;
 	};
 
@@ -2702,8 +3226,22 @@ inline u32 samplePseudoTexelColor(
 			return sampledColor;
 	}
 	else {
-		if (tryTMEMSample())
+		if (tryTMEMSample()) {
+			DebugTextureSampleLogEntry tmemDetailSnapshot{};
+			if (sampleDetail != nullptr)
+				tmemDetailSnapshot = *sampleDetail;
+			if (fallbackRdramIfTmemBlack && !pixelHasVisibleColor(sampledColor)) {
+				const u32 tmemSampledColor = sampledColor;
+				if (tryRdramSample()) {
+					if (pixelHasVisibleColor(sampledColor))
+						return sampledColor;
+					sampledColor = tmemSampledColor;
+					if (sampleDetail != nullptr)
+						*sampleDetail = tmemDetailSnapshot;
+				}
+			}
 			return sampledColor;
+		}
 		if (tryRdramSample())
 			return sampledColor;
 	}
@@ -2744,6 +3282,7 @@ inline u32 samplePseudoTexelColor(
 		| (static_cast<u32>(g) << 16)
 		| (static_cast<u32>(b) << 8)
 		| static_cast<u32>(a);
+	const u32 syntheticRawColor = rgba;
 	recordTextureSampleMode(_work, lutModeEnabled, _sampleSlot);
 	if (lutModeEnabled) {
 		if (gActiveExecutorSummary != nullptr)
@@ -2754,7 +3293,14 @@ inline u32 samplePseudoTexelColor(
 		rgba = (rgba & 0xFFFFFF00U) | 0x000000FFU;
 	rgba = applyTextureDetailModeColor(_work, seed, rgba);
 	if (!debugTextureBucketMaskAllowsSample(_work, lutModeEnabled))
-		return 0x000000FFU;
+		rgba = 0x000000FFU;
+	commitSampleDetail(
+		kDebugTexSampleSourceSynthetic,
+		syntheticRawColor,
+		rgba,
+		lutModeEnabled,
+		tmemReject,
+		rdramReject);
 	return rgba;
 }
 
@@ -4749,6 +5295,7 @@ void writeRect(
 		bool hasPrevCycle1CombinedColor = false;
 		u32 prevCycle1CombinedColor = 0U;
 		for (u32 x = bounds.x0; x <= bounds.x1; ++x) {
+			resetDebugTextureSampleLogSlots();
 			const size_t colorIdx = pixelIndex(_surface.width, static_cast<u16>(x), static_cast<u16>(y));
 			const u32 dstColor = _surface.pixels[colorIdx];
 			const u8 dstCoverage = !_surface.coverage.empty()
@@ -4845,6 +5392,10 @@ void writeRect(
 			hasPrevPixelForCycle2 = true;
 			prevCycle1CombinedColor = cycle1CombinedColor;
 			hasPrevCycle1CombinedColor = true;
+			const bool captureTexelDetail = debugOverwriteLogIncludeTexelDetail();
+			std::array<DebugTextureSampleLogEntry, rvk2::kExecutorTextureSampleSlotBuckets> preAlphaCompareTexelDetail{};
+			if (captureTexelDetail)
+				preAlphaCompareTexelDetail = gDebugTextureSampleLogSlots;
 			u32 alphaCompareColor = finalColor;
 			if (cycle2Work
 				&& (_work.alphaCompare & 0x1U) != 0U
@@ -4884,6 +5435,8 @@ void writeRect(
 					false,
 					nullptr);
 			}
+			if (captureTexelDetail)
+				gDebugTextureSampleLogSlots = preAlphaCompareTexelDetail;
 			if (!passesSyntheticAlphaCompare(_work, alphaCompareColor, x, y, &_summary))
 				continue;
 			u8 resolvedCoverage = coverageDestination;
@@ -4968,6 +5521,8 @@ void writeRect(
 			const bool logBlackWrite =
 				overwriteToBlack
 				|| (finalBlackWrite && debugOverwriteLogIncludeBlackWrites());
+			const bool logAnyWrite = debugOverwriteLogIncludeAllWrites();
+			const bool logWrite = logBlackWrite || logAnyWrite;
 			const bool preserveTexRectNonBlack =
 				overwriteToBlack
 				&& _work.opKind == static_cast<u8>(rvk2::RasterOpKind::kTexRect)
@@ -4979,7 +5534,7 @@ void writeRect(
 			}
 			if (preserveTexRectNonBlack)
 				encodedWriteColor = previousEncodedColor;
-			if (logBlackWrite) {
+			if (logWrite) {
 				appendOverwriteLog(
 					_summary.executedWorkCount,
 					_work.sourcePacketId,
@@ -4997,7 +5552,7 @@ void writeRect(
 					overwriteToBlack,
 					preserveTexRectNonBlack,
 					_work);
-			}
+				}
 			_surface.pixels[colorIdx] = encodedWriteColor;
 			if (!_surface.writeMask.empty())
 				_surface.writeMask[colorIdx] = 1U;
@@ -5096,6 +5651,7 @@ void writeTriangle(
 			const s64 xSubpixelSample = (static_cast<s64>(x) << 16U) + 0x8000LL;
 			if (xSubpixelSample < xLeft || xSubpixelSample > xRight)
 				continue;
+			resetDebugTextureSampleLogSlots();
 			++_summary.triangleSampleCandidateCount;
 
 			const size_t colorIdx = pixelIndex(_surface.width, static_cast<u16>(x), static_cast<u16>(y));
@@ -5180,6 +5736,10 @@ void writeTriangle(
 			hasPrevPixelForCycle2 = true;
 			prevCycle1CombinedColor = cycle1CombinedColor;
 			hasPrevCycle1CombinedColor = true;
+			const bool captureTexelDetail = debugOverwriteLogIncludeTexelDetail();
+			std::array<DebugTextureSampleLogEntry, rvk2::kExecutorTextureSampleSlotBuckets> preAlphaCompareTexelDetail{};
+			if (captureTexelDetail)
+				preAlphaCompareTexelDetail = gDebugTextureSampleLogSlots;
 			u32 alphaCompareColor = finalColor;
 			if (cycle2Work
 				&& (_work.alphaCompare & 0x1U) != 0U
@@ -5219,6 +5779,8 @@ void writeTriangle(
 					false,
 					nullptr);
 			}
+			if (captureTexelDetail)
+				gDebugTextureSampleLogSlots = preAlphaCompareTexelDetail;
 			if (!passesSyntheticAlphaCompare(_work, alphaCompareColor, x, y, &_summary)) {
 				++_summary.triangleAlphaRejectCount;
 				continue;
@@ -5317,49 +5879,51 @@ void writeTriangle(
 				combinerColor,
 				blenderColor,
 				finalColor);
-				const u64 writeLuma = static_cast<u64>(lumaFromRGBA(writeColor));
-				u32 encodedWriteColor = encodeSurfaceColor(writeColor, _work.colorImageSize);
-				const u32 previousEncodedColor = _surface.pixels[colorIdx];
-				const bool overwriteToBlack =
-					pixelHasVisibleColor(previousEncodedColor)
-					&& !pixelHasVisibleColor(encodedWriteColor);
-				const bool finalBlackWrite = !pixelHasVisibleColor(encodedWriteColor);
-				const bool logBlackWrite =
-					overwriteToBlack
-					|| (finalBlackWrite && debugOverwriteLogIncludeBlackWrites());
-				const bool preserveNonBlackOverwrite =
-					overwriteToBlack && debugPreserveTriangleNonBlackOverwrites();
-				if (overwriteToBlack) {
-					++_summary.writeOverwriteToBlackCount;
-					++_summary.writeTriangleOverwriteToBlackCount;
-				}
-				if (preserveNonBlackOverwrite) {
-					encodedWriteColor = previousEncodedColor;
-					++_summary.writeTrianglePreserveNonBlackCount;
-				}
-				if (logBlackWrite) {
-					appendOverwriteLog(
-						_summary.executedWorkCount,
-						_work.sourcePacketId,
-						_work.opKind,
-						_work.colorImageAddress,
-						x,
-						y,
-						previousEncodedColor,
-						encodedWriteColor,
-						textureColor,
-						combinerColor,
-						blenderColor,
-						finalColor,
-						textureSourceBits,
-						overwriteToBlack,
-						preserveNonBlackOverwrite,
-						_work);
-				}
-				_surface.pixels[colorIdx] = encodedWriteColor;
-				if (!_surface.writeMask.empty())
-					_surface.writeMask[colorIdx] = 1U;
-				if (!preserveNonBlackOverwrite && !_surface.coverage.empty())
+			const u64 writeLuma = static_cast<u64>(lumaFromRGBA(writeColor));
+			u32 encodedWriteColor = encodeSurfaceColor(writeColor, _work.colorImageSize);
+			const u32 previousEncodedColor = _surface.pixels[colorIdx];
+			const bool overwriteToBlack =
+				pixelHasVisibleColor(previousEncodedColor)
+				&& !pixelHasVisibleColor(encodedWriteColor);
+			const bool finalBlackWrite = !pixelHasVisibleColor(encodedWriteColor);
+			const bool logBlackWrite =
+				overwriteToBlack
+				|| (finalBlackWrite && debugOverwriteLogIncludeBlackWrites());
+			const bool logAnyWrite = debugOverwriteLogIncludeAllWrites();
+			const bool logWrite = logBlackWrite || logAnyWrite;
+			const bool preserveNonBlackOverwrite =
+				overwriteToBlack && debugPreserveTriangleNonBlackOverwrites();
+			if (overwriteToBlack) {
+				++_summary.writeOverwriteToBlackCount;
+				++_summary.writeTriangleOverwriteToBlackCount;
+			}
+			if (preserveNonBlackOverwrite) {
+				encodedWriteColor = previousEncodedColor;
+				++_summary.writeTrianglePreserveNonBlackCount;
+			}
+			if (logWrite) {
+				appendOverwriteLog(
+					_summary.executedWorkCount,
+					_work.sourcePacketId,
+					_work.opKind,
+					_work.colorImageAddress,
+					x,
+					y,
+					previousEncodedColor,
+					encodedWriteColor,
+					textureColor,
+					combinerColor,
+					blenderColor,
+					finalColor,
+					textureSourceBits,
+					overwriteToBlack,
+					preserveNonBlackOverwrite,
+					_work);
+			}
+			_surface.pixels[colorIdx] = encodedWriteColor;
+			if (!_surface.writeMask.empty())
+				_surface.writeMask[colorIdx] = 1U;
+			if (!preserveNonBlackOverwrite && !_surface.coverage.empty())
 					_surface.coverage[colorIdx] = static_cast<u8>(resolvedCoverage & 0x7U);
 				if (!preserveNonBlackOverwrite && !_surface.hiddenCoverage.empty())
 					_surface.hiddenCoverage[colorIdx] = resolvedHiddenCoverage ? 1U : 0U;

@@ -428,6 +428,10 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
             "overwrite_stage_kill_counts": {},
             "black_write_stage_black": {},
             "black_write_stage_kill_counts": {},
+            "texel_detail": {"available": False, "slot_summaries": {}},
+            "source_packet_stage_profiles": [],
+            "source_packet_stage_profile_count": 0,
+            "source_packet_stage_profile_truncated_count": 0,
         }
 
     records: List[Dict[str, Any]] = []
@@ -441,6 +445,7 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
     black_write_source_packet_counts: Dict[int, int] = {}
     overwrite_combiner_kill_source_packet_counts: Dict[int, int] = {}
     black_write_combiner_kill_source_packet_counts: Dict[int, int] = {}
+    source_packet_stage_stats: Dict[int, Dict[str, Any]] = {}
     overwrite_state_counts: Dict[str, int] = {}
     overwrite_state_rows: Dict[str, Dict[str, Any]] = {}
     black_write_state_counts: Dict[str, int] = {}
@@ -461,6 +466,76 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
     black_write_kill_at_combiner_count = 0
     black_write_kill_at_blender_count = 0
     black_write_kill_after_blender_count = 0
+    texel_slot_names = ("tex0", "tex1", "tex0_next")
+    texel_source_names = {
+        0: "none",
+        1: "replacement",
+        2: "tmem",
+        3: "rdram",
+        4: "synthetic",
+    }
+    texel_fetch_variant_names = {
+        0: "none",
+        1: "tmem4",
+        2: "tmem8",
+        3: "tmem16",
+        4: "tmem32_split",
+        5: "tmem32_direct",
+        6: "tmem32_canonical",
+        7: "rdram4",
+        8: "rdram8",
+        9: "rdram16",
+        10: "rdram32",
+    }
+
+    def _bucket_bump(counter: Dict[str, int], key: str) -> None:
+        counter[key] = counter.get(key, 0) + 1
+
+    def _source_label(value: int) -> str:
+        return texel_source_names.get(value, f"source_{value}")
+
+    def _fetch_label(value: int) -> str:
+        return texel_fetch_variant_names.get(value, f"variant_{value}")
+
+    texel_slot_summary_counts: Dict[str, Dict[str, Any]] = {
+        slot: {
+            "valid_record_count": 0,
+            "source_kind_counts": {},
+            "tmem_fetch_variant_counts": {},
+            "tmem_reject_counts": {},
+            "rdram_reject_counts": {},
+            "source_bits_counts": {},
+            "sampled_black_count": 0,
+            "final_black_count": 0,
+            "tmem_raw_zero_count": 0,
+            "rdram_probe_valid_count": 0,
+            "rdram_probe_non_black_count": 0,
+            "rdram_probe_beats_tmem_count": 0,
+            "rdram_probe_reject_counts": {},
+        }
+        for slot in texel_slot_names
+    }
+    texel_slot_tmem_index_counts: Dict[str, Dict[str, int]] = {slot: {} for slot in texel_slot_names}
+
+    def _packet_stage_row(packet_id: int) -> Dict[str, Any]:
+        row = source_packet_stage_stats.get(packet_id)
+        if row is None:
+            row = {
+                "source_packet_id": int(packet_id),
+                "record_count": 0,
+                "overwrite_count": 0,
+                "final_black_count": 0,
+                "texel_black_count": 0,
+                "combiner_black_count": 0,
+                "blender_black_count": 0,
+                "kill_at_combiner_count": 0,
+                "kill_at_blender_count": 0,
+                "kill_after_blender_count": 0,
+                "op_counts": {},
+                "phase_counts": {},
+            }
+            source_packet_stage_stats[packet_id] = row
+        return row
 
     for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         stripped = line.strip()
@@ -555,6 +630,33 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
         if not blender_black and final_black:
             black_write_kill_after_blender_count += 1
 
+        if source_packet_id > 0:
+            packet_stage = _packet_stage_row(source_packet_id)
+            packet_stage["record_count"] = int(packet_stage.get("record_count", 0) or 0) + 1
+            if overwrite_to_black:
+                packet_stage["overwrite_count"] = int(packet_stage.get("overwrite_count", 0) or 0) + 1
+            if final_black:
+                packet_stage["final_black_count"] = int(packet_stage.get("final_black_count", 0) or 0) + 1
+            if texel_black:
+                packet_stage["texel_black_count"] = int(packet_stage.get("texel_black_count", 0) or 0) + 1
+            if combiner_black:
+                packet_stage["combiner_black_count"] = int(packet_stage.get("combiner_black_count", 0) or 0) + 1
+            if blender_black:
+                packet_stage["blender_black_count"] = int(packet_stage.get("blender_black_count", 0) or 0) + 1
+            if not texel_black and combiner_black:
+                packet_stage["kill_at_combiner_count"] = int(packet_stage.get("kill_at_combiner_count", 0) or 0) + 1
+            if not combiner_black and blender_black:
+                packet_stage["kill_at_blender_count"] = int(packet_stage.get("kill_at_blender_count", 0) or 0) + 1
+            if not blender_black and final_black:
+                packet_stage["kill_after_blender_count"] = int(packet_stage.get("kill_after_blender_count", 0) or 0) + 1
+            phase = _u64(record, "phase")
+            op_counts = packet_stage.get("op_counts")
+            if isinstance(op_counts, dict):
+                _bucket_bump(op_counts, op_name)
+            phase_counts = packet_stage.get("phase_counts")
+            if isinstance(phase_counts, dict):
+                _bucket_bump(phase_counts, str(int(phase)))
+
         if overwrite_to_black:
             if texel_black:
                 overwrite_texel_black_count += 1
@@ -613,6 +715,65 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
                     "tile_line": tile_line,
                     "texture_image_width": texture_width,
                 }
+
+        for slot in texel_slot_names:
+            if _u64(record, f"{slot}_valid") == 0:
+                continue
+            slot_summary = texel_slot_summary_counts[slot]
+            slot_summary["valid_record_count"] = int(slot_summary["valid_record_count"]) + 1
+            source_kind = int(_u64(record, f"{slot}_source_kind"))
+            source_label = _source_label(source_kind)
+            source_kind_counts = slot_summary["source_kind_counts"]
+            if isinstance(source_kind_counts, dict):
+                _bucket_bump(source_kind_counts, source_label)
+            fetch_variant = int(_u64(record, f"{slot}_tmem_fetch_variant"))
+            fetch_label = _fetch_label(fetch_variant)
+            fetch_variant_counts = slot_summary["tmem_fetch_variant_counts"]
+            if isinstance(fetch_variant_counts, dict):
+                _bucket_bump(fetch_variant_counts, fetch_label)
+            tmem_reject = int(_u64(record, f"{slot}_tmem_reject"))
+            tmem_reject_counts = slot_summary["tmem_reject_counts"]
+            if isinstance(tmem_reject_counts, dict):
+                _bucket_bump(tmem_reject_counts, str(tmem_reject))
+            rdram_reject = int(_u64(record, f"{slot}_rdram_reject"))
+            rdram_reject_counts = slot_summary["rdram_reject_counts"]
+            if isinstance(rdram_reject_counts, dict):
+                _bucket_bump(rdram_reject_counts, str(rdram_reject))
+            source_bits_key = f"0x{_u64(record, f'{slot}_source_bits'):08X}"
+            source_bits_counts = slot_summary["source_bits_counts"]
+            if isinstance(source_bits_counts, dict):
+                _bucket_bump(source_bits_counts, source_bits_key)
+
+            sampled_color = int(_u64(record, f"{slot}_sampled_color"))
+            final_slot_color = int(_u64(record, f"{slot}_final_color"))
+            sampled_black = (sampled_color & 0x00FFFFFF) == 0
+            if (sampled_color & 0x00FFFFFF) == 0:
+                slot_summary["sampled_black_count"] = int(slot_summary["sampled_black_count"]) + 1
+            if (final_slot_color & 0x00FFFFFF) == 0:
+                slot_summary["final_black_count"] = int(slot_summary["final_black_count"]) + 1
+
+            rdram_probe_reject = int(_u64(record, f"{slot}_rdram_probe_reject"))
+            probe_reject_counts = slot_summary.get("rdram_probe_reject_counts")
+            if isinstance(probe_reject_counts, dict):
+                _bucket_bump(probe_reject_counts, str(rdram_probe_reject))
+            if int(_u64(record, f"{slot}_rdram_probe_valid")) != 0:
+                slot_summary["rdram_probe_valid_count"] = int(slot_summary.get("rdram_probe_valid_count", 0) or 0) + 1
+                probe_final_color = int(_u64(record, f"{slot}_rdram_probe_final_color"))
+                probe_non_black = (probe_final_color & 0x00FFFFFF) != 0
+                if probe_non_black:
+                    slot_summary["rdram_probe_non_black_count"] = int(slot_summary.get("rdram_probe_non_black_count", 0) or 0) + 1
+                if sampled_black and probe_non_black:
+                    slot_summary["rdram_probe_beats_tmem_count"] = int(slot_summary.get("rdram_probe_beats_tmem_count", 0) or 0) + 1
+
+            if source_kind == 2:
+                raw_a = int(_u64(record, f"{slot}_tmem_raw_a"))
+                raw_b = int(_u64(record, f"{slot}_tmem_raw_b"))
+                if raw_a == 0 and raw_b == 0:
+                    slot_summary["tmem_raw_zero_count"] = int(slot_summary["tmem_raw_zero_count"]) + 1
+                idx_a = int(_u64(record, f"{slot}_tmem_index_a"))
+                idx_b = int(_u64(record, f"{slot}_tmem_index_b"))
+                idx_key = f"{idx_a:04X}|{idx_b:04X}"
+                _bucket_bump(texel_slot_tmem_index_counts[slot], idx_key)
 
     record_count = len(records)
     non_overwrite_black_write_count = max(0, record_count - overwrite_record_count)
@@ -701,6 +862,148 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
         black_write_state_counts,
         black_write_state_rows,
         record_count,
+    )
+    texel_slot_summaries: Dict[str, Any] = {}
+    texel_detail_available = False
+    for slot in texel_slot_names:
+        slot_summary = texel_slot_summary_counts.get(slot, {})
+        valid_count = int(slot_summary.get("valid_record_count", 0) or 0)
+        source_kind_counts = slot_summary.get("source_kind_counts", {})
+        tmem_fetch_variant_counts = slot_summary.get("tmem_fetch_variant_counts", {})
+        tmem_reject_counts = slot_summary.get("tmem_reject_counts", {})
+        rdram_reject_counts = slot_summary.get("rdram_reject_counts", {})
+        source_bits_counts = slot_summary.get("source_bits_counts", {})
+        sampled_black_count = int(slot_summary.get("sampled_black_count", 0) or 0)
+        final_black_count = int(slot_summary.get("final_black_count", 0) or 0)
+        tmem_raw_zero_count = int(slot_summary.get("tmem_raw_zero_count", 0) or 0)
+        rdram_probe_valid_count = int(slot_summary.get("rdram_probe_valid_count", 0) or 0)
+        rdram_probe_non_black_count = int(slot_summary.get("rdram_probe_non_black_count", 0) or 0)
+        rdram_probe_beats_tmem_count = int(slot_summary.get("rdram_probe_beats_tmem_count", 0) or 0)
+        rdram_probe_reject_counts = slot_summary.get("rdram_probe_reject_counts", {})
+        tmem_index_counts = texel_slot_tmem_index_counts.get(slot, {})
+        top_tmem_indices: List[Dict[str, Any]] = []
+        if isinstance(tmem_index_counts, dict):
+            ordered_indices = sorted(tmem_index_counts.items(), key=lambda item: item[1], reverse=True)
+            for index_key, count in ordered_indices[:8]:
+                parts = index_key.split("|", 1)
+                idx_a = int(parts[0], 16) if len(parts) >= 1 and parts[0] else 0
+                idx_b = int(parts[1], 16) if len(parts) >= 2 and parts[1] else 0
+                top_tmem_indices.append(
+                    {
+                        "tmem_index_a": idx_a,
+                        "tmem_index_b": idx_b,
+                        "tmem_index_a_hex": f"0x{idx_a:04X}",
+                        "tmem_index_b_hex": f"0x{idx_b:04X}",
+                        "count": int(count),
+                        "ratio": _ratio(int(count), valid_count),
+                    }
+                )
+        if valid_count > 0:
+            texel_detail_available = True
+        texel_slot_summaries[slot] = {
+            "valid_record_count": valid_count,
+            "valid_ratio_of_black_writes": _ratio(valid_count, record_count),
+            "source_kind_counts": (
+                dict(sorted(source_kind_counts.items()))
+                if isinstance(source_kind_counts, dict)
+                else {}
+            ),
+            "tmem_fetch_variant_counts": (
+                dict(sorted(tmem_fetch_variant_counts.items()))
+                if isinstance(tmem_fetch_variant_counts, dict)
+                else {}
+            ),
+            "tmem_reject_counts": (
+                dict(sorted(tmem_reject_counts.items()))
+                if isinstance(tmem_reject_counts, dict)
+                else {}
+            ),
+            "rdram_reject_counts": (
+                dict(sorted(rdram_reject_counts.items()))
+                if isinstance(rdram_reject_counts, dict)
+                else {}
+            ),
+            "source_bits_counts": (
+                dict(sorted(source_bits_counts.items()))
+                if isinstance(source_bits_counts, dict)
+                else {}
+            ),
+            "sampled_black_count": sampled_black_count,
+            "sampled_black_ratio": _ratio(sampled_black_count, valid_count),
+            "final_black_count": final_black_count,
+            "final_black_ratio": _ratio(final_black_count, valid_count),
+            "tmem_raw_zero_count": tmem_raw_zero_count,
+            "tmem_raw_zero_ratio": _ratio(tmem_raw_zero_count, valid_count),
+            "rdram_probe_valid_count": rdram_probe_valid_count,
+            "rdram_probe_valid_ratio": _ratio(rdram_probe_valid_count, valid_count),
+            "rdram_probe_non_black_count": rdram_probe_non_black_count,
+            "rdram_probe_non_black_ratio": _ratio(rdram_probe_non_black_count, rdram_probe_valid_count),
+            "rdram_probe_beats_tmem_count": rdram_probe_beats_tmem_count,
+            "rdram_probe_beats_tmem_ratio": _ratio(rdram_probe_beats_tmem_count, rdram_probe_valid_count),
+            "rdram_probe_reject_counts": (
+                dict(sorted(rdram_probe_reject_counts.items()))
+                if isinstance(rdram_probe_reject_counts, dict)
+                else {}
+            ),
+            "top_tmem_indices": top_tmem_indices,
+        }
+
+    max_packet_stage_profiles = 256
+    source_packet_stage_profiles: List[Dict[str, Any]] = []
+    ordered_packet_stage_rows = sorted(
+        source_packet_stage_stats.values(),
+        key=lambda row: (
+            -int(row.get("overwrite_count", 0) or 0),
+            -int(row.get("record_count", 0) or 0),
+            int(row.get("source_packet_id", 0) or 0),
+        ),
+    )
+    for row in ordered_packet_stage_rows[:max_packet_stage_profiles]:
+        record_count_for_packet = int(row.get("record_count", 0) or 0)
+        overwrite_count_for_packet = int(row.get("overwrite_count", 0) or 0)
+        final_black_count_for_packet = int(row.get("final_black_count", 0) or 0)
+        texel_black_count_for_packet = int(row.get("texel_black_count", 0) or 0)
+        combiner_black_count_for_packet = int(row.get("combiner_black_count", 0) or 0)
+        blender_black_count_for_packet = int(row.get("blender_black_count", 0) or 0)
+        kill_at_combiner_count_for_packet = int(row.get("kill_at_combiner_count", 0) or 0)
+        kill_at_blender_count_for_packet = int(row.get("kill_at_blender_count", 0) or 0)
+        kill_after_blender_count_for_packet = int(row.get("kill_after_blender_count", 0) or 0)
+        source_packet_stage_profiles.append(
+            {
+                "source_packet_id": int(row.get("source_packet_id", 0) or 0),
+                "record_count": record_count_for_packet,
+                "overwrite_count": overwrite_count_for_packet,
+                "overwrite_ratio_of_packet_records": _ratio(overwrite_count_for_packet, record_count_for_packet),
+                "overwrite_ratio_of_all_overwrites": _ratio(overwrite_count_for_packet, overwrite_record_count),
+                "final_black_count": final_black_count_for_packet,
+                "final_black_ratio": _ratio(final_black_count_for_packet, record_count_for_packet),
+                "texel_black_count": texel_black_count_for_packet,
+                "texel_black_ratio": _ratio(texel_black_count_for_packet, record_count_for_packet),
+                "combiner_black_count": combiner_black_count_for_packet,
+                "combiner_black_ratio": _ratio(combiner_black_count_for_packet, record_count_for_packet),
+                "blender_black_count": blender_black_count_for_packet,
+                "blender_black_ratio": _ratio(blender_black_count_for_packet, record_count_for_packet),
+                "kill_at_combiner_count": kill_at_combiner_count_for_packet,
+                "kill_at_combiner_ratio": _ratio(kill_at_combiner_count_for_packet, record_count_for_packet),
+                "kill_at_blender_count": kill_at_blender_count_for_packet,
+                "kill_at_blender_ratio": _ratio(kill_at_blender_count_for_packet, record_count_for_packet),
+                "kill_after_blender_count": kill_after_blender_count_for_packet,
+                "kill_after_blender_ratio": _ratio(kill_after_blender_count_for_packet, record_count_for_packet),
+                "op_counts": (
+                    dict(sorted((row.get("op_counts", {}) or {}).items()))
+                    if isinstance(row.get("op_counts"), dict)
+                    else {}
+                ),
+                "phase_counts": (
+                    dict(sorted((row.get("phase_counts", {}) or {}).items()))
+                    if isinstance(row.get("phase_counts"), dict)
+                    else {}
+                ),
+            }
+        )
+    source_packet_stage_profile_truncated_count = max(
+        0,
+        len(ordered_packet_stage_rows) - len(source_packet_stage_profiles),
     )
 
     return {
@@ -791,6 +1094,13 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
             "kill_at_blender_ratio": _ratio(black_write_kill_at_blender_count, record_count),
             "kill_after_blender_ratio": _ratio(black_write_kill_after_blender_count, record_count),
         },
+        "texel_detail": {
+            "available": texel_detail_available,
+            "slot_summaries": texel_slot_summaries,
+        },
+        "source_packet_stage_profiles": source_packet_stage_profiles,
+        "source_packet_stage_profile_count": len(ordered_packet_stage_rows),
+        "source_packet_stage_profile_truncated_count": source_packet_stage_profile_truncated_count,
     }
 
 
@@ -1228,6 +1538,8 @@ def _build_signals(
         }
 
     overwrite_signal: Dict[str, Any] = {}
+    overwrite_source_packet_stage_profiles: List[Dict[str, Any]] = []
+    overwrite_source_packet_stage_by_id: Dict[int, Dict[str, Any]] = {}
     if isinstance(overwrite_summary, dict):
         black_write_record_count = int(
             overwrite_summary.get("black_write_record_count", overwrite_summary.get("record_count", 0)) or 0
@@ -1258,6 +1570,16 @@ def _build_signals(
         overwrite_stage_kill_counts = overwrite_summary.get("stage_kill_counts", {})
         black_write_stage_black = overwrite_summary.get("black_write_stage_black", {})
         black_write_stage_kill_counts = overwrite_summary.get("black_write_stage_kill_counts", {})
+        overwrite_texel_detail = overwrite_summary.get("texel_detail", {})
+        raw_source_packet_stage_profiles = overwrite_summary.get("source_packet_stage_profiles", [])
+        if isinstance(raw_source_packet_stage_profiles, list):
+            overwrite_source_packet_stage_profiles = [
+                row for row in raw_source_packet_stage_profiles if isinstance(row, dict)
+            ]
+            for row in overwrite_source_packet_stage_profiles:
+                source_packet_id = int(row.get("source_packet_id", 0) or 0)
+                if source_packet_id > 0:
+                    overwrite_source_packet_stage_by_id[source_packet_id] = row
         overwrite_signal = {
             "record_count": overwrite_record_count,
             "black_write_record_count": black_write_record_count,
@@ -1294,6 +1616,14 @@ def _build_signals(
             ),
             "black_write_stage_kill_counts": (
                 black_write_stage_kill_counts if isinstance(black_write_stage_kill_counts, dict) else {}
+            ),
+            "texel_detail": overwrite_texel_detail if isinstance(overwrite_texel_detail, dict) else {},
+            "source_packet_stage_profiles": overwrite_source_packet_stage_profiles,
+            "source_packet_stage_profile_count": int(
+                overwrite_summary.get("source_packet_stage_profile_count", 0) or 0
+            ),
+            "source_packet_stage_profile_truncated_count": int(
+                overwrite_summary.get("source_packet_stage_profile_truncated_count", 0) or 0
             ),
         }
         if black_write_record_count > 0 and overwrite_record_count == 0:
@@ -1347,6 +1677,55 @@ def _build_signals(
                 suspected_gaps.append(
                     "many overwrite-to-black events transition non-black combiner output to black at blender stage (>25%)"
                 )
+        if isinstance(overwrite_texel_detail, dict):
+            slot_summaries = overwrite_texel_detail.get("slot_summaries", {})
+            if isinstance(slot_summaries, dict):
+                tex0_summary = slot_summaries.get("tex0", {})
+                if isinstance(tex0_summary, dict):
+                    tex0_valid = int(tex0_summary.get("valid_record_count", 0) or 0)
+                    source_kind_counts = tex0_summary.get("source_kind_counts", {})
+                    tmem_raw_zero_ratio = tex0_summary.get("tmem_raw_zero_ratio")
+                    if tex0_valid > 0 and isinstance(source_kind_counts, dict):
+                        synthetic_count = int(source_kind_counts.get("synthetic", 0) or 0)
+                        tmem_count = int(source_kind_counts.get("tmem", 0) or 0)
+                        if synthetic_count * 2 > tex0_valid:
+                            suspected_gaps.append(
+                                "tex0 overwrite telemetry is synthetic-dominated (>50%); TMEM/RDRAM sampling fails before combiner in dominant missing-path writes"
+                            )
+                        if tmem_count * 3 >= tex0_valid and isinstance(tmem_raw_zero_ratio, (int, float)) and tmem_raw_zero_ratio > 0.6:
+                            suspected_gaps.append(
+                                "tex0 TMEM samples are dominant and >60% carry zero raw TMEM words; prioritize TMEM address/xor/stride parity for missing content"
+                            )
+                        rdram_probe_beats_ratio = tex0_summary.get("rdram_probe_beats_tmem_ratio")
+                        if (
+                            tmem_count * 3 >= tex0_valid
+                            and isinstance(rdram_probe_beats_ratio, (int, float))
+                            and rdram_probe_beats_ratio > 0.25
+                        ):
+                            suspected_gaps.append(
+                                "tex0 RDRAM probe returns non-black while TMEM sample is black in >25% of probes; TMEM load/fetch parity is likely dropping texture data"
+                            )
+                tex1_summary = slot_summaries.get("tex1", {})
+                if isinstance(tex1_summary, dict):
+                    tex1_valid = int(tex1_summary.get("valid_record_count", 0) or 0)
+                    tex1_source_counts = tex1_summary.get("source_kind_counts", {})
+                    tex1_top_indices = tex1_summary.get("top_tmem_indices", [])
+                    if (
+                        tex1_valid > 0
+                        and isinstance(tex1_source_counts, dict)
+                        and int(tex1_source_counts.get("tmem", 0) or 0) * 2 >= tex1_valid
+                        and isinstance(tex1_top_indices, list)
+                        and tex1_top_indices
+                        and isinstance(tex1_top_indices[0], dict)
+                    ):
+                        top = tex1_top_indices[0]
+                        top_ratio = top.get("ratio")
+                        top_a = int(top.get("tmem_index_a", 0) or 0)
+                        top_b = int(top.get("tmem_index_b", 0) or 0)
+                        if isinstance(top_ratio, (int, float)) and top_ratio > 0.95 and top_a == 0 and top_b == 0:
+                            suspected_gaps.append(
+                                "tex1 TMEM sampling collapses to index 0x000/0x000 for >95% of black writes; verify texel1 slot tile selection and coordinate routing"
+                            )
         if isinstance(overwrite_top_source_packet_profiles, list) and overwrite_top_source_packet_profiles:
             total_profiled_overwrite = 0
             zero_shade_overwrite = 0
@@ -1661,6 +2040,8 @@ def _build_signals(
             if isinstance(missing_write_attribution, dict)
             else {}
         )
+        missing_with_write_packet_stage_attribution: List[Dict[str, Any]] = []
+        missing_with_write_packet_stage_summary: Dict[str, Any] = {}
 
         missing_region_signal = {
             "frame_id": frame_id,
@@ -1694,6 +2075,8 @@ def _build_signals(
             "dominant_missing_history_stats": dominant_missing_history_stats,
             "address_write_stats": address_write_stats,
             "history_prior_address_write_stats": history_prior_address_write_stats,
+            "missing_with_write_packet_stage_attribution": missing_with_write_packet_stage_attribution,
+            "missing_with_write_packet_stage_summary": missing_with_write_packet_stage_summary,
         }
         tri_hit_ratio = _ratio(tri_bbox_hit, tri_total)
         tex_hit_ratio = _ratio(tex_bbox_hit, tex_total)
@@ -1797,6 +2180,100 @@ def _build_signals(
                     )
 
         if isinstance(missing_write_attribution, dict):
+            packet_hits_raw = missing_write_attribution.get("missing_with_write_packet_hits", [])
+            packet_hits: List[Dict[str, Any]] = (
+                [row for row in packet_hits_raw if isinstance(row, dict)]
+                if isinstance(packet_hits_raw, list)
+                else []
+            )
+            packet_rows_considered = min(32, len(packet_hits))
+            packet_rows_matched = 0
+            for row in packet_hits[:32]:
+                source_packet_id = int(row.get("source_packet_id", 0) or 0)
+                stage_row = overwrite_source_packet_stage_by_id.get(source_packet_id, {})
+                merged_row: Dict[str, Any] = {
+                    "source_packet_id": source_packet_id,
+                    "frame_id": int(row.get("frame_id", frame_id) or frame_id or 0),
+                    "op_kind": row.get("op_kind"),
+                    "phase": row.get("phase"),
+                    "color_image_address": int(row.get("color_image_address", 0) or 0),
+                    "color_image_address_hex": row.get("color_image_address_hex"),
+                    "combine_mux": row.get("combine_mux"),
+                    "other_modes": row.get("other_modes"),
+                    "blend_params": row.get("blend_params"),
+                    "tile_format": int(row.get("tile_format", 0) or 0),
+                    "tile_size": int(row.get("tile_size", 0) or 0),
+                    "tile_line": int(row.get("tile_line", 0) or 0),
+                    "tile_tmem": int(row.get("tile_tmem", 0) or 0),
+                    "texture_image_width": int(row.get("texture_image_width", 0) or 0),
+                    "texture_image_address": row.get("texture_image_address"),
+                    "missing_work_hits": int(row.get("work_hits", 0) or 0),
+                    "missing_pixel_hits": int(row.get("pixel_hits", 0) or 0),
+                    "missing_pixel_hit_ratio": row.get("pixel_hit_ratio"),
+                    "overwrite_log_stage_coverage": "missing",
+                }
+                if stage_row:
+                    packet_rows_matched += 1
+                    merged_row["overwrite_log_stage_coverage"] = "matched"
+                    merged_row["overwrite_record_count"] = int(stage_row.get("overwrite_count", 0) or 0)
+                    merged_row["log_record_count"] = int(stage_row.get("record_count", 0) or 0)
+                    merged_row["overwrite_ratio_of_packet_records"] = stage_row.get(
+                        "overwrite_ratio_of_packet_records"
+                    )
+                    merged_row["final_black_ratio"] = stage_row.get("final_black_ratio")
+                    merged_row["texel_black_ratio"] = stage_row.get("texel_black_ratio")
+                    merged_row["combiner_black_ratio"] = stage_row.get("combiner_black_ratio")
+                    merged_row["blender_black_ratio"] = stage_row.get("blender_black_ratio")
+                    merged_row["kill_at_combiner_ratio"] = stage_row.get("kill_at_combiner_ratio")
+                    merged_row["kill_at_blender_ratio"] = stage_row.get("kill_at_blender_ratio")
+                    merged_row["kill_after_blender_ratio"] = stage_row.get("kill_after_blender_ratio")
+                    merged_row["op_counts"] = (
+                        stage_row.get("op_counts", {})
+                        if isinstance(stage_row.get("op_counts"), dict)
+                        else {}
+                    )
+                    merged_row["phase_counts"] = (
+                        stage_row.get("phase_counts", {})
+                        if isinstance(stage_row.get("phase_counts"), dict)
+                        else {}
+                    )
+                missing_with_write_packet_stage_attribution.append(merged_row)
+
+            missing_with_write_packet_stage_summary = {
+                "candidate_packet_count": len(packet_hits),
+                "rows_considered": packet_rows_considered,
+                "rows_matched_to_overwrite_log": packet_rows_matched,
+                "rows_missing_from_overwrite_log": max(0, packet_rows_considered - packet_rows_matched),
+            }
+            missing_region_signal["missing_with_write_packet_stage_attribution"] = (
+                missing_with_write_packet_stage_attribution
+            )
+            missing_region_signal["missing_with_write_packet_stage_summary"] = (
+                missing_with_write_packet_stage_summary
+            )
+
+            if packet_rows_considered > 0 and packet_rows_matched == 0:
+                suspected_gaps.append(
+                    "missing-region hotspot packets are absent from overwrite log stage profiles; widen overwrite logging filters or include all writes"
+                )
+            for row in missing_with_write_packet_stage_attribution[:4]:
+                if row.get("overwrite_log_stage_coverage") != "matched":
+                    continue
+                kill_at_combiner_ratio = row.get("kill_at_combiner_ratio")
+                texel_black_ratio = row.get("texel_black_ratio")
+                if isinstance(kill_at_combiner_ratio, (int, float)) and kill_at_combiner_ratio > 0.30:
+                    suspected_gaps.append(
+                        "top missing-region packet "
+                        f"{int(row.get('source_packet_id', 0) or 0)} goes black at combiner in >30% of logged writes"
+                    )
+                    break
+                if isinstance(texel_black_ratio, (int, float)) and texel_black_ratio > 0.70:
+                    suspected_gaps.append(
+                        "top missing-region packet "
+                        f"{int(row.get('source_packet_id', 0) or 0)} is already black at texel stage in >70% of logged writes"
+                    )
+                    break
+
             missing_without_write_ratio = missing_write_attribution.get("missing_without_write_ratio")
             missing_with_write_ratio = missing_write_attribution.get("missing_with_write_ratio")
             if isinstance(missing_without_write_ratio, (int, float)) and missing_without_write_ratio > 0.60:

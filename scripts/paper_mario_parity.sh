@@ -61,7 +61,11 @@ DEEP_TELEMETRY_HISTORY_MERGE_LOG="${REALITYVK_PM_DEEP_TELEMETRY_HISTORY_MERGE_LO
 DEEP_TELEMETRY_OVERWRITE_LOG="${REALITYVK_PM_DEEP_TELEMETRY_OVERWRITE_LOG:-1}"
 DEEP_TELEMETRY_OVERWRITE_LOG_LIMIT="${REALITYVK_PM_DEEP_TELEMETRY_OVERWRITE_LOG_LIMIT:-200000}"
 DEEP_TELEMETRY_OVERWRITE_LOG_INCLUDE_BLACK_WRITES="${REALITYVK_PM_DEEP_TELEMETRY_OVERWRITE_LOG_INCLUDE_BLACK_WRITES:-1}"
+DEEP_TELEMETRY_OVERWRITE_LOG_INCLUDE_ALL_WRITES="${REALITYVK_PM_DEEP_TELEMETRY_OVERWRITE_LOG_INCLUDE_ALL_WRITES:-0}"
+DEEP_TELEMETRY_OVERWRITE_LOG_INCLUDE_TEXEL_DETAIL="${REALITYVK_PM_DEEP_TELEMETRY_OVERWRITE_LOG_INCLUDE_TEXEL_DETAIL:-0}"
 DEEP_TELEMETRY_OVERWRITE_LOG_PACKET_IDS="${REALITYVK_PM_DEEP_TELEMETRY_OVERWRITE_LOG_PACKET_IDS:-}"
+DEEP_TELEMETRY_OVERWRITE_LOG_AUTO_PACKET_IDS_FROM_LAST_FOCUS="${REALITYVK_PM_DEEP_TELEMETRY_OVERWRITE_LOG_AUTO_PACKET_IDS_FROM_LAST_FOCUS:-1}"
+DEEP_TELEMETRY_OVERWRITE_LOG_AUTO_PACKET_IDS_MAX="${REALITYVK_PM_DEEP_TELEMETRY_OVERWRITE_LOG_AUTO_PACKET_IDS_MAX:-64}"
 DEEP_TELEMETRY_OVERWRITE_LOG_PACKET_MIN="${REALITYVK_PM_DEEP_TELEMETRY_OVERWRITE_LOG_PACKET_MIN:-}"
 DEEP_TELEMETRY_OVERWRITE_LOG_PACKET_MAX="${REALITYVK_PM_DEEP_TELEMETRY_OVERWRITE_LOG_PACKET_MAX:-}"
 DEEP_TELEMETRY_OVERWRITE_LOG_WORK_MIN="${REALITYVK_PM_DEEP_TELEMETRY_OVERWRITE_LOG_WORK_MIN:-}"
@@ -250,6 +254,21 @@ if [[ "${DEEP_TELEMETRY_OVERWRITE_LOG_INCLUDE_BLACK_WRITES}" != "0" && "${DEEP_T
   exit 2
 fi
 
+if [[ "${DEEP_TELEMETRY_OVERWRITE_LOG_INCLUDE_ALL_WRITES}" != "0" && "${DEEP_TELEMETRY_OVERWRITE_LOG_INCLUDE_ALL_WRITES}" != "1" ]]; then
+  echo "ERROR: REALITYVK_PM_DEEP_TELEMETRY_OVERWRITE_LOG_INCLUDE_ALL_WRITES must be 0 or 1." >&2
+  exit 2
+fi
+
+if [[ "${DEEP_TELEMETRY_OVERWRITE_LOG_INCLUDE_TEXEL_DETAIL}" != "0" && "${DEEP_TELEMETRY_OVERWRITE_LOG_INCLUDE_TEXEL_DETAIL}" != "1" ]]; then
+  echo "ERROR: REALITYVK_PM_DEEP_TELEMETRY_OVERWRITE_LOG_INCLUDE_TEXEL_DETAIL must be 0 or 1." >&2
+  exit 2
+fi
+
+if [[ "${DEEP_TELEMETRY_OVERWRITE_LOG_AUTO_PACKET_IDS_FROM_LAST_FOCUS}" != "0" && "${DEEP_TELEMETRY_OVERWRITE_LOG_AUTO_PACKET_IDS_FROM_LAST_FOCUS}" != "1" ]]; then
+  echo "ERROR: REALITYVK_PM_DEEP_TELEMETRY_OVERWRITE_LOG_AUTO_PACKET_IDS_FROM_LAST_FOCUS must be 0 or 1." >&2
+  exit 2
+fi
+
 if [[ "${DEEP_TELEMETRY_EXECUTOR_PRESENT_DUMP}" != "0" && "${DEEP_TELEMETRY_EXECUTOR_PRESENT_DUMP}" != "1" ]]; then
   echo "ERROR: REALITYVK_PM_DEEP_TELEMETRY_EXECUTOR_PRESENT_DUMP must be 0 or 1." >&2
   exit 2
@@ -352,6 +371,11 @@ fi
 
 if ! [[ "${DEEP_TELEMETRY_OVERWRITE_LOG_LIMIT}" =~ ^[0-9]+$ ]]; then
   echo "ERROR: REALITYVK_PM_DEEP_TELEMETRY_OVERWRITE_LOG_LIMIT must be an integer >= 0." >&2
+  exit 2
+fi
+
+if ! [[ "${DEEP_TELEMETRY_OVERWRITE_LOG_AUTO_PACKET_IDS_MAX}" =~ ^[0-9]+$ ]] || [[ "${DEEP_TELEMETRY_OVERWRITE_LOG_AUTO_PACKET_IDS_MAX}" == "0" ]]; then
+  echo "ERROR: REALITYVK_PM_DEEP_TELEMETRY_OVERWRITE_LOG_AUTO_PACKET_IDS_MAX must be an integer >= 1." >&2
   exit 2
 fi
 
@@ -474,6 +498,7 @@ COMMAND_CENSUS_MD_OUT=""
 CANDIDATE_HISTORY_MERGE_LOG_OUT=""
 CANDIDATE_OVERWRITE_LOG_OUT=""
 CANDIDATE_EXECUTOR_PRESENT_DUMP_OUT=""
+DEEP_TELEMETRY_OVERWRITE_LOG_PACKET_IDS_EFFECTIVE="${DEEP_TELEMETRY_OVERWRITE_LOG_PACKET_IDS}"
 COMPARE_SIDE_BY_SIDE_OUT="${RUN_ROOT}/${SCENARIO_ID}.compare_side_by_side.latest.png"
 COMPARE_VIEWER_PID_FILE="${RUN_ROOT}/.paper_mario_parity_compare_view.pid"
 DEEP_ARCHIVE_RUN_STAMP="$(date -u +%Y%m%d-%H%M%SZ)"
@@ -638,8 +663,10 @@ capture_plugin() {
       run_env+=("REALITYVK_RVK2_DEBUG_OVERWRITE_LOG=${CANDIDATE_OVERWRITE_LOG_OUT}")
       run_env+=("REALITYVK_RVK2_DEBUG_OVERWRITE_LOG_LIMIT=${DEEP_TELEMETRY_OVERWRITE_LOG_LIMIT}")
       run_env+=("REALITYVK_RVK2_DEBUG_OVERWRITE_LOG_INCLUDE_BLACK_WRITES=${DEEP_TELEMETRY_OVERWRITE_LOG_INCLUDE_BLACK_WRITES}")
-      if [[ -n "${DEEP_TELEMETRY_OVERWRITE_LOG_PACKET_IDS}" ]]; then
-        run_env+=("REALITYVK_RVK2_DEBUG_OVERWRITE_LOG_PACKET_IDS=${DEEP_TELEMETRY_OVERWRITE_LOG_PACKET_IDS}")
+      run_env+=("REALITYVK_RVK2_DEBUG_OVERWRITE_LOG_INCLUDE_ALL_WRITES=${DEEP_TELEMETRY_OVERWRITE_LOG_INCLUDE_ALL_WRITES}")
+      run_env+=("REALITYVK_RVK2_DEBUG_OVERWRITE_LOG_INCLUDE_TEXEL_DETAIL=${DEEP_TELEMETRY_OVERWRITE_LOG_INCLUDE_TEXEL_DETAIL}")
+      if [[ -n "${DEEP_TELEMETRY_OVERWRITE_LOG_PACKET_IDS_EFFECTIVE}" ]]; then
+        run_env+=("REALITYVK_RVK2_DEBUG_OVERWRITE_LOG_PACKET_IDS=${DEEP_TELEMETRY_OVERWRITE_LOG_PACKET_IDS_EFFECTIVE}")
       fi
       if [[ -n "${DEEP_TELEMETRY_OVERWRITE_LOG_PACKET_MIN}" ]]; then
         run_env+=("REALITYVK_RVK2_DEBUG_OVERWRITE_LOG_PACKET_MIN=${DEEP_TELEMETRY_OVERWRITE_LOG_PACKET_MIN}")
@@ -931,6 +958,90 @@ PY
   echo "deep telemetry archive: ${DEEP_ARCHIVE_DIR}"
   echo "deep telemetry index: ${DEEP_TELEMETRY_ARCHIVE_INDEX}"
 }
+
+resolve_overwrite_packet_ids_from_latest_focus() {
+  if [[ "${DEEP_TELEMETRY}" != "1" || "${DEEP_TELEMETRY_OVERWRITE_LOG}" != "1" ]]; then
+    return 0
+  fi
+  if [[ "${DEEP_TELEMETRY_OVERWRITE_LOG_AUTO_PACKET_IDS_FROM_LAST_FOCUS}" != "1" ]]; then
+    return 0
+  fi
+  if [[ -n "${DEEP_TELEMETRY_OVERWRITE_LOG_PACKET_IDS_EFFECTIVE}" ]]; then
+    return 0
+  fi
+
+  local latest_link="${DEEP_TELEMETRY_ARCHIVE_ROOT}/${SCENARIO_ID}.latest"
+  local latest_dir=""
+  if [[ -e "${latest_link}" ]]; then
+    latest_dir="$(readlink -f "${latest_link}" 2>/dev/null || true)"
+  fi
+  if [[ -z "${latest_dir}" || ! -d "${latest_dir}" ]]; then
+    return 0
+  fi
+
+  local focus_json="${latest_dir}/telemetry/${SCENARIO_ID}.candidate.missing-region-focus.json"
+  if [[ ! -f "${focus_json}" ]]; then
+    return 0
+  fi
+
+  local packet_ids=""
+  packet_ids="$(python3 - "${focus_json}" "${DEEP_TELEMETRY_OVERWRITE_LOG_AUTO_PACKET_IDS_MAX}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+focus_path = Path(sys.argv[1])
+limit = max(1, int(sys.argv[2]))
+
+try:
+    payload = json.loads(focus_path.read_text(encoding="utf-8"))
+except Exception:
+    print("")
+    raise SystemExit(0)
+
+missing = payload.get("missing_write_attribution", {})
+if not isinstance(missing, dict):
+    print("")
+    raise SystemExit(0)
+
+rows = missing.get("missing_with_write_packet_hits", [])
+if not isinstance(rows, list):
+    print("")
+    raise SystemExit(0)
+
+packet_ids = []
+seen = set()
+for row in rows:
+    if not isinstance(row, dict):
+        continue
+    try:
+        packet_id = int(row.get("source_packet_id", 0) or 0)
+    except Exception:
+        packet_id = 0
+    if packet_id <= 0 or packet_id in seen:
+        continue
+    seen.add(packet_id)
+    packet_ids.append(packet_id)
+    if len(packet_ids) >= limit:
+        break
+
+print(",".join(str(pid) for pid in packet_ids))
+PY
+)"
+
+  if [[ -z "${packet_ids}" ]]; then
+    return 0
+  fi
+
+  DEEP_TELEMETRY_OVERWRITE_LOG_PACKET_IDS_EFFECTIVE="${packet_ids}"
+  echo "==> [telemetry] auto-selected overwrite packet ids from latest focus: ${DEEP_TELEMETRY_OVERWRITE_LOG_PACKET_IDS_EFFECTIVE}"
+  if [[ "${DEEP_TELEMETRY_OVERWRITE_LOG_INCLUDE_ALL_WRITES}" == "0" ]]; then
+    DEEP_TELEMETRY_OVERWRITE_LOG_INCLUDE_ALL_WRITES="1"
+    echo "==> [telemetry] enabling include-all-writes for hotspot packet stage coverage."
+  fi
+}
+
+resolve_overwrite_packet_ids_from_latest_focus
 
 if [[ "${REFRESH_REFERENCE}" == "1" || ! -s "${REFERENCE_CAPTURE}" ]]; then
   if [[ ! -f "${REFERENCE_PLUGIN}" ]]; then
