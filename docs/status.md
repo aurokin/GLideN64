@@ -1,10 +1,13 @@
 # RVK2 Status
 
 ## Priority Order
-1. Handoff / carry-forward composition lane
-- Goal: map unwritten missing pixels to correct cross-surface donor behavior.
-- Evidence: `missing_without_write_with_prior_write_ratio=1.0` and strong overlap across multiple prior color-image targets.
-- Exit signal: unwritten-missing ratio drops materially and carry-forward suspected gaps stop dominating.
+1. Temporal surface-content divergence lane
+- Goal: eliminate conflicting non-black content across rotating present surfaces.
+- Evidence:
+  - `missing_without_write_with_prior_write_ratio=1.0` with strong overlap across prior color-image targets.
+  - History-merge probe (`REALITYVK_RVK2_DEBUG_HISTORY_MERGE_LOG`) shows `potential_black_fill=0` while `potential_nonblack_diff` remains high (roughly `18k..51k` pixels per candidate surface pair).
+  - Forcing static present surfaces (`0x00583430`, `0x005A8C30`, `0x005CE430`) worsens parity vs default selection.
+- Exit signal: cross-surface non-black divergence drops materially and missing-region dominance no longer comes from prior-frame state clusters.
 
 2. Left-strip primitive coverage lane
 - Goal: recover missing writes on the left segment where geometry remains absent.
@@ -33,7 +36,7 @@
 - Latest archive run: `paper_mario_intro.20260303-232934Z.ca92fb7a`
 - Archive index: `build/parity-runs/paper-mario/archive/index.tsv`
 - Key metrics:
-  - `rmse=0.367523`
-  - `mae=0.280598`
-  - `candidate_non_black_ratio=0.744787`
-  - `candidate_mean_luma=0.281487`
+  - `rmse=0.367518`
+  - `mae=0.280595`
+  - `candidate_non_black_ratio=0.744977`
+  - `candidate_mean_luma=0.281491`

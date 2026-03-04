@@ -31,7 +31,7 @@
 - Comparison source of truth:
   - archived deep run metrics + telemetry bundle, not only on-screen screenshots.
 
-## Current Diagnosis Snapshot (2026-03-03)
+## Current Diagnosis Snapshot (2026-03-04)
 - Latest deep smoke metrics:
   - `rmse=0.367523`
   - `mae=0.280598`
@@ -52,9 +52,14 @@
   - `ing_tri_calls=0` while `work_tri=53` (triangle work is RVK2 command-ingestion only, not frontend draw-call ingress).
   - `ing_rect_calls=60`, `ing_rect_texrect_calls=60`, `ing_rect_bounds=[x:-0.975..260.000, y:-0.974..223.000]`.
   - Focus-frame render-work texrects remain concentrated in `x=60..260` (source width 320), consistent with persistent left-strip missing coverage.
+- New history-surface probe results (commit `1963680d`):
+  - History merge diagnostics (`REALITYVK_RVK2_DEBUG_HISTORY_MERGE_LOG`) report `potential_black_fill=0` across rotating surfaces; no black-hole carry candidates were found in the captured sequence.
+  - Cross-surface differences are predominantly non-black (`potential_nonblack_diff` typically `18k..51k` pixels per candidate pair).
+  - Aggressive non-black history merge (`REALITYVK_RVK2_DEBUG_HISTORY_MERGE_COPY_NONBLACK=1`) copied ~`51k` pixels on history-present frames, but top-line parity remained flat (`rmse≈0.3675`).
+  - Forcing static present surfaces (`REALITYVK_RVK2_DEBUG_FORCE_PRESENT_SURFACE`) to `0x00583430`, `0x005A8C30`, or `0x005CE430` each regressed parity vs dynamic default selection.
 - Interpretation:
-  - primary deficit is carry-forward/handoff composition plus missing left-strip write coverage.
-  - texrect state-cluster correctness remains the main pixel-quality lane once coverage is restored.
+  - primary deficit is not black-hole carry loss; it is conflicting non-black content/state across rotating surfaces.
+  - texrect state-cluster correctness and temporal surface-content coherence remain the primary fix lanes.
 
 ## Standard Execution Loop
 1. Run quick smoke for fast regression check.
