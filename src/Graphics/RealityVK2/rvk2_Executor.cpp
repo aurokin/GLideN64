@@ -257,6 +257,18 @@ bool debugForceBlenderDivide()
 	return enabled;
 }
 
+bool debugEnableLegacyMemoryAlphaBlend()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_ENABLE_LEGACY_MEMORY_ALPHA_BLEND");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
 bool debugSwapTmem16Samples()
 {
 	static const bool enabled = []() -> bool {
@@ -972,6 +984,7 @@ void appendOverwriteLog(
 	u32 _finalColor,
 	u32 _textureSourceBits,
 	bool _overwriteToBlack,
+	bool _quantizedToBlack,
 	bool _preservedNonBlack,
 	const rvk2::RenderWorkPacket & _work)
 {
@@ -998,7 +1011,7 @@ void appendOverwriteLog(
 				: (_opKind == static_cast<u8>(rvk2::RasterOpKind::kFillRect) ? "fill" : "other"));
 	std::fprintf(
 		file,
-		"work_ordinal=%llu\tsource_packet_id=%llu\top_kind=%u\top_name=%s\tphase=%u\tcolor_image=0x%08X\tx=%u\ty=%u\tprev=0x%08X\tnew=0x%08X\ttexel=0x%08X\tcombiner=0x%08X\tblender=0x%08X\tfinal=0x%08X\ttexture_source_bits=0x%08X\toverwrite_to_black=%u\tpreserved=%u\tcombine_mux=0x%016llX\tother_modes=0x%016llX\tblend_params=0x%08X\ttile=%u\ttile_format=%u\ttile_size=%u\ttile_line=%u\ttile_tmem=%u\ttexture_image_width=%u\ttexture_image_address=0x%08X",
+		"work_ordinal=%llu\tsource_packet_id=%llu\top_kind=%u\top_name=%s\tphase=%u\tcolor_image=0x%08X\tx=%u\ty=%u\tprev=0x%08X\tnew=0x%08X\ttexel=0x%08X\tcombiner=0x%08X\tblender=0x%08X\tfinal=0x%08X\ttexture_source_bits=0x%08X\toverwrite_to_black=%u\tquantized_to_black=%u\tpreserved=%u\tcombine_mux=0x%016llX\tother_modes=0x%016llX\tblend_params=0x%08X\ttile=%u\ttile_format=%u\ttile_size=%u\ttile_line=%u\ttile_tmem=%u\ttexture_image_width=%u\ttexture_image_address=0x%08X",
 		static_cast<unsigned long long>(_workOrdinal),
 		static_cast<unsigned long long>(_sourcePacketId),
 		static_cast<unsigned>(_opKind),
@@ -1015,6 +1028,7 @@ void appendOverwriteLog(
 		_finalColor,
 		_textureSourceBits,
 		_overwriteToBlack ? 1U : 0U,
+		_quantizedToBlack ? 1U : 0U,
 		_preservedNonBlack ? 1U : 0U,
 		static_cast<unsigned long long>(_work.combineMux),
 		static_cast<unsigned long long>(_work.otherModes),
@@ -1287,6 +1301,18 @@ bool debugForcePipelineModeOff()
 	return enabled;
 }
 
+bool debugDisableColorImage16Quantize()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_DISABLE_COLOR_IMAGE_16_QUANTIZE");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
 inline bool parseUnsignedToken(const std::string & _token, u64 & _out)
 {
 	const std::string token = trimAsciiWhitespace(_token);
@@ -1549,7 +1575,7 @@ inline u32 decodeFillColor(u32 _fillColor, u8 _colorImageSize)
 
 inline u32 encodeSurfaceColor(u32 _rgba, u8 _colorImageSize)
 {
-	if (_colorImageSize != 2U)
+	if (_colorImageSize != 2U || debugDisableColorImage16Quantize())
 		return _rgba;
 
 	const u8 r = static_cast<u8>((_rgba >> 24) & 0xFFU);
@@ -1562,6 +1588,19 @@ inline u32 encodeSurfaceColor(u32 _rgba, u8 _colorImageSize)
 	const u16 a1 = a >= 128U ? 1U : 0U;
 	const u16 packed = static_cast<u16>((r5 << 11U) | (g5 << 6U) | (b5 << 1U) | a1);
 	return decodeFillColor(static_cast<u32>(packed), 2U);
+}
+
+inline u16 encodeSurfaceColor16Raw(u32 _rgba)
+{
+	const u8 r = static_cast<u8>((_rgba >> 24U) & 0xFFU);
+	const u8 g = static_cast<u8>((_rgba >> 16U) & 0xFFU);
+	const u8 b = static_cast<u8>((_rgba >> 8U) & 0xFFU);
+	const u8 a = static_cast<u8>(_rgba & 0xFFU);
+	const u16 r5 = static_cast<u16>((static_cast<u32>(r) * 31U + 127U) / 255U);
+	const u16 g5 = static_cast<u16>((static_cast<u32>(g) * 31U + 127U) / 255U);
+	const u16 b5 = static_cast<u16>((static_cast<u32>(b) * 31U + 127U) / 255U);
+	const u16 a1 = a >= 128U ? 1U : 0U;
+	return static_cast<u16>((r5 << 11U) | (g5 << 6U) | (b5 << 1U) | a1);
 }
 
 inline bool pixelHasVisibleColor(u32 _encodedColor)
@@ -2107,11 +2146,24 @@ inline u8 readRdramByteWrapped(u32 _address)
 	return RDRAM[(_address & RDRAMSize) ^ 3U];
 }
 
+inline void writeRdramByteWrapped(u32 _address, u8 _value)
+{
+	if (!rdramReadable())
+		return;
+	RDRAM[(_address & RDRAMSize) ^ 3U] = _value;
+}
+
 inline u16 readRdramU16Wrapped(u32 _address)
 {
 	const u8 hi = readRdramByteWrapped(_address);
 	const u8 lo = readRdramByteWrapped(_address + 1U);
 	return static_cast<u16>((static_cast<u16>(hi) << 8U) | static_cast<u16>(lo));
+}
+
+inline void writeRdramU16Wrapped(u32 _address, u16 _value)
+{
+	writeRdramByteWrapped(_address + 0U, static_cast<u8>((_value >> 8U) & 0xFFU));
+	writeRdramByteWrapped(_address + 1U, static_cast<u8>(_value & 0xFFU));
 }
 
 inline u32 readRdramU32Wrapped(u32 _address)
@@ -2124,6 +2176,14 @@ inline u32 readRdramU32Wrapped(u32 _address)
 		| (static_cast<u32>(b1) << 16U)
 		| (static_cast<u32>(b2) << 8U)
 		| static_cast<u32>(b3);
+}
+
+inline void writeRdramU32Wrapped(u32 _address, u32 _value)
+{
+	writeRdramByteWrapped(_address + 0U, static_cast<u8>((_value >> 24U) & 0xFFU));
+	writeRdramByteWrapped(_address + 1U, static_cast<u8>((_value >> 16U) & 0xFFU));
+	writeRdramByteWrapped(_address + 2U, static_cast<u8>((_value >> 8U) & 0xFFU));
+	writeRdramByteWrapped(_address + 3U, static_cast<u8>(_value & 0xFFU));
 }
 
 inline u8 readRdramPacked4(u32 _baseAddress, u64 _texelIndex)
@@ -2149,6 +2209,37 @@ inline u16 readRdramTexel16(u32 _baseAddress, u64 _texelIndex)
 inline u32 readRdramTexel32(u32 _baseAddress, u64 _texelIndex)
 {
 	return readRdramU32Wrapped(_baseAddress + static_cast<u32>(_texelIndex << 2U));
+}
+
+inline void writeColorImagePixelToRdram(
+	const rvk2::RenderWorkPacket & _work,
+	u32 _x,
+	u32 _y,
+	u32 _encodedColor)
+{
+	if (!rdramReadable())
+		return;
+
+	const u8 colorImageSize = static_cast<u8>(_work.colorImageSize & 0x3U);
+	const u32 colorImageWidth = _work.colorImageWidth != 0U
+		? static_cast<u32>(_work.colorImageWidth)
+		: 1U;
+	const u32 colorImageBase = _work.colorImageAddress & 0x00FFFFFFU;
+	const u64 pixelOffset =
+		static_cast<u64>(_y) * static_cast<u64>(colorImageWidth)
+		+ static_cast<u64>(_x);
+
+	if (colorImageSize == 2U) {
+		const u32 byteOffset = static_cast<u32>((pixelOffset & 0xFFFFFFFFULL) << 1U);
+		const u16 packed16 = encodeSurfaceColor16Raw(_encodedColor);
+		writeRdramU16Wrapped(colorImageBase + byteOffset, packed16);
+		return;
+	}
+
+	if (colorImageSize == 3U) {
+		const u32 byteOffset = static_cast<u32>((pixelOffset & 0xFFFFFFFFULL) << 2U);
+		writeRdramU32Wrapped(colorImageBase + byteOffset, _encodedColor);
+	}
 }
 
 inline u32 decodeYUVSampleToPseudoRGBA(u8 _y, u8 _u, u8 _v)
@@ -4451,6 +4542,44 @@ inline u8 blendChannel(u8 _src, u8 _dst, u32 _srcWeight, u32 _dstWeight)
 	return static_cast<u8>((blended + (sum / 2U)) / sum);
 }
 
+inline const std::array<u8, 0x8000> & blenderDivideLUT()
+{
+	static const std::array<u8, 0x8000> table = []() {
+		std::array<u8, 0x8000> lut{};
+		for (u32 i = 0U; i < lut.size(); ++i) {
+			u32 result = 0U;
+			const u32 d = (i >> 11U) & 0xFU;
+			const u32 n = i & 0x7FFU;
+			const u32 invd = (~d) & 0xFU;
+			u32 temp = invd + (n >> 8U) + 1U;
+			u32 partial[9]{};
+			partial[0] = temp & 0x7U;
+			for (u32 k = 0U; k < 8U; ++k) {
+				const u32 nbit = (n >> (7U - k)) & 0x1U;
+				if ((result & (0x100U >> k)) != 0U)
+					temp = invd + (partial[k] << 1U) + nbit + 1U;
+				else
+					temp = d + (partial[k] << 1U) + nbit;
+				partial[k + 1U] = temp & 0x7U;
+				if ((temp & 0x10U) != 0U)
+					result |= 1U << (7U - k);
+			}
+			lut[i] = static_cast<u8>(result & 0xFFU);
+		}
+		return lut;
+	}();
+	return table;
+}
+
+inline u8 resolveBlenderDivide(u32 _blendSum, u32 _blended)
+{
+	const auto & table = blenderDivideLUT();
+	const u32 index =
+		((_blendSum & 0xFU) << 11U)
+		| ((_blended >> 2U) & 0x7FFU);
+	return table[index];
+}
+
 inline s32 bayerDither4x4(u32 _x, u32 _y)
 {
 	static constexpr s32 kBayer4x4[16] = {
@@ -4576,6 +4705,7 @@ inline u32 applySyntheticBlender(
 	u32 _x,
 	u32 _y,
 	bool _cycle2Selectors = false,
+	bool _finalCycle = true,
 	u8 _shadeAlpha = 0xFFU,
 	rvk2::ExecutorSummary * _summary = nullptr,
 	u8 _shadeAlphaNext = 0xFFU)
@@ -4701,14 +4831,18 @@ inline u32 applySyntheticBlender(
 		shadeAlphaInput);
 	if (_work.alphaCvgSel && (selectors.m1b & 0x3U) == 0U)
 		alphaA = inputCoverageAlpha;
-	const u8 memoryCoverageAlpha = [&]() -> u8 {
-		const u32 coverage4 =
-			std::min<u32>(
-				15U,
-				static_cast<u32>(coverage.destination)
-					+ (_memoryHiddenCoverage ? 8U : 0U));
-		return static_cast<u8>((coverage4 * 255U + 7U) / 15U);
-	}();
+	const bool useLegacyMemoryAlphaBlend = debugEnableLegacyMemoryAlphaBlend();
+	const u8 memoryCoverageAlpha = useLegacyMemoryAlphaBlend
+		? static_cast<u8>(
+			(std::min<u32>(7U, static_cast<u32>(coverage.destination)) << 5U) & 0xE0U)
+		: [&]() -> u8 {
+			const u32 coverage4 =
+				std::min<u32>(
+					15U,
+					static_cast<u32>(coverage.destination)
+						+ (_memoryHiddenCoverage ? 8U : 0U));
+			return static_cast<u8>((coverage4 * 255U + 7U) / 15U);
+		}();
 	const u8 alphaB = selectAlphaB(selectors.m2b, alphaA, memoryCoverageAlpha);
 	if (_summary != nullptr && useCoverageControls) {
 		++_summary->blendCoverageEvalCount;
@@ -4732,11 +4866,10 @@ inline u32 applySyntheticBlender(
 		out.b = mResolved.b;
 	}
 	else if (blendEnabled) {
-		const u32 a5 = static_cast<u32>(alphaA >> 3U);
-		const u32 b5 = static_cast<u32>(alphaB >> 3U);
-		const bool useDivide =
-			debugForceBlenderDivide()
-			|| (aaEnable && !_work.forceBlender);
+		const bool useDivide = debugForceBlenderDivide()
+			|| (useLegacyMemoryAlphaBlend
+				? (_finalCycle && !_work.forceBlender)
+				: (aaEnable && !_work.forceBlender));
 		if (_summary != nullptr) {
 			if (useDivide)
 				++_summary->blenderDivideOpCount;
@@ -4744,6 +4877,29 @@ inline u32 applySyntheticBlender(
 				++_summary->blenderNoDivideOpCount;
 		}
 		const auto blendChannelResolved = [&](u8 _p, u8 _m) -> u8 {
+			if (useLegacyMemoryAlphaBlend) {
+				u32 blend1a = static_cast<u32>(alphaA >> 3U);
+				u32 blend2a = static_cast<u32>(alphaB >> 3U);
+				if ((selectors.m2b & 0x3U) == 1U) {
+					blend1a = (blend1a & 0x3CU);
+					blend2a = (blend2a | 0x3U);
+				}
+				const u32 mulb = blend2a + 1U;
+				const u32 numer =
+					static_cast<u32>(_p) * blend1a
+					+ static_cast<u32>(_m) * mulb;
+				if (useDivide) {
+					const u32 blendSum =
+						((blend1a >> 2U) & 0x7U)
+						+ ((blend2a >> 2U) & 0x7U)
+						+ 1U;
+					return resolveBlenderDivide(blendSum, numer);
+				}
+				return static_cast<u8>((numer + 16U) >> 5U);
+			}
+
+			const u32 a5 = static_cast<u32>(alphaA >> 3U);
+			const u32 b5 = static_cast<u32>(alphaB >> 3U);
 			const u32 numer =
 				static_cast<u32>(_p) * a5
 				+ static_cast<u32>(_m) * b5;
@@ -4841,8 +4997,10 @@ inline u32 applySyntheticBlender(
 		_x,
 		_y,
 		false,
+		true,
 		static_cast<u8>(_srcColor & 0xFFU),
-		_summary);
+		_summary,
+		static_cast<u8>(_srcColor & 0xFFU));
 }
 
 inline bool passesSyntheticAlphaCompare(
@@ -5248,6 +5406,7 @@ inline u32 runSyntheticPhasePipeline(
 					_x,
 					_y,
 					false,
+					true,
 					shadeAlpha,
 					_summary,
 					shadeAlphaNext);
@@ -5279,6 +5438,7 @@ inline u32 runSyntheticPhasePipeline(
 					_x,
 					_y,
 					false,
+					false,
 					shadeAlpha,
 					_summary,
 					shadeAlphaNext);
@@ -5306,6 +5466,7 @@ inline u32 runSyntheticPhasePipeline(
 					_dstHiddenCoverage,
 					_x,
 					_y,
+					true,
 					true,
 					shadeAlpha,
 					_summary,
@@ -5637,6 +5798,11 @@ void writeRect(
 			const u64 writeLuma = static_cast<u64>(lumaFromRGBA(writeColor));
 			u32 encodedWriteColor = encodeSurfaceColor(writeColor, _work.colorImageSize);
 			const u32 previousEncodedColor = _surface.pixels[colorIdx];
+			const bool quantizedToBlack =
+				(_work.colorImageSize == 2U)
+				&& !debugDisableColorImage16Quantize()
+				&& pixelHasVisibleColor(writeColor)
+				&& !pixelHasVisibleColor(encodedWriteColor);
 			const bool overwriteToBlack =
 				pixelHasVisibleColor(previousEncodedColor)
 				&& !pixelHasVisibleColor(encodedWriteColor);
@@ -5654,6 +5820,11 @@ void writeRect(
 				++_summary.writeOverwriteToBlackCount;
 				if (_work.opKind == static_cast<u8>(rvk2::RasterOpKind::kTexRect))
 					++_summary.writeTexRectOverwriteToBlackCount;
+			}
+			if (quantizedToBlack) {
+				++_summary.writeQuantizedToBlackCount;
+				if (_work.opKind == static_cast<u8>(rvk2::RasterOpKind::kTexRect))
+					++_summary.writeTexRectQuantizedToBlackCount;
 			}
 			if (preserveTexRectNonBlack)
 				encodedWriteColor = previousEncodedColor;
@@ -5673,12 +5844,14 @@ void writeRect(
 					finalColor,
 					textureSourceBits,
 					overwriteToBlack,
+					quantizedToBlack,
 					preserveTexRectNonBlack,
 					_work);
 				}
-			_surface.pixels[colorIdx] = encodedWriteColor;
-			if (!_surface.writeMask.empty())
-				_surface.writeMask[colorIdx] = 1U;
+				_surface.pixels[colorIdx] = encodedWriteColor;
+				writeColorImagePixelToRdram(_work, x, y, encodedWriteColor);
+				if (!_surface.writeMask.empty())
+					_surface.writeMask[colorIdx] = 1U;
 			if (!_surface.coverage.empty())
 				_surface.coverage[colorIdx] = static_cast<u8>(resolvedCoverage & 0x7U);
 			if (!_surface.hiddenCoverage.empty())
@@ -6061,6 +6234,11 @@ void writeTriangle(
 			const u64 writeLuma = static_cast<u64>(lumaFromRGBA(writeColor));
 			u32 encodedWriteColor = encodeSurfaceColor(writeColor, _work.colorImageSize);
 			const u32 previousEncodedColor = _surface.pixels[colorIdx];
+			const bool quantizedToBlack =
+				(_work.colorImageSize == 2U)
+				&& !debugDisableColorImage16Quantize()
+				&& pixelHasVisibleColor(writeColor)
+				&& !pixelHasVisibleColor(encodedWriteColor);
 			const bool overwriteToBlack =
 				pixelHasVisibleColor(previousEncodedColor)
 				&& !pixelHasVisibleColor(encodedWriteColor);
@@ -6075,6 +6253,10 @@ void writeTriangle(
 			if (overwriteToBlack) {
 				++_summary.writeOverwriteToBlackCount;
 				++_summary.writeTriangleOverwriteToBlackCount;
+			}
+			if (quantizedToBlack) {
+				++_summary.writeQuantizedToBlackCount;
+				++_summary.writeTriangleQuantizedToBlackCount;
 			}
 			if (preserveNonBlackOverwrite) {
 				encodedWriteColor = previousEncodedColor;
@@ -6097,12 +6279,14 @@ void writeTriangle(
 					finalColor,
 					textureSourceBits,
 					overwriteToBlack,
+					quantizedToBlack,
 					preserveNonBlackOverwrite,
 					_work);
 			}
-			_surface.pixels[colorIdx] = encodedWriteColor;
-			if (!_surface.writeMask.empty())
-				_surface.writeMask[colorIdx] = 1U;
+				_surface.pixels[colorIdx] = encodedWriteColor;
+				writeColorImagePixelToRdram(_work, x, y, encodedWriteColor);
+				if (!_surface.writeMask.empty())
+					_surface.writeMask[colorIdx] = 1U;
 			if (!preserveNonBlackOverwrite && !_surface.coverage.empty())
 					_surface.coverage[colorIdx] = static_cast<u8>(resolvedCoverage & 0x7U);
 				if (!preserveNonBlackOverwrite && !_surface.hiddenCoverage.empty())
@@ -6376,6 +6560,9 @@ ExecutorOutput Executor::executeWithOutput(
 	std::unordered_map<u32, u64> surfaceOverwriteBlackCounts;
 	std::unordered_map<u32, u64> surfaceOverwriteBlackTexRectCounts;
 	std::unordered_map<u32, u64> surfaceOverwriteBlackTriangleCounts;
+	std::unordered_map<u32, u64> surfaceQuantizedBlackCounts;
+	std::unordered_map<u32, u64> surfaceQuantizedBlackTexRectCounts;
+	std::unordered_map<u32, u64> surfaceQuantizedBlackTriangleCounts;
 	std::unordered_map<u32, u64> surfaceTrianglePreserveNonBlackCounts;
 	std::unordered_map<u32, u64> surfaceTexRectNonBlackWriteCounts;
 	std::unordered_map<u32, u64> surfaceTriangleNonBlackWriteCounts;
@@ -6645,6 +6832,9 @@ ExecutorOutput Executor::executeWithOutput(
 				const u64 overwriteBlackBefore = summary.writeOverwriteToBlackCount;
 				const u64 overwriteBlackTexRectBefore = summary.writeTexRectOverwriteToBlackCount;
 				const u64 overwriteBlackTriangleBefore = summary.writeTriangleOverwriteToBlackCount;
+				const u64 quantizedBlackBefore = summary.writeQuantizedToBlackCount;
+				const u64 quantizedBlackTexRectBefore = summary.writeTexRectQuantizedToBlackCount;
+				const u64 quantizedBlackTriangleBefore = summary.writeTriangleQuantizedToBlackCount;
 				const u64 trianglePreserveNonBlackBefore = summary.writeTrianglePreserveNonBlackCount;
 				const u64 texRectNonBlackBefore = summary.writeTexRectNonBlackCount;
 				const u64 triangleNonBlackBefore = summary.writeTriangleNonBlackCount;
@@ -6684,6 +6874,17 @@ ExecutorOutput Executor::executeWithOutput(
 					summary.writeTriangleOverwriteToBlackCount - overwriteBlackTriangleBefore;
 				if (overwriteBlackTriangleDelta > 0ULL)
 					surfaceOverwriteBlackTriangleCounts[work.colorImageAddress] += overwriteBlackTriangleDelta;
+				const u64 quantizedBlackDelta = summary.writeQuantizedToBlackCount - quantizedBlackBefore;
+				if (quantizedBlackDelta > 0ULL)
+					surfaceQuantizedBlackCounts[work.colorImageAddress] += quantizedBlackDelta;
+				const u64 quantizedBlackTexRectDelta =
+					summary.writeTexRectQuantizedToBlackCount - quantizedBlackTexRectBefore;
+				if (quantizedBlackTexRectDelta > 0ULL)
+					surfaceQuantizedBlackTexRectCounts[work.colorImageAddress] += quantizedBlackTexRectDelta;
+				const u64 quantizedBlackTriangleDelta =
+					summary.writeTriangleQuantizedToBlackCount - quantizedBlackTriangleBefore;
+				if (quantizedBlackTriangleDelta > 0ULL)
+					surfaceQuantizedBlackTriangleCounts[work.colorImageAddress] += quantizedBlackTriangleDelta;
 				const u64 trianglePreserveNonBlackDelta =
 					summary.writeTrianglePreserveNonBlackCount - trianglePreserveNonBlackBefore;
 				if (trianglePreserveNonBlackDelta > 0ULL)
@@ -6984,6 +7185,20 @@ ExecutorOutput Executor::executeWithOutput(
 	const auto selectedOverwriteBlackTriangleIt = surfaceOverwriteBlackTriangleCounts.find(presentSurfaceAddress);
 	if (selectedOverwriteBlackTriangleIt != surfaceOverwriteBlackTriangleCounts.end())
 		summary.selectedPresentSurfaceOverwriteBlackTriangleCount = selectedOverwriteBlackTriangleIt->second;
+	const auto selectedQuantizedBlackIt = surfaceQuantizedBlackCounts.find(presentSurfaceAddress);
+	if (selectedQuantizedBlackIt != surfaceQuantizedBlackCounts.end())
+		summary.selectedPresentSurfaceQuantizedToBlackCount = selectedQuantizedBlackIt->second;
+	const auto selectedQuantizedBlackTexRectIt = surfaceQuantizedBlackTexRectCounts.find(presentSurfaceAddress);
+	if (selectedQuantizedBlackTexRectIt != surfaceQuantizedBlackTexRectCounts.end()) {
+		summary.selectedPresentSurfaceQuantizedToBlackTexRectCount =
+			selectedQuantizedBlackTexRectIt->second;
+	}
+	const auto selectedQuantizedBlackTriangleIt =
+		surfaceQuantizedBlackTriangleCounts.find(presentSurfaceAddress);
+	if (selectedQuantizedBlackTriangleIt != surfaceQuantizedBlackTriangleCounts.end()) {
+		summary.selectedPresentSurfaceQuantizedToBlackTriangleCount =
+			selectedQuantizedBlackTriangleIt->second;
+	}
 	const auto selectedTrianglePreserveNonBlackIt = surfaceTrianglePreserveNonBlackCounts.find(presentSurfaceAddress);
 	if (selectedTrianglePreserveNonBlackIt != surfaceTrianglePreserveNonBlackCounts.end()) {
 		summary.selectedPresentSurfaceTrianglePreserveNonBlackCount =

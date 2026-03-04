@@ -428,6 +428,9 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
             "overwrite_stage_kill_counts": {},
             "black_write_stage_black": {},
             "black_write_stage_kill_counts": {},
+            "quantized_to_black_count": 0,
+            "overwrite_quantized_to_black_count": 0,
+            "black_write_quantized_to_black_count": 0,
             "texel_detail": {"available": False, "slot_summaries": {}},
             "source_packet_stage_profiles": [],
             "source_packet_stage_profile_count": 0,
@@ -466,6 +469,8 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
     black_write_kill_at_combiner_count = 0
     black_write_kill_at_blender_count = 0
     black_write_kill_after_blender_count = 0
+    overwrite_quantized_to_black_count = 0
+    black_write_quantized_to_black_count = 0
     texel_slot_names = ("tex0", "tex1", "tex0_next")
     texel_source_names = {
         0: "none",
@@ -531,6 +536,7 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
                 "kill_at_combiner_count": 0,
                 "kill_at_blender_count": 0,
                 "kill_after_blender_count": 0,
+                "quantized_to_black_count": 0,
                 "tex0_valid_count": 0,
                 "tex0_sample_black_count": 0,
                 "tex0_final_black_count": 0,
@@ -567,8 +573,13 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
             if overwrite_to_black_field is not None
             else True
         )
+        quantized_to_black = _u64(record, "quantized_to_black") != 0
         if overwrite_to_black:
             overwrite_record_count += 1
+            if quantized_to_black:
+                overwrite_quantized_to_black_count += 1
+        if quantized_to_black:
+            black_write_quantized_to_black_count += 1
 
         op_name_raw = record.get("op_name")
         op_name = str(op_name_raw).strip() if isinstance(op_name_raw, str) else ""
@@ -641,6 +652,10 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
             packet_stage["record_count"] = int(packet_stage.get("record_count", 0) or 0) + 1
             if overwrite_to_black:
                 packet_stage["overwrite_count"] = int(packet_stage.get("overwrite_count", 0) or 0) + 1
+            if quantized_to_black:
+                packet_stage["quantized_to_black_count"] = int(
+                    packet_stage.get("quantized_to_black_count", 0) or 0
+                ) + 1
             if final_black:
                 packet_stage["final_black_count"] = int(packet_stage.get("final_black_count", 0) or 0) + 1
             if texel_black:
@@ -999,6 +1014,7 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
         kill_at_combiner_count_for_packet = int(row.get("kill_at_combiner_count", 0) or 0)
         kill_at_blender_count_for_packet = int(row.get("kill_at_blender_count", 0) or 0)
         kill_after_blender_count_for_packet = int(row.get("kill_after_blender_count", 0) or 0)
+        quantized_to_black_count_for_packet = int(row.get("quantized_to_black_count", 0) or 0)
         tex0_valid_count_for_packet = int(row.get("tex0_valid_count", 0) or 0)
         tex0_sample_black_count_for_packet = int(row.get("tex0_sample_black_count", 0) or 0)
         tex0_final_black_count_for_packet = int(row.get("tex0_final_black_count", 0) or 0)
@@ -1030,6 +1046,11 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
                 "kill_at_blender_ratio": _ratio(kill_at_blender_count_for_packet, record_count_for_packet),
                 "kill_after_blender_count": kill_after_blender_count_for_packet,
                 "kill_after_blender_ratio": _ratio(kill_after_blender_count_for_packet, record_count_for_packet),
+                "quantized_to_black_count": quantized_to_black_count_for_packet,
+                "quantized_to_black_ratio": _ratio(
+                    quantized_to_black_count_for_packet,
+                    record_count_for_packet,
+                ),
                 "tex0_valid_count": tex0_valid_count_for_packet,
                 "tex0_sample_black_ratio": _ratio(tex0_sample_black_count_for_packet, tex0_valid_count_for_packet),
                 "tex0_final_black_ratio": _ratio(tex0_final_black_count_for_packet, tex0_valid_count_for_packet),
@@ -1098,10 +1119,15 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
             "combiner_black_count": overwrite_combiner_black_count,
             "blender_black_count": overwrite_blender_black_count,
             "final_black_count": overwrite_final_black_count,
+            "quantized_to_black_count": overwrite_quantized_to_black_count,
             "texel_black_ratio": _ratio(overwrite_texel_black_count, overwrite_record_count),
             "combiner_black_ratio": _ratio(overwrite_combiner_black_count, overwrite_record_count),
             "blender_black_ratio": _ratio(overwrite_blender_black_count, overwrite_record_count),
             "final_black_ratio": _ratio(overwrite_final_black_count, overwrite_record_count),
+            "quantized_to_black_ratio": _ratio(
+                overwrite_quantized_to_black_count,
+                overwrite_record_count,
+            ),
         },
         "stage_kill_counts": {
             "kill_at_combiner_count": overwrite_kill_at_combiner_count,
@@ -1116,10 +1142,15 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
             "combiner_black_count": overwrite_combiner_black_count,
             "blender_black_count": overwrite_blender_black_count,
             "final_black_count": overwrite_final_black_count,
+            "quantized_to_black_count": overwrite_quantized_to_black_count,
             "texel_black_ratio": _ratio(overwrite_texel_black_count, overwrite_record_count),
             "combiner_black_ratio": _ratio(overwrite_combiner_black_count, overwrite_record_count),
             "blender_black_ratio": _ratio(overwrite_blender_black_count, overwrite_record_count),
             "final_black_ratio": _ratio(overwrite_final_black_count, overwrite_record_count),
+            "quantized_to_black_ratio": _ratio(
+                overwrite_quantized_to_black_count,
+                overwrite_record_count,
+            ),
         },
         "overwrite_stage_kill_counts": {
             "kill_at_combiner_count": overwrite_kill_at_combiner_count,
@@ -1134,10 +1165,15 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
             "combiner_black_count": black_write_combiner_black_count,
             "blender_black_count": black_write_blender_black_count,
             "final_black_count": black_write_final_black_count,
+            "quantized_to_black_count": black_write_quantized_to_black_count,
             "texel_black_ratio": _ratio(black_write_texel_black_count, record_count),
             "combiner_black_ratio": _ratio(black_write_combiner_black_count, record_count),
             "blender_black_ratio": _ratio(black_write_blender_black_count, record_count),
             "final_black_ratio": _ratio(black_write_final_black_count, record_count),
+            "quantized_to_black_ratio": _ratio(
+                black_write_quantized_to_black_count,
+                record_count,
+            ),
         },
         "black_write_stage_kill_counts": {
             "kill_at_combiner_count": black_write_kill_at_combiner_count,
@@ -1154,6 +1190,9 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
         "source_packet_stage_profiles": source_packet_stage_profiles,
         "source_packet_stage_profile_count": len(ordered_packet_stage_rows),
         "source_packet_stage_profile_truncated_count": source_packet_stage_profile_truncated_count,
+        "quantized_to_black_count": overwrite_quantized_to_black_count,
+        "overwrite_quantized_to_black_count": overwrite_quantized_to_black_count,
+        "black_write_quantized_to_black_count": black_write_quantized_to_black_count,
     }
 
 
@@ -1731,6 +1770,16 @@ def _build_signals(
     )
     selected_surface_history_merge_copied = _u64(last_record, "selected_surface_history_merge_copied")
     selected_surface_untouched_carry = _u64(last_record, "selected_surface_untouched_carry")
+    selected_surface_quantized_black = _u64(last_record, "selected_surface_quantized_black")
+    selected_surface_quantized_black_texrect = _u64(
+        last_record, "selected_surface_quantized_black_texrect"
+    )
+    selected_surface_quantized_black_triangle = _u64(
+        last_record, "selected_surface_quantized_black_triangle"
+    )
+    quantized_black_total = _u64(last_record, "quantized_black_total")
+    quantized_black_texrect = _u64(last_record, "quantized_black_texrect")
+    quantized_black_triangle = _u64(last_record, "quantized_black_triangle")
     vi_hash_decode = _u64(last_record, "vi_hash_decode")
     vi_hash_filter = _u64(last_record, "vi_hash_filter")
     vi_hash_gdither = _u64(last_record, "vi_hash_gdither")
@@ -1799,6 +1848,9 @@ def _build_signals(
         "selected_surface_live_works": selected_surface_live_works,
         "selected_surface_from_history": selected_surface_from_history,
         "selected_surface_history_age": selected_surface_history_age,
+        "selected_surface_quantized_black": selected_surface_quantized_black,
+        "selected_surface_quantized_black_texrect": selected_surface_quantized_black_texrect,
+        "selected_surface_quantized_black_triangle": selected_surface_quantized_black_triangle,
         "vi_hash_decode": vi_hash_decode,
         "vi_hash_filter": vi_hash_filter,
         "vi_hash_gdither": vi_hash_gdither,
@@ -1832,6 +1884,9 @@ def _build_signals(
         "tri_nonblack_ratio": _ratio(tri_nonblack, write_tri),
         "texrect_nonblack": texrect_nonblack,
         "texrect_nonblack_ratio": _ratio(texrect_nonblack, write_texrect),
+        "quantized_black_total": quantized_black_total,
+        "quantized_black_texrect": quantized_black_texrect,
+        "quantized_black_triangle": quantized_black_triangle,
         "tri_luma_sum": tri_luma_sum,
         "tri_luma_per_write": _ratio(tri_luma_sum, write_tri),
         "texrect_luma_sum": texrect_luma_sum,
@@ -1941,6 +1996,12 @@ def _build_signals(
         black_write_top_source_packets = overwrite_summary.get("black_write_top_source_packets", [])
         overwrite_top_combiner_kill_source_packets = overwrite_summary.get("top_combiner_kill_source_packets", [])
         overwrite_top_source_packet_profiles = overwrite_summary.get("top_source_packet_profiles", [])
+        overwrite_quantized_to_black_count = int(
+            overwrite_summary.get("overwrite_quantized_to_black_count", 0) or 0
+        )
+        black_write_quantized_to_black_count = int(
+            overwrite_summary.get("black_write_quantized_to_black_count", 0) or 0
+        )
         overwrite_dominant_state = overwrite_summary.get("dominant_state", {})
         overwrite_dominant_state_ratio = overwrite_summary.get("dominant_state_ratio")
         overwrite_stage_black = overwrite_summary.get("stage_black", {})
@@ -1963,6 +2024,16 @@ def _build_signals(
             "non_overwrite_black_write_count": non_overwrite_black_write_count,
             "preserved_count": overwrite_preserved_count,
             "preserved_ratio": overwrite_preserved_ratio,
+            "quantized_to_black_count": overwrite_quantized_to_black_count,
+            "quantized_to_black_ratio": _ratio(
+                overwrite_quantized_to_black_count,
+                overwrite_record_count,
+            ),
+            "black_write_quantized_to_black_count": black_write_quantized_to_black_count,
+            "black_write_quantized_to_black_ratio": _ratio(
+                black_write_quantized_to_black_count,
+                black_write_record_count,
+            ),
             "op_counts": overwrite_op_counts if isinstance(overwrite_op_counts, dict) else {},
             "black_write_op_counts": black_write_op_counts if isinstance(black_write_op_counts, dict) else {},
             "texture_source_bit_counts": (
@@ -2018,6 +2089,14 @@ def _build_signals(
         if overwrite_record_count > 0 and isinstance(overwrite_preserved_ratio, (int, float)) and overwrite_preserved_ratio < 0.02:
             suspected_gaps.append(
                 "overwrite-to-black preserve ratio is below 2%; missing content may depend on preserving prior non-black texels"
+            )
+        if overwrite_record_count > 0 and overwrite_quantized_to_black_count * 5 > overwrite_record_count:
+            suspected_gaps.append(
+                "many overwrite-to-black samples are quantized-to-black after 16b color encoding; prioritize blender weighting/memory-alpha parity before writeback"
+            )
+        if black_write_record_count > 0 and black_write_quantized_to_black_count * 5 > black_write_record_count:
+            suspected_gaps.append(
+                "black-write stream is heavily quantized-to-black after encode; investigate low-intensity outputs in dominant state clusters"
             )
         tri_overwrite = 0
         texrect_overwrite = 0
@@ -3279,6 +3358,9 @@ def _selected_forensics_fields(record: Dict[str, Any]) -> Dict[str, Any]:
         "selected_surface_overwrite_black",
         "selected_surface_overwrite_black_texrect",
         "selected_surface_overwrite_black_triangle",
+        "selected_surface_quantized_black",
+        "selected_surface_quantized_black_texrect",
+        "selected_surface_quantized_black_triangle",
         "selected_surface_triangle_preserve_non_black",
         "selected_surface_texrect_nonblack",
         "selected_surface_triangle_nonblack",
@@ -3314,6 +3396,9 @@ def _selected_forensics_fields(record: Dict[str, Any]) -> Dict[str, Any]:
         "tx_tmem",
         "tx_rdram",
         "tx_synth",
+        "quantized_black_total",
+        "quantized_black_texrect",
+        "quantized_black_triangle",
         "tx_lut",
         "stage_textured_writes",
         "stage_tx_tmem",

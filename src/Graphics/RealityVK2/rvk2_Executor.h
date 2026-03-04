@@ -94,6 +94,9 @@ struct ExecutorSummary {
 	u64 selectedPresentSurfaceOverwriteBlackCount = 0ULL;
 	u64 selectedPresentSurfaceOverwriteBlackTexRectCount = 0ULL;
 	u64 selectedPresentSurfaceOverwriteBlackTriangleCount = 0ULL;
+	u64 selectedPresentSurfaceQuantizedToBlackCount = 0ULL;
+	u64 selectedPresentSurfaceQuantizedToBlackTexRectCount = 0ULL;
+	u64 selectedPresentSurfaceQuantizedToBlackTriangleCount = 0ULL;
 	u64 selectedPresentSurfaceTrianglePreserveNonBlackCount = 0ULL;
 	u64 selectedPresentSurfaceTexRectNonBlackWriteCount = 0ULL;
 	u64 selectedPresentSurfaceTriangleNonBlackWriteCount = 0ULL;
@@ -240,6 +243,9 @@ struct ExecutorSummary {
 	u64 writeOverwriteToBlackCount = 0ULL;
 	u64 writeTexRectOverwriteToBlackCount = 0ULL;
 	u64 writeTriangleOverwriteToBlackCount = 0ULL;
+	u64 writeQuantizedToBlackCount = 0ULL;
+	u64 writeTexRectQuantizedToBlackCount = 0ULL;
+	u64 writeTriangleQuantizedToBlackCount = 0ULL;
 	u64 writeTrianglePreserveNonBlackCount = 0ULL;
 	u64 writeTexRectNonBlackCount = 0ULL;
 	u64 writeTriangleNonBlackCount = 0ULL;
