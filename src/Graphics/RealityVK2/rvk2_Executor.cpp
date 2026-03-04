@@ -834,6 +834,32 @@ bool debugOverwriteLogIncludeTexelDetail()
 	return enabled;
 }
 
+const char * debugTrianglePacketLogPath()
+{
+	static const char * path = []() -> const char * {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TRIANGLE_PACKET_LOG");
+		if (raw == nullptr || raw[0] == '\0')
+			return nullptr;
+		return raw;
+	}();
+	return path;
+}
+
+u32 debugTrianglePacketLogLimit()
+{
+	static const u32 limit = []() -> u32 {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TRIANGLE_PACKET_LOG_LIMIT");
+		if (raw == nullptr || raw[0] == '\0')
+			return 200000U;
+		char * end = nullptr;
+		const unsigned long value = std::strtoul(raw, &end, 10);
+		if (end == raw)
+			return 200000U;
+		return static_cast<u32>(std::min<unsigned long>(value, std::numeric_limits<u32>::max()));
+	}();
+	return limit;
+}
+
 inline void resetDebugTextureSampleLogSlots()
 {
 	if (!debugOverwriteLogIncludeTexelDetail())
@@ -1193,6 +1219,36 @@ bool debugInvertTriangleLMajor()
 		return parseBooleanToken(raw, parsed) ? parsed : false;
 	}();
 	return enabled;
+}
+
+u32 debugTriangleSampleYSubpixelBias()
+{
+	static const u32 bias = []() -> u32 {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TRIANGLE_SAMPLE_Y_SUBPIXEL_BIAS");
+		if (raw == nullptr || raw[0] == '\0')
+			return 2U;
+		char * end = nullptr;
+		const unsigned long value = std::strtoul(raw, &end, 10);
+		if (end == raw)
+			return 2U;
+		return static_cast<u32>(std::min<unsigned long>(value, 3UL));
+	}();
+	return bias;
+}
+
+u32 debugTriangleSampleXSubpixelBias()
+{
+	static const u32 bias = []() -> u32 {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TRIANGLE_SAMPLE_X_SUBPIXEL_BIAS");
+		if (raw == nullptr || raw[0] == '\0')
+			return 0x8000U;
+		char * end = nullptr;
+		const unsigned long value = std::strtoul(raw, &end, 10);
+		if (end == raw)
+			return 0x8000U;
+		return static_cast<u32>(std::min<unsigned long>(value, 0xFFFFUL));
+	}();
+	return bias;
 }
 
 bool debugForceTexel1UsesTile0()
@@ -3850,6 +3906,73 @@ bool computeWriteBounds(
 	return true;
 }
 
+void appendTrianglePacketLog(
+	u64 _workOrdinal,
+	const rvk2::RenderWorkPacket & _work,
+	bool _boundsValid,
+	const WriteBounds & _bounds,
+	bool _boundsRejected,
+	bool _degenerateRejected,
+	u64 _sampleCandidates,
+	u64 _writeCount,
+	u64 _alphaRejectCount,
+	u64 _coverageRejectCount,
+	u64 _depthRejectCount,
+	u64 _scissorFieldRejectRowCount,
+	u64 _yRangeRejectRowCount,
+	u64 _xEdgeRejectCount)
+{
+	const char * logPath = debugTrianglePacketLogPath();
+	if (logPath == nullptr)
+		return;
+
+	static u32 emitted = 0U;
+	const u32 limit = debugTrianglePacketLogLimit();
+	if (limit != 0U && emitted >= limit)
+		return;
+	if (!debugOverwriteLogPassesFilters(_workOrdinal, _work.sourcePacketId))
+		return;
+
+	std::FILE * file = std::fopen(logPath, "ab");
+	if (file == nullptr)
+		return;
+
+	std::fprintf(
+		file,
+		"work_ordinal=%llu\tsource_packet_id=%llu\top_kind=%u\top_name=triangle\tphase=%u\tcolor_image=0x%08X\tbounds_valid=%u\tbounds_x0=%u\tbounds_y0=%u\tbounds_x1=%u\tbounds_y1=%u\tbounds_reject=%u\tdegenerate_reject=%u\tsample_candidates=%llu\twrites=%llu\talpha_reject=%llu\tcoverage_reject=%llu\tdepth_reject=%llu\tscissor_field_reject_rows=%llu\ty_range_reject_rows=%llu\tx_edge_reject=%llu\tcombine_mux=0x%016llX\tother_modes=0x%016llX\tblend_params=0x%08X\ttile_format=%u\ttile_size=%u\ttile_line=%u\ttile_tmem=%u\ttexture_image_width=%u\ttexture_image_address=0x%08X\n",
+		static_cast<unsigned long long>(_workOrdinal),
+		static_cast<unsigned long long>(_work.sourcePacketId),
+		static_cast<unsigned>(_work.opKind),
+		static_cast<unsigned>(_work.phase),
+		_work.colorImageAddress,
+		_boundsValid ? 1U : 0U,
+		_bounds.x0,
+		_bounds.y0,
+		_bounds.x1,
+		_bounds.y1,
+		_boundsRejected ? 1U : 0U,
+		_degenerateRejected ? 1U : 0U,
+		static_cast<unsigned long long>(_sampleCandidates),
+		static_cast<unsigned long long>(_writeCount),
+		static_cast<unsigned long long>(_alphaRejectCount),
+		static_cast<unsigned long long>(_coverageRejectCount),
+		static_cast<unsigned long long>(_depthRejectCount),
+		static_cast<unsigned long long>(_scissorFieldRejectRowCount),
+		static_cast<unsigned long long>(_yRangeRejectRowCount),
+		static_cast<unsigned long long>(_xEdgeRejectCount),
+		static_cast<unsigned long long>(_work.combineMux),
+		static_cast<unsigned long long>(_work.otherModes),
+		_work.blendParams,
+		static_cast<unsigned>(_work.tileFormat),
+		static_cast<unsigned>(_work.tileSize),
+		static_cast<unsigned>(_work.tileLine),
+		static_cast<unsigned>(_work.tileTmem),
+		static_cast<unsigned>(_work.textureImageWidth),
+		_work.textureImageAddress);
+	std::fclose(file);
+	++emitted;
+}
+
 inline bool passesScissorFieldFilter(const rvk2::RenderWorkPacket & _work, u32 _y)
 {
 	const bool interlacedFieldScissor = (_work.scissorMode & 0x2U) != 0U;
@@ -5580,20 +5703,51 @@ void writeTriangle(
 	DepthSurface * _depthSurface,
 	const rvk2::RenderWorkPacket & _work,
 	const rvk2::ExecutorConfig & _config,
+	u64 _workOrdinal,
 	rvk2::ExecutorSummary & _summary)
 {
 	if (debugDisableTriangleWrites())
 		return;
+	u64 localSampleCandidateCount = 0ULL;
+	u64 localWriteCount = 0ULL;
+	u64 localAlphaRejectCount = 0ULL;
+	u64 localCoverageRejectCount = 0ULL;
+	u64 localDepthRejectCount = 0ULL;
+	u64 localScissorFieldRejectRowCount = 0ULL;
+	u64 localYRangeRejectRowCount = 0ULL;
+	u64 localXEdgeRejectCount = 0ULL;
+	bool boundsRejected = false;
+	bool degenerateRejected = false;
+	bool boundsValid = false;
 	const DebugStageViewMode stageViewMode = debugStageViewMode();
 	const bool imageReadEnabledWork = isImageReadEnabled(_work);
 	const bool cycle2Work = _work.phase == static_cast<u8>(rvk2::RenderPhase::kCycle2);
 	const bool decodeCycle2BlendSelectors = cycle2Work;
 	const BlendMuxSelectors stageBlendSelectors = decodeBlendMuxSelectors(_work, decodeCycle2BlendSelectors);
+	const u32 ySubpixelBias = debugTriangleSampleYSubpixelBias();
+	const s64 xSubpixelBias = static_cast<s64>(debugTriangleSampleXSubpixelBias());
 	WriteBounds bounds{};
 	if (!computeWriteBounds(_work, _config.maxSurfaceWidth, _config.maxSurfaceHeight, bounds)) {
 		++_summary.triangleBoundsRejectCount;
+		boundsRejected = true;
+		appendTrianglePacketLog(
+			_workOrdinal,
+			_work,
+			false,
+			bounds,
+			boundsRejected,
+			degenerateRejected,
+			localSampleCandidateCount,
+			localWriteCount,
+			localAlphaRejectCount,
+			localCoverageRejectCount,
+			localDepthRejectCount,
+			localScissorFieldRejectRowCount,
+			localYRangeRejectRowCount,
+			localXEdgeRejectCount);
 		return;
 	}
+	boundsValid = true;
 	const u16 requiredWidth = static_cast<u16>(std::min<u32>(bounds.x1 + 1U, _config.maxSurfaceWidth));
 	const u16 requiredHeight = static_cast<u16>(std::min<u32>(bounds.y1 + 1U, _config.maxSurfaceHeight));
 	ensureSurfaceSize(_surface, requiredWidth, requiredHeight, _config.maxSurfaceWidth, _config.maxSurfaceHeight);
@@ -5606,12 +5760,29 @@ void writeTriangle(
 	const s32 ylSigned = signExtend14(_work.triangleYL);
 	if (ylSigned <= yhSigned) {
 		++_summary.triangleDegenerateRejectCount;
+		degenerateRejected = true;
+		appendTrianglePacketLog(
+			_workOrdinal,
+			_work,
+			boundsValid,
+			bounds,
+			boundsRejected,
+			degenerateRejected,
+			localSampleCandidateCount,
+			localWriteCount,
+			localAlphaRejectCount,
+			localCoverageRejectCount,
+			localDepthRejectCount,
+			localScissorFieldRejectRowCount,
+			localYRangeRejectRowCount,
+			localXEdgeRejectCount);
 		return;
 	}
 
 	for (u32 y = bounds.y0; y <= bounds.y1; ++y) {
 		if (!passesScissorFieldFilter(_work, y)) {
 			++_summary.triangleScissorFieldRejectCount;
+			++localScissorFieldRejectRowCount;
 			continue;
 		}
 		bool hasPrevPixelForCycle2 = false;
@@ -5620,9 +5791,11 @@ void writeTriangle(
 		bool prevMemoryHiddenCoverageForCycle2 = false;
 		bool hasPrevCycle1CombinedColor = false;
 		u32 prevCycle1CombinedColor = 0U;
-		const s32 ySubpixelSample = static_cast<s32>((y << 2U) + 2U);
-		if (ySubpixelSample < yhSigned || ySubpixelSample >= ylSigned)
+		const s32 ySubpixelSample = static_cast<s32>((y << 2U) + ySubpixelBias);
+		if (ySubpixelSample < yhSigned || ySubpixelSample >= ylSigned) {
+			++localYRangeRejectRowCount;
 			continue;
+		}
 		const bool upperShortEdge = ySubpixelSample < ymSigned;
 		const s64 xLong = evalTriangleEdgeXFixed16AtYSubpixel(
 			_work.triangleXH,
@@ -5648,11 +5821,14 @@ void writeTriangle(
 		if (xLeft == xRight)
 			continue;
 		for (u32 x = bounds.x0; x <= bounds.x1; ++x) {
-			const s64 xSubpixelSample = (static_cast<s64>(x) << 16U) + 0x8000LL;
-			if (xSubpixelSample < xLeft || xSubpixelSample > xRight)
+			const s64 xSubpixelSample = (static_cast<s64>(x) << 16U) + xSubpixelBias;
+			if (xSubpixelSample < xLeft || xSubpixelSample > xRight) {
+				++localXEdgeRejectCount;
 				continue;
+			}
 			resetDebugTextureSampleLogSlots();
 			++_summary.triangleSampleCandidateCount;
+			++localSampleCandidateCount;
 
 			const size_t colorIdx = pixelIndex(_surface.width, static_cast<u16>(x), static_cast<u16>(y));
 			const u32 dstColor = _surface.pixels[colorIdx];
@@ -5783,6 +5959,7 @@ void writeTriangle(
 				gDebugTextureSampleLogSlots = preAlphaCompareTexelDetail;
 			if (!passesSyntheticAlphaCompare(_work, alphaCompareColor, x, y, &_summary)) {
 				++_summary.triangleAlphaRejectCount;
+				++localAlphaRejectCount;
 				continue;
 			}
 			u8 resolvedCoverage = coverageDestination;
@@ -5797,6 +5974,7 @@ void writeTriangle(
 					&coverageOverflow,
 					&_summary)) {
 				++_summary.triangleCoverageRejectCount;
+				++localCoverageRejectCount;
 				continue;
 			}
 			bool resolvedHiddenCoverage = false;
@@ -5822,6 +6000,7 @@ void writeTriangle(
 				if (!passesSyntheticDepthCompare(_work, z, depthValue)) {
 					++_summary.depthRejectCount;
 					++_summary.triangleDepthRejectCount;
+					++localDepthRejectCount;
 					continue;
 				}
 				if (shouldUpdateSyntheticDepth(_work, z, depthValue)) {
@@ -5901,9 +6080,10 @@ void writeTriangle(
 				encodedWriteColor = previousEncodedColor;
 				++_summary.writeTrianglePreserveNonBlackCount;
 			}
+			++localWriteCount;
 			if (logWrite) {
 				appendOverwriteLog(
-					_summary.executedWorkCount,
+					_workOrdinal,
 					_work.sourcePacketId,
 					_work.opKind,
 					_work.colorImageAddress,
@@ -5936,6 +6116,21 @@ void writeTriangle(
 				++_summary.colorWriteCount;
 		}
 	}
+	appendTrianglePacketLog(
+		_workOrdinal,
+		_work,
+		boundsValid,
+		bounds,
+		boundsRejected,
+		degenerateRejected,
+		localSampleCandidateCount,
+		localWriteCount,
+		localAlphaRejectCount,
+		localCoverageRejectCount,
+		localDepthRejectCount,
+		localScissorFieldRejectRowCount,
+		localYRangeRejectRowCount,
+		localXEdgeRejectCount);
 }
 } // namespace
 
@@ -6471,7 +6666,7 @@ ExecutorOutput Executor::executeWithOutput(
 					}
 					depthSurface = &depth;
 				}
-				writeTriangle(surface, depthSurface, work, m_config, summary);
+				writeTriangle(surface, depthSurface, work, m_config, summary.executedWorkCount, summary);
 			}
 			else
 				writeRect(surface, work, m_config, summary);
