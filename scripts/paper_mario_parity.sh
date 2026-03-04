@@ -14,6 +14,11 @@ REFERENCE_CORELIB="${REALITYVK_PM_REFERENCE_CORELIB:-/home/auro/code/mupen/mupen
 
 CACHE_ROOT="${REALITYVK_PM_CACHE_ROOT:-${ROOT_DIR}/build/parity-cache/paper-mario}"
 RUN_ROOT="${REALITYVK_PM_RUN_ROOT:-${ROOT_DIR}/build/parity-runs/paper-mario}"
+PROFILE="${REALITYVK_PM_PROFILE:-basic}"
+KNOB_TRACK_ENABLE="${REALITYVK_PM_KNOB_TRACK_ENABLE:-1}"
+KNOB_TRACK_WINDOW="${REALITYVK_PM_KNOB_TRACK_WINDOW:-20}"
+KNOB_TRACK_SUMMARY_LIMIT="${REALITYVK_PM_KNOB_TRACK_SUMMARY_LIMIT:-12}"
+KNOB_TRACK_FILE="${REALITYVK_PM_KNOB_TRACK_FILE:-${RUN_ROOT}/knob-history.tsv}"
 
 REFRESH_REFERENCE="${REALITYVK_PM_REFRESH_REFERENCE:-0}"
 VISUAL_GATE="${REALITYVK_PM_VISUAL_GATE:-1}"
@@ -85,6 +90,43 @@ RVK2_PREFER_LIVE_SURFACE_OVER_HISTORY="${REALITYVK_PM_RVK2_PREFER_LIVE_SURFACE_O
 AUTO_COMPARE_VIEW="${REALITYVK_PM_AUTO_COMPARE_VIEW:-1}"
 AUTO_COMPARE_CLOSE_ALL_EOG="${REALITYVK_PM_AUTO_COMPARE_CLOSE_ALL_EOG:-1}"
 
+profile_default() {
+  local value_name="$1"
+  local env_name="$2"
+  local default_value="$3"
+  if [[ -z "${!env_name+x}" ]]; then
+    printf -v "${value_name}" "%s" "${default_value}"
+  fi
+}
+
+apply_profile_defaults() {
+  case "${PROFILE}" in
+    basic)
+      profile_default "DEEP_TELEMETRY" "REALITYVK_PM_DEEP_TELEMETRY" "0"
+      profile_default "DEEP_TELEMETRY_ARCHIVE" "REALITYVK_PM_DEEP_TELEMETRY_ARCHIVE" "0"
+      profile_default "DEEP_TELEMETRY_REPLAY_STATEFUL" "REALITYVK_PM_DEEP_TELEMETRY_REPLAY_STATEFUL" "0"
+      ;;
+    deep)
+      profile_default "DEEP_TELEMETRY" "REALITYVK_PM_DEEP_TELEMETRY" "1"
+      profile_default "DEEP_TELEMETRY_ARCHIVE" "REALITYVK_PM_DEEP_TELEMETRY_ARCHIVE" "1"
+      profile_default "DEEP_TELEMETRY_REPLAY_STATEFUL" "REALITYVK_PM_DEEP_TELEMETRY_REPLAY_STATEFUL" "1"
+      profile_default "DEEP_TELEMETRY_DIFF_PLAYBOOK" "REALITYVK_PM_DEEP_TELEMETRY_DIFF_PLAYBOOK" "1"
+      profile_default "DEEP_TELEMETRY_COMMAND_CENSUS" "REALITYVK_PM_DEEP_TELEMETRY_COMMAND_CENSUS" "1"
+      profile_default "DEEP_TELEMETRY_HISTORY_MERGE_LOG" "REALITYVK_PM_DEEP_TELEMETRY_HISTORY_MERGE_LOG" "1"
+      profile_default "DEEP_TELEMETRY_OVERWRITE_LOG" "REALITYVK_PM_DEEP_TELEMETRY_OVERWRITE_LOG" "1"
+      profile_default "DEEP_TELEMETRY_TRIANGLE_PACKET_LOG" "REALITYVK_PM_DEEP_TELEMETRY_TRIANGLE_PACKET_LOG" "1"
+      profile_default "DEEP_TELEMETRY_EXECUTOR_PRESENT_DUMP" "REALITYVK_PM_DEEP_TELEMETRY_EXECUTOR_PRESENT_DUMP" "1"
+      profile_default "DEEP_TELEMETRY_REQUIRE_LIVE_PRESENT_SURFACE" "REALITYVK_PM_DEEP_TELEMETRY_REQUIRE_LIVE_PRESENT_SURFACE" "1"
+      profile_default "REQUIRE_NON_BLACK_CAPTURE" "REALITYVK_PM_REQUIRE_NON_BLACK_CAPTURE" "1"
+      ;;
+    *)
+      rvk2_die_usage "REALITYVK_PM_PROFILE must be 'basic' or 'deep'."
+      ;;
+  esac
+}
+
+apply_profile_defaults
+
 if [[ ! -f "${MANIFEST}" ]]; then
   echo "ERROR: scenario manifest not found: ${MANIFEST}" >&2
   exit 2
@@ -99,6 +141,11 @@ if [[ "${VISUAL_GATE}" != "0" && "${VISUAL_GATE}" != "1" ]]; then
   echo "ERROR: REALITYVK_PM_VISUAL_GATE must be 0 or 1." >&2
   exit 2
 fi
+
+rvk2_require_enum "REALITYVK_PM_PROFILE" "${PROFILE}" "basic" "deep"
+rvk2_require_bool "REALITYVK_PM_KNOB_TRACK_ENABLE" "${KNOB_TRACK_ENABLE}"
+rvk2_require_uint_ge "REALITYVK_PM_KNOB_TRACK_WINDOW" "${KNOB_TRACK_WINDOW}" 1
+rvk2_require_uint_ge "REALITYVK_PM_KNOB_TRACK_SUMMARY_LIMIT" "${KNOB_TRACK_SUMMARY_LIMIT}" 1
 
 if [[ "${CAPTURE_DEPTH_SUMMARY}" != "0" && "${CAPTURE_DEPTH_SUMMARY}" != "1" ]]; then
   echo "ERROR: REALITYVK_PM_CAPTURE_DEPTH_SUMMARY must be 0 or 1." >&2
@@ -409,6 +456,9 @@ DEEP_ARCHIVE_RUN_STAMP="$(date -u +%Y%m%d-%H%M%SZ)"
 DEEP_ARCHIVE_GIT_SHA="$(git -C "${ROOT_DIR}" rev-parse --short HEAD 2>/dev/null || echo "nogit")"
 DEEP_ARCHIVE_RUN_ID="${SCENARIO_ID}.${DEEP_ARCHIVE_RUN_STAMP}.${DEEP_ARCHIVE_GIT_SHA}"
 DEEP_ARCHIVE_DIR="${DEEP_TELEMETRY_ARCHIVE_ROOT}/${DEEP_ARCHIVE_RUN_ID}"
+KNOB_SNAPSHOT_OUT="${RUN_ROOT}/${SCENARIO_ID}.knobs.${DEEP_ARCHIVE_RUN_STAMP}.${DEEP_ARCHIVE_GIT_SHA}.json"
+KNOB_SNAPSHOT_LATEST_OUT="${RUN_ROOT}/${SCENARIO_ID}.knobs.latest.json"
+KNOB_FINGERPRINT=""
 
 SCENARIO_ARGS_ARRAY=()
 if [[ -n "${SCENARIO_ARGS// }" ]]; then
@@ -955,7 +1005,111 @@ PY
   fi
 }
 
+track_knob_fingerprint() {
+  if [[ "${KNOB_TRACK_ENABLE}" != "1" ]]; then
+    return 0
+  fi
+
+  mkdir -p "$(dirname "${KNOB_TRACK_FILE}")"
+  local -a knob_kv=(
+    "profile=${PROFILE}"
+    "capture_scale_div=${CAPTURE_SCALE_DIV}"
+    "dumpfb_flip_y=${DUMPFB_FLIP_Y}"
+    "rvk2_present_flip_y=${RVK2_PRESENT_FLIP_Y}"
+    "deep_telemetry=${DEEP_TELEMETRY}"
+    "deep_replay_stateful=${DEEP_TELEMETRY_REPLAY_STATEFUL}"
+    "deep_replay_jobs=${DEEP_TELEMETRY_REPLAY_JOBS}"
+    "deep_diff_mode=${DEEP_TELEMETRY_DIFF_MODE}"
+    "deep_diff_threshold=${DEEP_TELEMETRY_DIFF_THRESHOLD}"
+    "deep_diff_min_area=${DEEP_TELEMETRY_DIFF_MIN_AREA}"
+    "deep_diff_max_boxes=${DEEP_TELEMETRY_DIFF_MAX_BOXES}"
+    "deep_history_merge_log=${DEEP_TELEMETRY_HISTORY_MERGE_LOG}"
+    "deep_overwrite_log=${DEEP_TELEMETRY_OVERWRITE_LOG}"
+    "deep_overwrite_include_all=${DEEP_TELEMETRY_OVERWRITE_LOG_INCLUDE_ALL_WRITES}"
+    "deep_overwrite_include_texel_detail=${DEEP_TELEMETRY_OVERWRITE_LOG_INCLUDE_TEXEL_DETAIL}"
+    "deep_overwrite_packet_ids=${DEEP_TELEMETRY_OVERWRITE_LOG_PACKET_IDS_EFFECTIVE}"
+    "deep_triangle_packet_log=${DEEP_TELEMETRY_TRIANGLE_PACKET_LOG}"
+    "deep_triangle_packet_log_limit=${DEEP_TELEMETRY_TRIANGLE_PACKET_LOG_LIMIT}"
+    "deep_command_census=${DEEP_TELEMETRY_COMMAND_CENSUS}"
+    "deep_missing_region_history_window=${DEEP_TELEMETRY_MISSING_REGION_HISTORY_WINDOW}"
+    "deep_missing_region_max_overlap=${DEEP_TELEMETRY_MISSING_REGION_MAX_ADDRESS_OVERLAP}"
+    "rvk2_enable_surface_history_bootstrap=${RVK2_ENABLE_SURFACE_HISTORY_BOOTSTRAP}"
+    "rvk2_enable_cross_surface_bootstrap=${RVK2_ENABLE_CROSS_SURFACE_BOOTSTRAP}"
+    "rvk2_disable_vi_history_present=${RVK2_DISABLE_VI_HISTORY_PRESENT}"
+    "rvk2_prefer_live_surface=${RVK2_PREFER_LIVE_SURFACE_OVER_HISTORY}"
+  )
+  local -a knob_cmd=(
+    python3 "${ROOT_DIR}/scripts/rvk2_knob_history.py"
+    fingerprint
+    --output-json "${KNOB_SNAPSHOT_OUT}"
+    --scenario-id "${SCENARIO_ID}"
+    --profile "${PROFILE}"
+  )
+  local kv_entry
+  for kv_entry in "${knob_kv[@]}"; do
+    knob_cmd+=(--kv="${kv_entry}")
+  done
+
+  KNOB_FINGERPRINT="$("${knob_cmd[@]}")"
+  cp -f "${KNOB_SNAPSHOT_OUT}" "${KNOB_SNAPSHOT_LATEST_OUT}"
+  echo "knob fingerprint: ${KNOB_FINGERPRINT}"
+  echo "knob snapshot: ${KNOB_SNAPSHOT_OUT}"
+
+  local recent_json
+  recent_json="$(
+    python3 "${ROOT_DIR}/scripts/rvk2_knob_history.py" \
+      recent \
+      --history "${KNOB_TRACK_FILE}" \
+      --scenario-id "${SCENARIO_ID}" \
+      --fingerprint "${KNOB_FINGERPRINT}" \
+      --window "${KNOB_TRACK_WINDOW}"
+  )"
+  local recent_same_count
+  recent_same_count="$(python3 - "${recent_json}" <<'PY'
+import json
+import sys
+
+try:
+    payload = json.loads(sys.argv[1])
+except Exception:
+    print("0")
+    raise SystemExit(0)
+print(int(payload.get("same_fingerprint_count", 0) or 0))
+PY
+)"
+  if [[ "${recent_same_count}" != "0" ]]; then
+    echo "WARN: knob fingerprint already appears ${recent_same_count} time(s) in last ${KNOB_TRACK_WINDOW} runs for ${SCENARIO_ID}." >&2
+  fi
+}
+
+record_knob_history() {
+  if [[ "${KNOB_TRACK_ENABLE}" != "1" || -z "${KNOB_FINGERPRINT}" ]]; then
+    return 0
+  fi
+  python3 "${ROOT_DIR}/scripts/rvk2_knob_history.py" \
+    record \
+    --history "${KNOB_TRACK_FILE}" \
+    --run-stamp "${DEEP_ARCHIVE_RUN_STAMP}" \
+    --scenario-id "${SCENARIO_ID}" \
+    --profile "${PROFILE}" \
+    --fingerprint "${KNOB_FINGERPRINT}" \
+    --deep-telemetry "${DEEP_TELEMETRY}" \
+    --visual-exit "${VISUAL_COMPARE_EXIT_CODE}" \
+    --git-sha "${DEEP_ARCHIVE_GIT_SHA}" \
+    --snapshot "${KNOB_SNAPSHOT_OUT}" \
+    --metrics "${METRICS_OUT}"
+  echo "knob history: ${KNOB_TRACK_FILE}"
+  python3 "${ROOT_DIR}/scripts/rvk2_knob_history.py" \
+    summary \
+    --history "${KNOB_TRACK_FILE}" \
+    --scenario-id "${SCENARIO_ID}" \
+    --limit "${KNOB_TRACK_SUMMARY_LIMIT}" > "${RUN_ROOT}/${SCENARIO_ID}.knob-history-recent.tsv"
+  echo "knob recent summary: ${RUN_ROOT}/${SCENARIO_ID}.knob-history-recent.tsv"
+}
+
 resolve_overwrite_packet_ids_from_latest_focus
+track_knob_fingerprint
+echo "profile: ${PROFILE}"
 
 if [[ "${REFRESH_REFERENCE}" == "1" || ! -s "${REFERENCE_CAPTURE}" ]]; then
   if [[ ! -f "${REFERENCE_PLUGIN}" ]]; then
@@ -1343,6 +1497,7 @@ PY
 fi
 
 archive_deep_telemetry_run
+record_knob_history
 
 if [[ "${VISUAL_COMPARE_EXIT_CODE}" != "0" ]]; then
   exit "${VISUAL_COMPARE_EXIT_CODE}"
