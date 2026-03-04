@@ -8,7 +8,7 @@ import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 try:
     import numpy as np
@@ -393,37 +393,74 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
     if path is None or not path.is_file():
         return {
             "record_count": 0,
+            "black_write_record_count": 0,
+            "overwrite_record_count": 0,
+            "non_overwrite_black_write_count": 0,
             "preserved_count": 0,
             "preserved_ratio": None,
             "op_counts": {},
+            "overwrite_op_counts": {},
+            "black_write_op_counts": {},
             "texture_source_bit_counts": {},
+            "overwrite_texture_source_bit_counts": {},
+            "black_write_texture_source_bit_counts": {},
             "unique_color_image_count": 0,
+            "black_write_unique_color_image_count": 0,
             "top_color_images": [],
+            "overwrite_top_color_images": [],
+            "black_write_top_color_images": [],
             "top_source_packets": [],
+            "overwrite_top_source_packets": [],
+            "black_write_top_source_packets": [],
             "top_combiner_kill_source_packets": [],
+            "overwrite_top_combiner_kill_source_packets": [],
+            "black_write_top_combiner_kill_source_packets": [],
             "top_source_packet_profiles": [],
             "dominant_state": {},
             "dominant_state_ratio": None,
+            "overwrite_dominant_state": {},
+            "overwrite_dominant_state_ratio": None,
+            "black_write_dominant_state": {},
+            "black_write_dominant_state_ratio": None,
             "stage_black": {},
             "stage_kill_counts": {},
+            "overwrite_stage_black": {},
+            "overwrite_stage_kill_counts": {},
+            "black_write_stage_black": {},
+            "black_write_stage_kill_counts": {},
         }
 
     records: List[Dict[str, Any]] = []
-    op_counts: Dict[str, int] = {}
-    texture_source_bit_counts: Dict[str, int] = {}
-    color_image_counts: Dict[int, int] = {}
-    source_packet_counts: Dict[int, int] = {}
-    combiner_kill_source_packet_counts: Dict[int, int] = {}
-    state_counts: Dict[str, int] = {}
-    state_rows: Dict[str, Dict[str, Any]] = {}
+    overwrite_op_counts: Dict[str, int] = {}
+    black_write_op_counts: Dict[str, int] = {}
+    overwrite_texture_source_bit_counts: Dict[str, int] = {}
+    black_write_texture_source_bit_counts: Dict[str, int] = {}
+    overwrite_color_image_counts: Dict[int, int] = {}
+    black_write_color_image_counts: Dict[int, int] = {}
+    overwrite_source_packet_counts: Dict[int, int] = {}
+    black_write_source_packet_counts: Dict[int, int] = {}
+    overwrite_combiner_kill_source_packet_counts: Dict[int, int] = {}
+    black_write_combiner_kill_source_packet_counts: Dict[int, int] = {}
+    overwrite_state_counts: Dict[str, int] = {}
+    overwrite_state_rows: Dict[str, Dict[str, Any]] = {}
+    black_write_state_counts: Dict[str, int] = {}
+    black_write_state_rows: Dict[str, Dict[str, Any]] = {}
+    overwrite_record_count = 0
     preserved_count = 0
-    texel_black_count = 0
-    combiner_black_count = 0
-    blender_black_count = 0
-    final_black_count = 0
-    kill_at_combiner_count = 0
-    kill_at_blender_count = 0
-    kill_after_blender_count = 0
+    overwrite_texel_black_count = 0
+    overwrite_combiner_black_count = 0
+    overwrite_blender_black_count = 0
+    overwrite_final_black_count = 0
+    overwrite_kill_at_combiner_count = 0
+    overwrite_kill_at_blender_count = 0
+    overwrite_kill_after_blender_count = 0
+    black_write_texel_black_count = 0
+    black_write_combiner_black_count = 0
+    black_write_blender_black_count = 0
+    black_write_final_black_count = 0
+    black_write_kill_at_combiner_count = 0
+    black_write_kill_at_blender_count = 0
+    black_write_kill_after_blender_count = 0
 
     for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         stripped = line.strip()
@@ -443,6 +480,14 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
         if not record:
             continue
         records.append(record)
+        overwrite_to_black_field = record.get("overwrite_to_black")
+        overwrite_to_black = (
+            _u64(record, "overwrite_to_black") != 0
+            if overwrite_to_black_field is not None
+            else True
+        )
+        if overwrite_to_black:
+            overwrite_record_count += 1
 
         op_name_raw = record.get("op_name")
         op_name = str(op_name_raw).strip() if isinstance(op_name_raw, str) else ""
@@ -456,18 +501,32 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
                 op_name = "fill"
             else:
                 op_name = "other"
-        op_counts[op_name] = op_counts.get(op_name, 0) + 1
+        black_write_op_counts[op_name] = black_write_op_counts.get(op_name, 0) + 1
+        if overwrite_to_black:
+            overwrite_op_counts[op_name] = overwrite_op_counts.get(op_name, 0) + 1
 
-        if _u64(record, "preserved") != 0:
+        if overwrite_to_black and _u64(record, "preserved") != 0:
             preserved_count += 1
 
         source_packet_id = _u64(record, "source_packet_id")
         if source_packet_id > 0:
-            source_packet_counts[source_packet_id] = source_packet_counts.get(source_packet_id, 0) + 1
+            black_write_source_packet_counts[source_packet_id] = (
+                black_write_source_packet_counts.get(source_packet_id, 0) + 1
+            )
+            if overwrite_to_black:
+                overwrite_source_packet_counts[source_packet_id] = (
+                    overwrite_source_packet_counts.get(source_packet_id, 0) + 1
+                )
 
         texture_source_bits = _u64(record, "texture_source_bits")
         source_key = f"0x{texture_source_bits:08X}"
-        texture_source_bit_counts[source_key] = texture_source_bit_counts.get(source_key, 0) + 1
+        black_write_texture_source_bit_counts[source_key] = (
+            black_write_texture_source_bit_counts.get(source_key, 0) + 1
+        )
+        if overwrite_to_black:
+            overwrite_texture_source_bit_counts[source_key] = (
+                overwrite_texture_source_bit_counts.get(source_key, 0) + 1
+            )
 
         texel = _u64(record, "texel")
         combiner = _u64(record, "combiner")
@@ -478,27 +537,51 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
         blender_black = (blender & 0x00FFFFFF) == 0
         final_black = (final & 0x00FFFFFF) == 0
         if texel_black:
-            texel_black_count += 1
+            black_write_texel_black_count += 1
         if combiner_black:
-            combiner_black_count += 1
+            black_write_combiner_black_count += 1
         if blender_black:
-            blender_black_count += 1
+            black_write_blender_black_count += 1
         if final_black:
-            final_black_count += 1
+            black_write_final_black_count += 1
         if not texel_black and combiner_black:
-            kill_at_combiner_count += 1
+            black_write_kill_at_combiner_count += 1
             if source_packet_id > 0:
-                combiner_kill_source_packet_counts[source_packet_id] = (
-                    combiner_kill_source_packet_counts.get(source_packet_id, 0) + 1
+                black_write_combiner_kill_source_packet_counts[source_packet_id] = (
+                    black_write_combiner_kill_source_packet_counts.get(source_packet_id, 0) + 1
                 )
         if not combiner_black and blender_black:
-            kill_at_blender_count += 1
+            black_write_kill_at_blender_count += 1
         if not blender_black and final_black:
-            kill_after_blender_count += 1
+            black_write_kill_after_blender_count += 1
+
+        if overwrite_to_black:
+            if texel_black:
+                overwrite_texel_black_count += 1
+            if combiner_black:
+                overwrite_combiner_black_count += 1
+            if blender_black:
+                overwrite_blender_black_count += 1
+            if final_black:
+                overwrite_final_black_count += 1
+            if not texel_black and combiner_black:
+                overwrite_kill_at_combiner_count += 1
+                if source_packet_id > 0:
+                    overwrite_combiner_kill_source_packet_counts[source_packet_id] = (
+                        overwrite_combiner_kill_source_packet_counts.get(source_packet_id, 0) + 1
+                    )
+            if not combiner_black and blender_black:
+                overwrite_kill_at_blender_count += 1
+            if not blender_black and final_black:
+                overwrite_kill_after_blender_count += 1
 
         color_image = _u64(record, "color_image")
         if color_image > 0:
-            color_image_counts[color_image] = color_image_counts.get(color_image, 0) + 1
+            black_write_color_image_counts[color_image] = black_write_color_image_counts.get(color_image, 0) + 1
+            if overwrite_to_black:
+                overwrite_color_image_counts[color_image] = (
+                    overwrite_color_image_counts.get(color_image, 0) + 1
+                )
 
         combine = _u64(record, "combine_mux")
         other_modes = _u64(record, "other_modes")
@@ -509,9 +592,9 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
             f"{op_name}|{combine:016X}|{other_modes:016X}|{blend:08X}|"
             f"{tile_line}|{texture_width}"
         )
-        state_counts[state_key] = state_counts.get(state_key, 0) + 1
-        if state_key not in state_rows:
-            state_rows[state_key] = {
+        black_write_state_counts[state_key] = black_write_state_counts.get(state_key, 0) + 1
+        if state_key not in black_write_state_rows:
+            black_write_state_rows[state_key] = {
                 "op_name": op_name,
                 "combine_mux": f"0x{combine:016X}",
                 "other_modes": f"0x{other_modes:016X}",
@@ -519,86 +602,194 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
                 "tile_line": tile_line,
                 "texture_image_width": texture_width,
             }
+        if overwrite_to_black:
+            overwrite_state_counts[state_key] = overwrite_state_counts.get(state_key, 0) + 1
+            if state_key not in overwrite_state_rows:
+                overwrite_state_rows[state_key] = {
+                    "op_name": op_name,
+                    "combine_mux": f"0x{combine:016X}",
+                    "other_modes": f"0x{other_modes:016X}",
+                    "blend_params": f"0x{blend:08X}",
+                    "tile_line": tile_line,
+                    "texture_image_width": texture_width,
+                }
 
     record_count = len(records)
-    top_color_images = sorted(color_image_counts.items(), key=lambda item: item[1], reverse=True)
-    top_color_image_rows: List[Dict[str, Any]] = []
-    for address, count in top_color_images[:8]:
-        top_color_image_rows.append(
-            {
-                "color_image_address": int(address),
-                "color_image_address_hex": f"0x{int(address):08X}",
-                "count": int(count),
-                "ratio": _ratio(int(count), record_count),
-            }
-        )
+    non_overwrite_black_write_count = max(0, record_count - overwrite_record_count)
 
-    top_source_packets = sorted(source_packet_counts.items(), key=lambda item: item[1], reverse=True)
-    top_source_packet_rows: List[Dict[str, Any]] = []
-    for source_packet_id, count in top_source_packets[:16]:
-        top_source_packet_rows.append(
-            {
+    def _build_top_color_rows(counts: Dict[int, int], denominator: int) -> List[Dict[str, Any]]:
+        rows: List[Dict[str, Any]] = []
+        ordered = sorted(counts.items(), key=lambda item: item[1], reverse=True)
+        for address, count in ordered[:8]:
+            rows.append(
+                {
+                    "color_image_address": int(address),
+                    "color_image_address_hex": f"0x{int(address):08X}",
+                    "count": int(count),
+                    "ratio": _ratio(int(count), denominator),
+                }
+            )
+        return rows
+
+    def _build_top_source_rows(counts: Dict[int, int], denominator: int) -> List[Dict[str, Any]]:
+        rows: List[Dict[str, Any]] = []
+        ordered = sorted(counts.items(), key=lambda item: item[1], reverse=True)
+        for source_packet_id, count in ordered[:16]:
+            rows.append(
+                {
+                    "source_packet_id": int(source_packet_id),
+                    "count": int(count),
+                    "ratio": _ratio(int(count), denominator),
+                }
+            )
+        return rows
+
+    def _build_top_combiner_kill_rows(
+        counts: Dict[int, int],
+        combiner_kill_total: int,
+        denominator: int,
+        record_ratio_key: str,
+    ) -> List[Dict[str, Any]]:
+        rows: List[Dict[str, Any]] = []
+        ordered = sorted(counts.items(), key=lambda item: item[1], reverse=True)
+        for source_packet_id, count in ordered[:16]:
+            row = {
                 "source_packet_id": int(source_packet_id),
                 "count": int(count),
-                "ratio": _ratio(int(count), record_count),
+                "ratio_of_combiner_kills": _ratio(int(count), combiner_kill_total),
             }
-        )
+            row[record_ratio_key] = _ratio(int(count), denominator)
+            rows.append(row)
+        return rows
 
-    top_combiner_kill_sources = sorted(
-        combiner_kill_source_packet_counts.items(),
-        key=lambda item: item[1],
-        reverse=True,
+    def _dominant_state(
+        counts: Dict[str, int],
+        rows: Dict[str, Dict[str, Any]],
+        denominator: int,
+    ) -> Tuple[Dict[str, Any], Optional[float]]:
+        if not counts:
+            return {}, None
+        state_key, state_count = max(counts.items(), key=lambda item: item[1])
+        dominant = dict(rows.get(state_key, {}))
+        dominant["count"] = int(state_count)
+        dominant["ratio"] = _ratio(int(state_count), denominator)
+        return dominant, dominant["ratio"]
+
+    top_color_image_rows = _build_top_color_rows(overwrite_color_image_counts, overwrite_record_count)
+    overwrite_top_source_packet_rows = _build_top_source_rows(overwrite_source_packet_counts, overwrite_record_count)
+    top_combiner_kill_source_rows = _build_top_combiner_kill_rows(
+        overwrite_combiner_kill_source_packet_counts,
+        overwrite_kill_at_combiner_count,
+        overwrite_record_count,
+        "ratio_of_overwrite_records",
     )
-    top_combiner_kill_source_rows: List[Dict[str, Any]] = []
-    for source_packet_id, count in top_combiner_kill_sources[:16]:
-        top_combiner_kill_source_rows.append(
-            {
-                "source_packet_id": int(source_packet_id),
-                "count": int(count),
-                "ratio_of_combiner_kills": _ratio(int(count), kill_at_combiner_count),
-                "ratio_of_overwrite_records": _ratio(int(count), record_count),
-            }
-        )
+    dominant_state, dominant_state_ratio = _dominant_state(
+        overwrite_state_counts,
+        overwrite_state_rows,
+        overwrite_record_count,
+    )
 
-    dominant_state: Dict[str, Any] = {}
-    dominant_state_ratio: Optional[float] = None
-    if state_counts:
-        state_key, state_count = max(state_counts.items(), key=lambda item: item[1])
-        dominant_state = dict(state_rows.get(state_key, {}))
-        dominant_state["count"] = int(state_count)
-        dominant_state["ratio"] = _ratio(int(state_count), record_count)
-        dominant_state_ratio = dominant_state["ratio"]
+    black_write_top_color_image_rows = _build_top_color_rows(black_write_color_image_counts, record_count)
+    black_write_top_source_packet_rows = _build_top_source_rows(black_write_source_packet_counts, record_count)
+    black_write_top_combiner_kill_source_rows = _build_top_combiner_kill_rows(
+        black_write_combiner_kill_source_packet_counts,
+        black_write_kill_at_combiner_count,
+        record_count,
+        "ratio_of_black_write_records",
+    )
+    black_write_dominant_state, black_write_dominant_state_ratio = _dominant_state(
+        black_write_state_counts,
+        black_write_state_rows,
+        record_count,
+    )
 
     return {
         "record_count": record_count,
+        "black_write_record_count": record_count,
+        "overwrite_record_count": overwrite_record_count,
+        "non_overwrite_black_write_count": non_overwrite_black_write_count,
         "preserved_count": preserved_count,
-        "preserved_ratio": _ratio(preserved_count, record_count),
-        "op_counts": dict(sorted(op_counts.items())),
-        "texture_source_bit_counts": dict(sorted(texture_source_bit_counts.items())),
-        "unique_color_image_count": len(color_image_counts),
+        "preserved_ratio": _ratio(
+            preserved_count,
+            overwrite_record_count if overwrite_record_count > 0 else record_count,
+        ),
+        "op_counts": dict(sorted(overwrite_op_counts.items())),
+        "overwrite_op_counts": dict(sorted(overwrite_op_counts.items())),
+        "black_write_op_counts": dict(sorted(black_write_op_counts.items())),
+        "texture_source_bit_counts": dict(sorted(overwrite_texture_source_bit_counts.items())),
+        "overwrite_texture_source_bit_counts": dict(sorted(overwrite_texture_source_bit_counts.items())),
+        "black_write_texture_source_bit_counts": dict(sorted(black_write_texture_source_bit_counts.items())),
+        "unique_color_image_count": len(overwrite_color_image_counts),
+        "black_write_unique_color_image_count": len(black_write_color_image_counts),
         "top_color_images": top_color_image_rows,
-        "top_source_packets": top_source_packet_rows,
+        "overwrite_top_color_images": top_color_image_rows,
+        "black_write_top_color_images": black_write_top_color_image_rows,
+        "top_source_packets": overwrite_top_source_packet_rows,
+        "overwrite_top_source_packets": overwrite_top_source_packet_rows,
+        "black_write_top_source_packets": black_write_top_source_packet_rows,
         "top_combiner_kill_source_packets": top_combiner_kill_source_rows,
+        "overwrite_top_combiner_kill_source_packets": top_combiner_kill_source_rows,
+        "black_write_top_combiner_kill_source_packets": black_write_top_combiner_kill_source_rows,
         "top_source_packet_profiles": [],
         "dominant_state": dominant_state,
         "dominant_state_ratio": dominant_state_ratio,
+        "overwrite_dominant_state": dominant_state,
+        "overwrite_dominant_state_ratio": dominant_state_ratio,
+        "black_write_dominant_state": black_write_dominant_state,
+        "black_write_dominant_state_ratio": black_write_dominant_state_ratio,
         "stage_black": {
-            "texel_black_count": texel_black_count,
-            "combiner_black_count": combiner_black_count,
-            "blender_black_count": blender_black_count,
-            "final_black_count": final_black_count,
-            "texel_black_ratio": _ratio(texel_black_count, record_count),
-            "combiner_black_ratio": _ratio(combiner_black_count, record_count),
-            "blender_black_ratio": _ratio(blender_black_count, record_count),
-            "final_black_ratio": _ratio(final_black_count, record_count),
+            "texel_black_count": overwrite_texel_black_count,
+            "combiner_black_count": overwrite_combiner_black_count,
+            "blender_black_count": overwrite_blender_black_count,
+            "final_black_count": overwrite_final_black_count,
+            "texel_black_ratio": _ratio(overwrite_texel_black_count, overwrite_record_count),
+            "combiner_black_ratio": _ratio(overwrite_combiner_black_count, overwrite_record_count),
+            "blender_black_ratio": _ratio(overwrite_blender_black_count, overwrite_record_count),
+            "final_black_ratio": _ratio(overwrite_final_black_count, overwrite_record_count),
         },
         "stage_kill_counts": {
-            "kill_at_combiner_count": kill_at_combiner_count,
-            "kill_at_blender_count": kill_at_blender_count,
-            "kill_after_blender_count": kill_after_blender_count,
-            "kill_at_combiner_ratio": _ratio(kill_at_combiner_count, record_count),
-            "kill_at_blender_ratio": _ratio(kill_at_blender_count, record_count),
-            "kill_after_blender_ratio": _ratio(kill_after_blender_count, record_count),
+            "kill_at_combiner_count": overwrite_kill_at_combiner_count,
+            "kill_at_blender_count": overwrite_kill_at_blender_count,
+            "kill_after_blender_count": overwrite_kill_after_blender_count,
+            "kill_at_combiner_ratio": _ratio(overwrite_kill_at_combiner_count, overwrite_record_count),
+            "kill_at_blender_ratio": _ratio(overwrite_kill_at_blender_count, overwrite_record_count),
+            "kill_after_blender_ratio": _ratio(overwrite_kill_after_blender_count, overwrite_record_count),
+        },
+        "overwrite_stage_black": {
+            "texel_black_count": overwrite_texel_black_count,
+            "combiner_black_count": overwrite_combiner_black_count,
+            "blender_black_count": overwrite_blender_black_count,
+            "final_black_count": overwrite_final_black_count,
+            "texel_black_ratio": _ratio(overwrite_texel_black_count, overwrite_record_count),
+            "combiner_black_ratio": _ratio(overwrite_combiner_black_count, overwrite_record_count),
+            "blender_black_ratio": _ratio(overwrite_blender_black_count, overwrite_record_count),
+            "final_black_ratio": _ratio(overwrite_final_black_count, overwrite_record_count),
+        },
+        "overwrite_stage_kill_counts": {
+            "kill_at_combiner_count": overwrite_kill_at_combiner_count,
+            "kill_at_blender_count": overwrite_kill_at_blender_count,
+            "kill_after_blender_count": overwrite_kill_after_blender_count,
+            "kill_at_combiner_ratio": _ratio(overwrite_kill_at_combiner_count, overwrite_record_count),
+            "kill_at_blender_ratio": _ratio(overwrite_kill_at_blender_count, overwrite_record_count),
+            "kill_after_blender_ratio": _ratio(overwrite_kill_after_blender_count, overwrite_record_count),
+        },
+        "black_write_stage_black": {
+            "texel_black_count": black_write_texel_black_count,
+            "combiner_black_count": black_write_combiner_black_count,
+            "blender_black_count": black_write_blender_black_count,
+            "final_black_count": black_write_final_black_count,
+            "texel_black_ratio": _ratio(black_write_texel_black_count, record_count),
+            "combiner_black_ratio": _ratio(black_write_combiner_black_count, record_count),
+            "blender_black_ratio": _ratio(black_write_blender_black_count, record_count),
+            "final_black_ratio": _ratio(black_write_final_black_count, record_count),
+        },
+        "black_write_stage_kill_counts": {
+            "kill_at_combiner_count": black_write_kill_at_combiner_count,
+            "kill_at_blender_count": black_write_kill_at_blender_count,
+            "kill_after_blender_count": black_write_kill_after_blender_count,
+            "kill_at_combiner_ratio": _ratio(black_write_kill_at_combiner_count, record_count),
+            "kill_at_blender_ratio": _ratio(black_write_kill_at_blender_count, record_count),
+            "kill_after_blender_ratio": _ratio(black_write_kill_after_blender_count, record_count),
         },
     }
 
@@ -1038,24 +1229,43 @@ def _build_signals(
 
     overwrite_signal: Dict[str, Any] = {}
     if isinstance(overwrite_summary, dict):
-        overwrite_record_count = int(overwrite_summary.get("record_count", 0) or 0)
+        black_write_record_count = int(
+            overwrite_summary.get("black_write_record_count", overwrite_summary.get("record_count", 0)) or 0
+        )
+        overwrite_record_count = int(
+            overwrite_summary.get("overwrite_record_count", overwrite_summary.get("record_count", 0)) or 0
+        )
+        non_overwrite_black_write_count = int(
+            overwrite_summary.get(
+                "non_overwrite_black_write_count",
+                max(0, black_write_record_count - overwrite_record_count),
+            )
+            or 0
+        )
         overwrite_preserved_count = int(overwrite_summary.get("preserved_count", 0) or 0)
         overwrite_preserved_ratio = overwrite_summary.get("preserved_ratio")
         overwrite_op_counts = overwrite_summary.get("op_counts", {})
+        black_write_op_counts = overwrite_summary.get("black_write_op_counts", {})
         overwrite_texture_source_bit_counts = overwrite_summary.get("texture_source_bit_counts", {})
         overwrite_top_color_images = overwrite_summary.get("top_color_images", [])
         overwrite_top_source_packets = overwrite_summary.get("top_source_packets", [])
+        black_write_top_source_packets = overwrite_summary.get("black_write_top_source_packets", [])
         overwrite_top_combiner_kill_source_packets = overwrite_summary.get("top_combiner_kill_source_packets", [])
         overwrite_top_source_packet_profiles = overwrite_summary.get("top_source_packet_profiles", [])
         overwrite_dominant_state = overwrite_summary.get("dominant_state", {})
         overwrite_dominant_state_ratio = overwrite_summary.get("dominant_state_ratio")
         overwrite_stage_black = overwrite_summary.get("stage_black", {})
         overwrite_stage_kill_counts = overwrite_summary.get("stage_kill_counts", {})
+        black_write_stage_black = overwrite_summary.get("black_write_stage_black", {})
+        black_write_stage_kill_counts = overwrite_summary.get("black_write_stage_kill_counts", {})
         overwrite_signal = {
             "record_count": overwrite_record_count,
+            "black_write_record_count": black_write_record_count,
+            "non_overwrite_black_write_count": non_overwrite_black_write_count,
             "preserved_count": overwrite_preserved_count,
             "preserved_ratio": overwrite_preserved_ratio,
             "op_counts": overwrite_op_counts if isinstance(overwrite_op_counts, dict) else {},
+            "black_write_op_counts": black_write_op_counts if isinstance(black_write_op_counts, dict) else {},
             "texture_source_bit_counts": (
                 overwrite_texture_source_bit_counts if isinstance(overwrite_texture_source_bit_counts, dict) else {}
             ),
@@ -1063,6 +1273,9 @@ def _build_signals(
             "top_color_images": overwrite_top_color_images if isinstance(overwrite_top_color_images, list) else [],
             "top_source_packets": (
                 overwrite_top_source_packets if isinstance(overwrite_top_source_packets, list) else []
+            ),
+            "black_write_top_source_packets": (
+                black_write_top_source_packets if isinstance(black_write_top_source_packets, list) else []
             ),
             "top_combiner_kill_source_packets": (
                 overwrite_top_combiner_kill_source_packets
@@ -1076,7 +1289,21 @@ def _build_signals(
             "dominant_state_ratio": overwrite_dominant_state_ratio,
             "stage_black": overwrite_stage_black if isinstance(overwrite_stage_black, dict) else {},
             "stage_kill_counts": overwrite_stage_kill_counts if isinstance(overwrite_stage_kill_counts, dict) else {},
+            "black_write_stage_black": (
+                black_write_stage_black if isinstance(black_write_stage_black, dict) else {}
+            ),
+            "black_write_stage_kill_counts": (
+                black_write_stage_kill_counts if isinstance(black_write_stage_kill_counts, dict) else {}
+            ),
         }
+        if black_write_record_count > 0 and overwrite_record_count == 0:
+            suspected_gaps.append(
+                "black-write telemetry logged events but none were overwrite-to-black; missing regions may be first-write black outputs"
+            )
+        if black_write_record_count > 0 and non_overwrite_black_write_count * 2 > black_write_record_count:
+            suspected_gaps.append(
+                "most black-write telemetry entries are non-overwrite writes; prioritize missing-region first-write packet tracing"
+            )
         if overwrite_record_count > 0 and overwrite_preserved_count == 0:
             suspected_gaps.append(
                 "overwrite-to-black events were logged but preserve-on-black path never retained prior non-black pixels"

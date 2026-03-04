@@ -701,6 +701,18 @@ u32 debugOverwriteLogLimit()
 	return limit;
 }
 
+bool debugOverwriteLogIncludeBlackWrites()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_OVERWRITE_LOG_INCLUDE_BLACK_WRITES");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
 void appendOverwriteLog(
 	u64 _workOrdinal,
 	u64 _sourcePacketId,
@@ -715,6 +727,7 @@ void appendOverwriteLog(
 	u32 _blenderColor,
 	u32 _finalColor,
 	u32 _textureSourceBits,
+	bool _overwriteToBlack,
 	bool _preservedNonBlack,
 	const rvk2::RenderWorkPacket & _work)
 {
@@ -739,7 +752,7 @@ void appendOverwriteLog(
 				: (_opKind == static_cast<u8>(rvk2::RasterOpKind::kFillRect) ? "fill" : "other"));
 	std::fprintf(
 		file,
-		"work_ordinal=%llu\tsource_packet_id=%llu\top_kind=%u\top_name=%s\tphase=%u\tcolor_image=0x%08X\tx=%u\ty=%u\tprev=0x%08X\tnew=0x%08X\ttexel=0x%08X\tcombiner=0x%08X\tblender=0x%08X\tfinal=0x%08X\ttexture_source_bits=0x%08X\tpreserved=%u\tcombine_mux=0x%016llX\tother_modes=0x%016llX\tblend_params=0x%08X\ttile=%u\ttile_format=%u\ttile_size=%u\ttile_line=%u\ttile_tmem=%u\ttexture_image_width=%u\ttexture_image_address=0x%08X\n",
+		"work_ordinal=%llu\tsource_packet_id=%llu\top_kind=%u\top_name=%s\tphase=%u\tcolor_image=0x%08X\tx=%u\ty=%u\tprev=0x%08X\tnew=0x%08X\ttexel=0x%08X\tcombiner=0x%08X\tblender=0x%08X\tfinal=0x%08X\ttexture_source_bits=0x%08X\toverwrite_to_black=%u\tpreserved=%u\tcombine_mux=0x%016llX\tother_modes=0x%016llX\tblend_params=0x%08X\ttile=%u\ttile_format=%u\ttile_size=%u\ttile_line=%u\ttile_tmem=%u\ttexture_image_width=%u\ttexture_image_address=0x%08X\n",
 		static_cast<unsigned long long>(_workOrdinal),
 		static_cast<unsigned long long>(_sourcePacketId),
 		static_cast<unsigned>(_opKind),
@@ -755,6 +768,7 @@ void appendOverwriteLog(
 		_blenderColor,
 		_finalColor,
 		_textureSourceBits,
+		_overwriteToBlack ? 1U : 0U,
 		_preservedNonBlack ? 1U : 0U,
 		static_cast<unsigned long long>(_work.combineMux),
 		static_cast<unsigned long long>(_work.otherModes),
@@ -4373,7 +4387,15 @@ inline u32 chooseTriangleShadeSourceColor(
 	u32 _x,
 	u32 _y)
 {
-	return _work.triangleShadeEnable ? evaluateTriangleShadeColor(_work, _x, _y) : 0xFFFFFFFFU;
+	if (!_work.triangleShadeEnable)
+		return 0xFFFFFFFFU;
+	u32 shade = evaluateTriangleShadeColor(_work, _x, _y);
+	// Temporary parity fallback: some paths carry shade alpha without RGB lanes.
+	// Borrow primitive RGB to preserve color modulation while keeping shade alpha.
+	if ((shade & 0xFFFFFF00U) == 0U && (shade & 0x000000FFU) != 0U) {
+		shade = (_work.primColor & 0xFFFFFF00U) | (shade & 0x000000FFU);
+	}
+	return shade;
 }
 
 inline u32 chooseTriangleBaseColor(
@@ -4848,6 +4870,10 @@ void writeRect(
 			const bool overwriteToBlack =
 				(previousEncodedColor & 0x00FFFFFFU) != 0U
 				&& (encodedWriteColor & 0x00FFFFFFU) == 0U;
+			const bool finalBlackWrite = (encodedWriteColor & 0x00FFFFFFU) == 0U;
+			const bool logBlackWrite =
+				overwriteToBlack
+				|| (finalBlackWrite && debugOverwriteLogIncludeBlackWrites());
 			const bool preserveTexRectNonBlack =
 				overwriteToBlack
 				&& _work.opKind == static_cast<u8>(rvk2::RasterOpKind::kTexRect)
@@ -4859,7 +4885,7 @@ void writeRect(
 			}
 			if (preserveTexRectNonBlack)
 				encodedWriteColor = previousEncodedColor;
-			if (overwriteToBlack) {
+			if (logBlackWrite) {
 				appendOverwriteLog(
 					_summary.executedWorkCount,
 					_work.sourcePacketId,
@@ -4874,6 +4900,7 @@ void writeRect(
 					blenderColor,
 					finalColor,
 					textureSourceBits,
+					overwriteToBlack,
 					preserveTexRectNonBlack,
 					_work);
 			}
@@ -5202,6 +5229,10 @@ void writeTriangle(
 				const bool overwriteToBlack =
 					(previousEncodedColor & 0x00FFFFFFU) != 0U
 					&& (encodedWriteColor & 0x00FFFFFFU) == 0U;
+				const bool finalBlackWrite = (encodedWriteColor & 0x00FFFFFFU) == 0U;
+				const bool logBlackWrite =
+					overwriteToBlack
+					|| (finalBlackWrite && debugOverwriteLogIncludeBlackWrites());
 				const bool preserveNonBlackOverwrite =
 					overwriteToBlack && debugPreserveTriangleNonBlackOverwrites();
 				if (overwriteToBlack) {
@@ -5212,7 +5243,7 @@ void writeTriangle(
 					encodedWriteColor = previousEncodedColor;
 					++_summary.writeTrianglePreserveNonBlackCount;
 				}
-				if (overwriteToBlack) {
+				if (logBlackWrite) {
 					appendOverwriteLog(
 						_summary.executedWorkCount,
 						_work.sourcePacketId,
@@ -5227,6 +5258,7 @@ void writeTriangle(
 						blenderColor,
 						finalColor,
 						textureSourceBits,
+						overwriteToBlack,
 						preserveNonBlackOverwrite,
 						_work);
 				}
@@ -6280,16 +6312,25 @@ ExecutorOutput Executor::executeWithOutput(
 			u32 mergedHistorySource = 0U;
 			bool mergedFromMultipleSources = false;
 			const bool copyNonBlackHistoryMerge = debugHistoryMergeCopyNonBlack();
-			for (const ExecutorCachedSurface * candidate : historyMergeCandidates) {
-				if (candidate == nullptr)
-					continue;
-				const bool sourceHasCoverage = candidate->coverage.size() >= presentPixelCount;
-				const bool sourceHasHiddenCoverage = candidate->hiddenCoverage.size() >= presentPixelCount;
+			const auto mergeHistoryCandidatePixels =
+				[&](
+					u32 _candidateAddress,
+					const std::vector<u32> & _candidatePixels,
+					const std::vector<u8> * _candidateCoverage,
+					const std::vector<u8> * _candidateHiddenCoverage) {
+				if (_candidatePixels.size() < presentPixelCount)
+					return;
+				const bool sourceHasCoverage =
+					_candidateCoverage != nullptr
+					&& _candidateCoverage->size() >= presentPixelCount;
+				const bool sourceHasHiddenCoverage =
+					_candidateHiddenCoverage != nullptr
+					&& _candidateHiddenCoverage->size() >= presentPixelCount;
 				u64 mergedFromCandidate = 0ULL;
 				u64 potentialBlackFill = 0ULL;
 				u64 potentialNonBlackDiff = 0ULL;
 				for (size_t i = 0U; i < presentPixelCount; ++i) {
-					const u32 sourcePixel = candidate->pixels[i];
+					const u32 sourcePixel = _candidatePixels[i];
 					if ((sourcePixel & 0x00FFFFFFU) == 0U)
 						continue;
 					const u32 destinationPixel = presentCached.pixels[i];
@@ -6304,10 +6345,10 @@ ExecutorOutput Executor::executeWithOutput(
 						continue;
 					presentCached.pixels[i] = sourcePixel;
 					if (sourceHasCoverage && presentCached.coverage.size() >= presentPixelCount)
-						presentCached.coverage[i] = static_cast<u8>(candidate->coverage[i] & 0x7U);
+						presentCached.coverage[i] = static_cast<u8>((*_candidateCoverage)[i] & 0x7U);
 					if (sourceHasHiddenCoverage && presentCached.hiddenCoverage.size() >= presentPixelCount) {
 						presentCached.hiddenCoverage[i] =
-							static_cast<u8>(candidate->hiddenCoverage[i] & 0x1U);
+							static_cast<u8>((*_candidateHiddenCoverage)[i] & 0x1U);
 					}
 					++mergedFromCandidate;
 				}
@@ -6317,17 +6358,26 @@ ExecutorOutput Executor::executeWithOutput(
 				if (mergedFromCandidate > 0ULL) {
 					mergedHistoryPixels += mergedFromCandidate;
 					if (mergedHistorySource == 0U)
-						mergedHistorySource = candidate->address;
-					else if (mergedHistorySource != candidate->address)
+						mergedHistorySource = _candidateAddress;
+					else if (mergedHistorySource != _candidateAddress)
 						mergedFromMultipleSources = true;
 				}
 				appendHistoryMergeLog(
 					frameStamp,
 					cached.address,
-					candidate->address,
+					_candidateAddress,
 					potentialBlackFill,
 					potentialNonBlackDiff,
 					mergedFromCandidate);
+			};
+			for (const ExecutorCachedSurface * candidate : historyMergeCandidates) {
+				if (candidate == nullptr)
+					continue;
+				mergeHistoryCandidatePixels(
+					candidate->address,
+					candidate->pixels,
+					&candidate->coverage,
+					&candidate->hiddenCoverage);
 			}
 			if (mergedHistoryPixels > 0ULL) {
 				summary.selectedPresentSurfaceUntouchedCarryCount = mergedHistoryPixels;
