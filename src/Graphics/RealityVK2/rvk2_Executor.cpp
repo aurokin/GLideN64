@@ -220,6 +220,18 @@ bool debugDisableTexRectWrites()
 	return enabled;
 }
 
+bool debugPreserveTexRectNonBlackOverwrites()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TEXRECT_PRESERVE_NON_BLACK");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
 bool debugSwapTmem4Nibbles()
 {
 	static const bool enabled = []() -> bool {
@@ -236,6 +248,30 @@ bool debugAltTmem8OddXor()
 {
 	static const bool enabled = []() -> bool {
 		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_ALT_TMEM8_XOR");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugTmem8UseLoadKindAwareXor()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TMEM8_LOADKIND_XOR");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugTmem8UseXor13()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TMEM8_XOR13");
 		if (raw == nullptr || raw[0] == '\0')
 			return false;
 		bool parsed = false;
@@ -388,10 +424,46 @@ bool debugDisableTextureLUTApply()
 	return enabled;
 }
 
+bool debugDisableTLUTRGBA16Swap()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_DISABLE_TLUT_RGBA16_SWAP");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugDisableCopyModeDSDXDiv4()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_DISABLE_COPY_DSDX_DIV4");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
 bool debugForceTextureRdramPrimary()
 {
 	static const bool enabled = []() -> bool {
 		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_FORCE_TEXTURE_RDRAM_PRIMARY");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugForceCopyCI8RdramPrimary()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_FORCE_COPY_CI8_RDRAM_PRIMARY");
 		if (raw == nullptr || raw[0] == '\0')
 			return false;
 		bool parsed = false;
@@ -1362,7 +1434,9 @@ inline u32 applyTextureLUTModeColor(
 	}
 
 	// RGBA16 TLUT entries in TMEM use swapped 16-bit word order.
-	const u16 tlutRgba = static_cast<u16>((tlut << 8U) | (tlut >> 8U));
+	u16 tlutRgba = static_cast<u16>((tlut << 8U) | (tlut >> 8U));
+	if (debugDisableTLUTRGBA16Swap())
+		tlutRgba = tlut;
 	const auto expand5 = [](u16 _v) -> u8 {
 		return static_cast<u8>((static_cast<u32>(_v) * 255U + 15U) / 31U);
 	};
@@ -1656,14 +1730,19 @@ inline u8 readTmem4BitPaletteColor(u16 _offset, u16 _x, u16 _i)
 	return tmem8[((static_cast<u32>(_offset) << 3U) + (((static_cast<u32>(_x) >> 1U) ^ (static_cast<u32>(_i) << 1U)))) & 0xFFFU];
 }
 
-inline u8 readTmem8BitColor(u16 _offset, u16 _x, u16 _i)
+inline u8 readTmem8BitColorWithXor(u16 _offset, u16 _x, u32 _rowXor)
 {
 	const u8 * tmem8 = reinterpret_cast<const u8 *>(activeTMEMWords());
+	return tmem8[((static_cast<u32>(_offset) << 3U) + (static_cast<u32>(_x) ^ _rowXor)) & 0xFFFU];
+}
+
+inline u8 readTmem8BitColor(u16 _offset, u16 _x, u16 _i)
+{
 	const u32 oddRowXor =
 		debugAltTmem8OddXor()
 			? static_cast<u32>(_i)
 			: (static_cast<u32>(_i) << 1U);
-	return tmem8[((static_cast<u32>(_offset) << 3U) + (static_cast<u32>(_x) ^ oddRowXor)) & 0xFFFU];
+	return readTmem8BitColorWithXor(_offset, _x, oddRowXor);
 }
 
 inline u16 readTmem16BitColor(u16 _offset, u16 _x, u16 _i)
@@ -2019,7 +2098,21 @@ inline bool sampleCITextureFromTMEM(
 	}
 
 	case 1U: { // 8b
-		const u8 value8 = readTmem8BitColor(tmemOffset, s, i);
+		u32 oddRowXor =
+			debugAltTmem8OddXor()
+				? static_cast<u32>(i)
+				: (static_cast<u32>(i) << 1U);
+		if (debugTmem8UseXor13())
+			oddRowXor = (t & 1U) != 0U ? 3U : 1U;
+		if (debugTmem8UseLoadKindAwareXor()) {
+			if (_work.tmemLoadKind == static_cast<u8>(rvk2::TmemLoadKind::kTile))
+				oddRowXor = 0U;
+			else if (_work.tmemLoadKind == static_cast<u8>(rvk2::TmemLoadKind::kBlock))
+				oddRowXor = static_cast<u32>(i) << 1U;
+			else
+				oddRowXor = static_cast<u32>(i);
+		}
+		const u8 value8 = readTmem8BitColorWithXor(tmemOffset, s, oddRowXor);
 		switch (format) {
 		case 2U: { // CI8
 			u8 index = value8;
@@ -2253,7 +2346,12 @@ inline u32 samplePseudoTexelColor(
 	bool needsLUT = false;
 	u8 tmemReject = 0U;
 	u8 rdramReject = 0U;
-	const bool forceRdramPrimary = debugForceTextureRdramPrimary();
+	const bool copyCI8RdramProbe =
+		debugForceCopyCI8RdramPrimary()
+		&& _work.phase == static_cast<u8>(rvk2::RenderPhase::kCopy)
+		&& effectiveTextureFormat(_work) == 2U
+		&& effectiveTextureSize(_work) == 1U;
+	const bool forceRdramPrimary = debugForceTextureRdramPrimary() || copyCI8RdramProbe;
 
 	const auto finalizeTextureSample = [&](u32 _color, bool _needsLUT, u32 _sourceBit) -> u32 {
 		recordTextureSampleMode(_work, _needsLUT, _sampleSlot);
@@ -2396,7 +2494,8 @@ inline u32 pseudoTexel(
 	// In RDP copy mode the rectangle dsdx stream is specified at 4x horizontal scale.
 	// Normalize to the per-pixel domain before deriving texel coordinates.
 	s32 texDSDX = static_cast<s32>(_work.texDSDX);
-	if (_work.phase == static_cast<u8>(rvk2::RenderPhase::kCopy))
+	if (_work.phase == static_cast<u8>(rvk2::RenderPhase::kCopy)
+		&& !debugDisableCopyModeDSDXDiv4())
 		texDSDX /= 4;
 
 	const s32 dx = static_cast<s32>(_x) - static_cast<s32>(_work.rectULX);
@@ -2429,7 +2528,9 @@ inline u32 pseudoTexel(
 		_work.tileULT,
 		_work.tileLRT,
 		clampAllowed);
-	const u8 filterMode = decodeTextureFilterMode(_work);
+	const bool copyPhase =
+		_work.phase == static_cast<u8>(rvk2::RenderPhase::kCopy);
+	const u8 filterMode = copyPhase ? 0U : decodeTextureFilterMode(_work);
 	if (filterMode == 0U)
 		return samplePseudoTexelColor(
 			_work,
@@ -4576,25 +4677,37 @@ void writeRect(
 				blenderColor,
 				finalColor);
 			const u64 writeLuma = static_cast<u64>(lumaFromRGBA(writeColor));
-			const u32 encodedWriteColor = encodeSurfaceColor(writeColor, _work.colorImageSize);
+			u32 encodedWriteColor = encodeSurfaceColor(writeColor, _work.colorImageSize);
 			const u32 previousEncodedColor = _surface.pixels[colorIdx];
-			if ((previousEncodedColor & 0x00FFFFFFU) != 0U
-				&& (encodedWriteColor & 0x00FFFFFFU) == 0U) {
+			const bool overwriteToBlack =
+				(previousEncodedColor & 0x00FFFFFFU) != 0U
+				&& (encodedWriteColor & 0x00FFFFFFU) == 0U;
+			const bool preserveTexRectNonBlack =
+				overwriteToBlack
+				&& _work.opKind == static_cast<u8>(rvk2::RasterOpKind::kTexRect)
+				&& debugPreserveTexRectNonBlackOverwrites();
+			if (overwriteToBlack) {
 				++_summary.writeOverwriteToBlackCount;
 				if (_work.opKind == static_cast<u8>(rvk2::RasterOpKind::kTexRect))
 					++_summary.writeTexRectOverwriteToBlackCount;
 			}
-				_surface.pixels[colorIdx] = encodedWriteColor;
-				if (!_surface.writeMask.empty())
-					_surface.writeMask[colorIdx] = 1U;
-				if (!_surface.coverage.empty())
-					_surface.coverage[colorIdx] = static_cast<u8>(resolvedCoverage & 0x7U);
-				if (!_surface.hiddenCoverage.empty())
-					_surface.hiddenCoverage[colorIdx] = resolvedHiddenCoverage ? 1U : 0U;
-			_summary.outputLumaSum += writeLuma;
+			if (preserveTexRectNonBlack)
+				encodedWriteColor = previousEncodedColor;
+			_surface.pixels[colorIdx] = encodedWriteColor;
+			if (!_surface.writeMask.empty())
+				_surface.writeMask[colorIdx] = 1U;
+			if (!_surface.coverage.empty())
+				_surface.coverage[colorIdx] = static_cast<u8>(resolvedCoverage & 0x7U);
+			if (!_surface.hiddenCoverage.empty())
+				_surface.hiddenCoverage[colorIdx] = resolvedHiddenCoverage ? 1U : 0U;
+			const u32 effectiveWriteColor = preserveTexRectNonBlack ? previousEncodedColor : writeColor;
+			const u64 effectiveWriteLuma = preserveTexRectNonBlack
+				? static_cast<u64>(lumaFromRGBA(previousEncodedColor))
+				: writeLuma;
+			_summary.outputLumaSum += effectiveWriteLuma;
 			if (_work.opKind == static_cast<u8>(rvk2::RasterOpKind::kTexRect)) {
-				_summary.writeTexRectLumaSum += writeLuma;
-				if ((writeColor & 0x00FFFFFFU) != 0U)
+				_summary.writeTexRectLumaSum += effectiveWriteLuma;
+				if ((effectiveWriteColor & 0x00FFFFFFU) != 0U)
 					++_summary.writeTexRectNonBlackCount;
 			}
 			++_summary.colorWriteCount;
