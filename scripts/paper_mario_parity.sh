@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${ROOT_DIR}/scripts/lib/validation.sh"
 source "${ROOT_DIR}/scripts/lib/compare_view.sh"
+source "${ROOT_DIR}/scripts/lib/paper_mario_parity_env.sh"
 MANIFEST="${REALITYVK_PM_MANIFEST:-${ROOT_DIR}/tests/smoke/scenarios.tsv}"
 SCENARIO_ID="${REALITYVK_PM_SCENARIO_ID:-paper_mario_intro}"
 
@@ -19,6 +20,8 @@ KNOB_TRACK_ENABLE="${REALITYVK_PM_KNOB_TRACK_ENABLE:-1}"
 KNOB_TRACK_WINDOW="${REALITYVK_PM_KNOB_TRACK_WINDOW:-20}"
 KNOB_TRACK_SUMMARY_LIMIT="${REALITYVK_PM_KNOB_TRACK_SUMMARY_LIMIT:-12}"
 KNOB_TRACK_FILE="${REALITYVK_PM_KNOB_TRACK_FILE:-${RUN_ROOT}/knob-history.tsv}"
+DRY_RUN="${REALITYVK_PM_DRY_RUN:-0}"
+DRY_RUN_OUT="${REALITYVK_PM_DRY_RUN_OUT:-${RUN_ROOT}/${SCENARIO_ID}.dry-run.json}"
 
 REFRESH_REFERENCE="${REALITYVK_PM_REFRESH_REFERENCE:-0}"
 VISUAL_GATE="${REALITYVK_PM_VISUAL_GATE:-1}"
@@ -146,6 +149,7 @@ rvk2_require_enum "REALITYVK_PM_PROFILE" "${PROFILE}" "basic" "deep"
 rvk2_require_bool "REALITYVK_PM_KNOB_TRACK_ENABLE" "${KNOB_TRACK_ENABLE}"
 rvk2_require_uint_ge "REALITYVK_PM_KNOB_TRACK_WINDOW" "${KNOB_TRACK_WINDOW}" 1
 rvk2_require_uint_ge "REALITYVK_PM_KNOB_TRACK_SUMMARY_LIMIT" "${KNOB_TRACK_SUMMARY_LIMIT}" 1
+rvk2_require_bool "REALITYVK_PM_DRY_RUN" "${DRY_RUN}"
 
 if [[ "${CAPTURE_DEPTH_SUMMARY}" != "0" && "${CAPTURE_DEPTH_SUMMARY}" != "1" ]]; then
   echo "ERROR: REALITYVK_PM_CAPTURE_DEPTH_SUMMARY must be 0 or 1." >&2
@@ -459,6 +463,7 @@ DEEP_ARCHIVE_DIR="${DEEP_TELEMETRY_ARCHIVE_ROOT}/${DEEP_ARCHIVE_RUN_ID}"
 KNOB_SNAPSHOT_OUT="${RUN_ROOT}/${SCENARIO_ID}.knobs.${DEEP_ARCHIVE_RUN_STAMP}.${DEEP_ARCHIVE_GIT_SHA}.json"
 KNOB_SNAPSHOT_LATEST_OUT="${RUN_ROOT}/${SCENARIO_ID}.knobs.latest.json"
 KNOB_FINGERPRINT=""
+DRY_RUN_CAPTURE_RECORDS_FILE="${RUN_ROOT}/${SCENARIO_ID}.dry-run.captures.${DEEP_ARCHIVE_RUN_STAMP}.jsonl"
 
 SCENARIO_ARGS_ARRAY=()
 if [[ -n "${SCENARIO_ARGS// }" ]]; then
@@ -590,67 +595,127 @@ capture_plugin() {
     "REALITYVK_SMOKE_LAUNCH_WITH_PTY=${LAUNCH_WITH_PTY}"
   )
   if [[ "${label}" == "candidate" && "${DEEP_TELEMETRY}" == "1" ]]; then
-    run_env+=(
-      "REALITYVK_SMOKE_LAUNCH_LOG=${CANDIDATE_LAUNCH_LOG_OUT}"
-      "REALITYVK_SMOKE_REQUIRE_READBACK_MARKER=1"
-      "REALITYVK_SMOKE_READBACK_MARKER_REGEX=VK readback debug: kind=(pixel|color)"
-      "REALITYVK2_TRACE_FILE=${CANDIDATE_TRACE_OUT}"
-      "REALITYVK2_CAPTURE_RDP_TRACE=1"
-      "REALITYVK2_PACKET_TRACE_FILE=${CANDIDATE_PACKET_TRACE_OUT}"
-      "REALITYVK2_FRAME_FORENSICS_FILE=${CANDIDATE_FRAME_FORENSICS_OUT}"
-      "REALITYVK_VK_TRACE_FBO=1"
-      "REALITYVK_VK_TRACE_FBO_LIMIT=${DEEP_TELEMETRY_FBO_TRACE_LIMIT}"
-      "REALITYVK_VK_DEBUG_READBACK=1"
-      "REALITYVK_VK_DEBUG_READBACK_LIMIT=${DEEP_TELEMETRY_READBACK_LIMIT}"
-      "REALITYVK_RVK2_DEBUG_TMEM32_COMPARE=1"
-    )
-    if [[ "${DEEP_TELEMETRY_TRACE_LOG_SUMMARY}" == "1" ]]; then
-      run_env+=("REALITYVK2_TRACE_LOG_SUMMARY=1")
-    fi
-    if [[ "${DEEP_TELEMETRY_HISTORY_MERGE_LOG}" == "1" ]]; then
-      run_env+=("REALITYVK_RVK2_DEBUG_HISTORY_MERGE_LOG=${CANDIDATE_HISTORY_MERGE_LOG_OUT}")
-    fi
-    if [[ "${DEEP_TELEMETRY_OVERWRITE_LOG}" == "1" ]]; then
-      run_env+=("REALITYVK_RVK2_DEBUG_OVERWRITE_LOG=${CANDIDATE_OVERWRITE_LOG_OUT}")
-      run_env+=("REALITYVK_RVK2_DEBUG_OVERWRITE_LOG_LIMIT=${DEEP_TELEMETRY_OVERWRITE_LOG_LIMIT}")
-      run_env+=("REALITYVK_RVK2_DEBUG_OVERWRITE_LOG_INCLUDE_BLACK_WRITES=${DEEP_TELEMETRY_OVERWRITE_LOG_INCLUDE_BLACK_WRITES}")
-      run_env+=("REALITYVK_RVK2_DEBUG_OVERWRITE_LOG_INCLUDE_ALL_WRITES=${DEEP_TELEMETRY_OVERWRITE_LOG_INCLUDE_ALL_WRITES}")
-      run_env+=("REALITYVK_RVK2_DEBUG_OVERWRITE_LOG_INCLUDE_TEXEL_DETAIL=${DEEP_TELEMETRY_OVERWRITE_LOG_INCLUDE_TEXEL_DETAIL}")
-      if [[ -n "${DEEP_TELEMETRY_OVERWRITE_LOG_PACKET_IDS_EFFECTIVE}" ]]; then
-        run_env+=("REALITYVK_RVK2_DEBUG_OVERWRITE_LOG_PACKET_IDS=${DEEP_TELEMETRY_OVERWRITE_LOG_PACKET_IDS_EFFECTIVE}")
-      fi
-      if [[ -n "${DEEP_TELEMETRY_OVERWRITE_LOG_PACKET_MIN}" ]]; then
-        run_env+=("REALITYVK_RVK2_DEBUG_OVERWRITE_LOG_PACKET_MIN=${DEEP_TELEMETRY_OVERWRITE_LOG_PACKET_MIN}")
-      fi
-      if [[ -n "${DEEP_TELEMETRY_OVERWRITE_LOG_PACKET_MAX}" ]]; then
-        run_env+=("REALITYVK_RVK2_DEBUG_OVERWRITE_LOG_PACKET_MAX=${DEEP_TELEMETRY_OVERWRITE_LOG_PACKET_MAX}")
-      fi
-      if [[ -n "${DEEP_TELEMETRY_OVERWRITE_LOG_WORK_MIN}" ]]; then
-        run_env+=("REALITYVK_RVK2_DEBUG_OVERWRITE_LOG_WORK_MIN=${DEEP_TELEMETRY_OVERWRITE_LOG_WORK_MIN}")
-      fi
-      if [[ -n "${DEEP_TELEMETRY_OVERWRITE_LOG_WORK_MAX}" ]]; then
-        run_env+=("REALITYVK_RVK2_DEBUG_OVERWRITE_LOG_WORK_MAX=${DEEP_TELEMETRY_OVERWRITE_LOG_WORK_MAX}")
-      fi
-    fi
-    if [[ "${DEEP_TELEMETRY_TRIANGLE_PACKET_LOG}" == "1" ]]; then
-      run_env+=("REALITYVK_RVK2_DEBUG_TRIANGLE_PACKET_LOG=${CANDIDATE_TRIANGLE_PACKET_LOG_OUT}")
-      run_env+=("REALITYVK_RVK2_DEBUG_TRIANGLE_PACKET_LOG_LIMIT=${DEEP_TELEMETRY_TRIANGLE_PACKET_LOG_LIMIT}")
-    fi
-    if [[ "${DEEP_TELEMETRY_EXECUTOR_PRESENT_DUMP}" == "1" ]]; then
-      run_env+=("REALITYVK_RVK2_DEBUG_EXECUTOR_PRESENT_DUMP=${CANDIDATE_EXECUTOR_PRESENT_DUMP_OUT}")
-      run_env+=("REALITYVK_RVK2_DEBUG_EXECUTOR_PRESENT_DUMP_FRAME=${DEEP_TELEMETRY_EXECUTOR_PRESENT_DUMP_FRAME}")
-    fi
+    rvk2_pm_append_candidate_deep_telemetry_env run_env
   fi
   if [[ "${label}" == "candidate" ]]; then
-    run_env+=(
-      "REALITYVK_RVK2_DEBUG_ENABLE_SURFACE_HISTORY_BOOTSTRAP=${RVK2_ENABLE_SURFACE_HISTORY_BOOTSTRAP}"
-      "REALITYVK_RVK2_DEBUG_ENABLE_CROSS_SURFACE_BOOTSTRAP=${RVK2_ENABLE_CROSS_SURFACE_BOOTSTRAP}"
-      "REALITYVK_RVK2_DEBUG_DISABLE_VI_HISTORY_PRESENT=${RVK2_DISABLE_VI_HISTORY_PRESENT}"
-      "REALITYVK_RVK2_DEBUG_PREFER_LIVE_SURFACE_OVER_HISTORY=${RVK2_PREFER_LIVE_SURFACE_OVER_HISTORY}"
+    rvk2_pm_append_candidate_debug_env run_env
+  fi
+  if [[ "${DRY_RUN}" == "1" ]]; then
+    python3 - \
+      "${DRY_RUN_CAPTURE_RECORDS_FILE}" \
+      "${label}" \
+      "${out_path}" \
+      "__RVK2_CMD_BEGIN__" \
+      "${cmd[@]}" \
+      "__RVK2_ENV_BEGIN__" \
+      "${run_env[@]}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+records_path = Path(sys.argv[1])
+label = sys.argv[2]
+out_path = sys.argv[3]
+tokens = sys.argv[4:]
+
+cmd_marker = "__RVK2_CMD_BEGIN__"
+env_marker = "__RVK2_ENV_BEGIN__"
+if cmd_marker not in tokens or env_marker not in tokens:
+    raise SystemExit("missing dry-run capture markers")
+
+cmd_start = tokens.index(cmd_marker) + 1
+env_start = tokens.index(env_marker)
+cmd = tokens[cmd_start:env_start]
+env = tokens[env_start + 1 :]
+
+records_path.parent.mkdir(parents=True, exist_ok=True)
+with records_path.open("a", encoding="utf-8") as handle:
+    handle.write(
+        json.dumps(
+            {
+                "label": label,
+                "out_path": out_path,
+                "command": cmd,
+                "env": env,
+            }
+        )
+        + "\n"
     )
+PY
+    return 0
   fi
 
   env "${run_env[@]}" "${cmd[@]}"
+}
+
+emit_dry_run_plan_and_exit() {
+  python3 - \
+    "${DRY_RUN_CAPTURE_RECORDS_FILE}" \
+    "${DRY_RUN_OUT}" \
+    "${SCENARIO_ID}" \
+    "${PROFILE}" \
+    "${DEEP_TELEMETRY}" \
+    "${CAPTURE_METHOD_TAG}" \
+    "${REFERENCE_CAPTURE}" \
+    "${CANDIDATE_CAPTURE}" \
+    "${ROM_PATH}" \
+    "${FRAMES}" \
+    "${KNOB_FINGERPRINT}" \
+    "${KNOB_SNAPSHOT_OUT}" \
+    "${DEEP_ARCHIVE_GIT_SHA}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+records_path = Path(sys.argv[1])
+out_path = Path(sys.argv[2])
+scenario_id = sys.argv[3]
+profile = sys.argv[4]
+deep_telemetry = int(sys.argv[5])
+capture_method_tag = sys.argv[6]
+reference_capture = sys.argv[7]
+candidate_capture = sys.argv[8]
+rom_path = sys.argv[9]
+frames = int(sys.argv[10])
+knob_fingerprint = sys.argv[11]
+knob_snapshot = sys.argv[12]
+git_sha = sys.argv[13]
+
+captures = []
+if records_path.is_file():
+    for line in records_path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            row = json.loads(line)
+        except Exception:
+            continue
+        if isinstance(row, dict):
+            captures.append(row)
+
+payload = {
+    "dry_run": True,
+    "scenario_id": scenario_id,
+    "profile": profile,
+    "deep_telemetry": deep_telemetry,
+    "capture_method_tag": capture_method_tag,
+    "git_sha": git_sha,
+    "rom_path": rom_path,
+    "frames": frames,
+    "reference_capture": reference_capture,
+    "candidate_capture": candidate_capture,
+    "knob_fingerprint": knob_fingerprint or None,
+    "knob_snapshot": knob_snapshot,
+    "captures": captures,
+}
+
+out_path.parent.mkdir(parents=True, exist_ok=True)
+out_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+print(out_path)
+PY
+  echo "dry run plan: ${DRY_RUN_OUT}"
+  exit 0
 }
 
 capture_has_content() {
@@ -738,7 +803,8 @@ archive_deep_telemetry_run() {
   done
 
   if [[ -n "${DEVIATION_OUT_DIR}" && -d "${DEVIATION_OUT_DIR}" ]]; then
-    local deviation_archive_dir="${DEEP_ARCHIVE_DIR}/telemetry/$(basename "${DEVIATION_OUT_DIR}")"
+    local deviation_archive_dir
+    deviation_archive_dir="${DEEP_ARCHIVE_DIR}/telemetry/$(basename "${DEVIATION_OUT_DIR}")"
     mkdir -p "${deviation_archive_dir}"
     cp -a "${DEVIATION_OUT_DIR}/." "${deviation_archive_dir}/"
   fi
@@ -1110,6 +1176,9 @@ record_knob_history() {
 resolve_overwrite_packet_ids_from_latest_focus
 track_knob_fingerprint
 echo "profile: ${PROFILE}"
+if [[ "${DRY_RUN}" == "1" ]]; then
+  rm -f "${DRY_RUN_CAPTURE_RECORDS_FILE}"
+fi
 
 if [[ "${REFRESH_REFERENCE}" == "1" || ! -s "${REFERENCE_CAPTURE}" ]]; then
   if [[ ! -f "${REFERENCE_PLUGIN}" ]]; then
@@ -1140,6 +1209,9 @@ echo "    plugin: ${CANDIDATE_PLUGIN}"
 echo "    core:   ${CANDIDATE_CORELIB}"
 echo "    capture:${CAPTURE_METHOD_TAG} (dumpfb-preset)"
 capture_plugin "candidate" "${CANDIDATE_PLUGIN}" "${CANDIDATE_CAPTURE}"
+if [[ "${DRY_RUN}" == "1" ]]; then
+  emit_dry_run_plan_and_exit
+fi
 
 python3 - "${CAPTURE_CONTEXT_OUT}" \
   "${SCENARIO_ID}" \

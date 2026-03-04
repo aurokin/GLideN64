@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "${ROOT_DIR}/scripts/lib/validation.sh"
 BUILD_ROOT="${ROOT_DIR}/build/local-gate"
 JOBS="${REALITYVK_GATE_JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || echo 4)}"
 WITH_SMOKE="${REALITYVK_GATE_WITH_SMOKE:-0}"
@@ -23,12 +24,14 @@ SMOKE_DEEP_TELEMETRY_REPLAY_STRICT="${REALITYVK_GATE_SMOKE_DEEP_TELEMETRY_REPLAY
 SMOKE_DEEP_TELEMETRY_REPLAY_JOBS="${REALITYVK_GATE_SMOKE_DEEP_TELEMETRY_REPLAY_JOBS:-${RVK2_TRACE_REPLAY_JOBS}}"
 RUN_RVK2_UNIT_TESTS="${REALITYVK_GATE_RUN_RVK2_UNIT_TESTS:-1}"
 RUN_RVK2_CONFORMANCE_TESTS="${REALITYVK_GATE_RUN_RVK2_CONFORMANCE_TESTS:-1}"
+RUN_SCRIPT_TESTS="${REALITYVK_GATE_RUN_SCRIPT_TESTS:-1}"
 TX_PACK_DIR="${REALITYVK_GATE_TX_PACK_DIR:-}"
 TX_PACK_INDEX="${REALITYVK_GATE_TX_PACK_INDEX:-}"
 TX_PACK_REQUIRE_COVERAGE="${REALITYVK_GATE_TX_PACK_REQUIRE_COVERAGE:-0}"
 TX_PACK_ALLOW_EMPTY="${REALITYVK_GATE_TX_PACK_ALLOW_EMPTY:-0}"
 TX_PACK_ALLOW_ABSOLUTE_PATHS="${REALITYVK_GATE_TX_PACK_ALLOW_ABSOLUTE_PATHS:-0}"
 TX_PACK_VALIDATE="${REALITYVK_GATE_TX_PACK_VALIDATE:-}"
+RUN_SHELLCHECK="${REALITYVK_GATE_RUN_SHELLCHECK:-1}"
 if [[ -z "${TX_PACK_VALIDATE}" ]]; then
   if [[ -n "${TX_PACK_DIR}" ]]; then
     TX_PACK_VALIDATE=1
@@ -42,30 +45,27 @@ if ! command -v cmake >/dev/null 2>&1; then
   exit 127
 fi
 
-if [[ "${SMOKE_DEEP_TELEMETRY}" != "0" && "${SMOKE_DEEP_TELEMETRY}" != "1" ]]; then
-  echo "ERROR: REALITYVK_GATE_SMOKE_DEEP_TELEMETRY must be 0 or 1." >&2
-  exit 2
-fi
-
-if [[ "${SMOKE_DEEP_TELEMETRY_REPLAY_STRICT}" != "0" && "${SMOKE_DEEP_TELEMETRY_REPLAY_STRICT}" != "1" ]]; then
-  echo "ERROR: REALITYVK_GATE_SMOKE_DEEP_TELEMETRY_REPLAY_STRICT must be 0 or 1." >&2
-  exit 2
-fi
-
-if [[ "${SMOKE_DEEP_TELEMETRY_REPLAY_STATEFUL}" != "0" && "${SMOKE_DEEP_TELEMETRY_REPLAY_STATEFUL}" != "1" ]]; then
-  echo "ERROR: REALITYVK_GATE_SMOKE_DEEP_TELEMETRY_REPLAY_STATEFUL must be 0 or 1." >&2
-  exit 2
-fi
-
-if [[ "${SMOKE_DEEP_TELEMETRY_REUSE_REPLAY_REPORT}" != "0" && "${SMOKE_DEEP_TELEMETRY_REUSE_REPLAY_REPORT}" != "1" ]]; then
-  echo "ERROR: REALITYVK_GATE_SMOKE_DEEP_TELEMETRY_REUSE_REPLAY_REPORT must be 0 or 1." >&2
-  exit 2
-fi
-
-if ! [[ "${SMOKE_DEEP_TELEMETRY_REPLAY_JOBS}" =~ ^[0-9]+$ ]]; then
-  echo "ERROR: REALITYVK_GATE_SMOKE_DEEP_TELEMETRY_REPLAY_JOBS must be an integer >= 0." >&2
-  exit 2
-fi
+rvk2_require_bool "REALITYVK_GATE_WITH_SMOKE" "${WITH_SMOKE}"
+rvk2_require_bool "REALITYVK_GATE_SMOKE_REQUIRE_READBACK_MARKER" "${SMOKE_REQUIRE_READBACK_MARKER}"
+rvk2_require_bool "REALITYVK_GATE_SMOKE_REQUIRE_NO_DEPTH_BLIT_FAIL" "${SMOKE_REQUIRE_NO_DEPTH_BLIT_FAIL}"
+rvk2_require_bool "REALITYVK_GATE_SMOKE_REQUIRE_DEPTH_BLIT_STATS" "${SMOKE_REQUIRE_DEPTH_BLIT_STATS}"
+rvk2_require_bool "REALITYVK_GATE_SMOKE_CAPTURE_DEPTH_SUMMARY" "${SMOKE_CAPTURE_DEPTH_SUMMARY}"
+rvk2_require_bool "REALITYVK_GATE_SMOKE_DEEP_TELEMETRY" "${SMOKE_DEEP_TELEMETRY}"
+rvk2_require_bool "REALITYVK_GATE_SMOKE_DEEP_TELEMETRY_REPLAY_STATEFUL" "${SMOKE_DEEP_TELEMETRY_REPLAY_STATEFUL}"
+rvk2_require_bool "REALITYVK_GATE_SMOKE_DEEP_TELEMETRY_REUSE_REPLAY_REPORT" "${SMOKE_DEEP_TELEMETRY_REUSE_REPLAY_REPORT}"
+rvk2_require_bool "REALITYVK_GATE_RVK2_TRACE_REPLAY" "${WITH_RVK2_TRACE_REPLAY}"
+rvk2_require_bool "REALITYVK_GATE_RVK2_TRACE_REPLAY_STRICT" "${RVK2_TRACE_REPLAY_STRICT}"
+rvk2_require_bool "REALITYVK_GATE_SMOKE_DEEP_TELEMETRY_REPLAY_STRICT" "${SMOKE_DEEP_TELEMETRY_REPLAY_STRICT}"
+rvk2_require_bool "REALITYVK_GATE_RUN_RVK2_UNIT_TESTS" "${RUN_RVK2_UNIT_TESTS}"
+rvk2_require_bool "REALITYVK_GATE_RUN_RVK2_CONFORMANCE_TESTS" "${RUN_RVK2_CONFORMANCE_TESTS}"
+rvk2_require_bool "REALITYVK_GATE_RUN_SCRIPT_TESTS" "${RUN_SCRIPT_TESTS}"
+rvk2_require_bool "REALITYVK_GATE_TX_PACK_REQUIRE_COVERAGE" "${TX_PACK_REQUIRE_COVERAGE}"
+rvk2_require_bool "REALITYVK_GATE_TX_PACK_ALLOW_EMPTY" "${TX_PACK_ALLOW_EMPTY}"
+rvk2_require_bool "REALITYVK_GATE_TX_PACK_ALLOW_ABSOLUTE_PATHS" "${TX_PACK_ALLOW_ABSOLUTE_PATHS}"
+rvk2_require_bool "REALITYVK_GATE_TX_PACK_VALIDATE" "${TX_PACK_VALIDATE}"
+rvk2_require_bool "REALITYVK_GATE_RUN_SHELLCHECK" "${RUN_SHELLCHECK}"
+rvk2_require_uint_ge "REALITYVK_GATE_SMOKE_DEEP_TELEMETRY_REPLAY_JOBS" "${SMOKE_DEEP_TELEMETRY_REPLAY_JOBS}" 0
+rvk2_require_uint_ge "REALITYVK_GATE_RVK2_TRACE_REPLAY_JOBS" "${RVK2_TRACE_REPLAY_JOBS}" 0
 
 validate_doc_links() {
   local removed_paths=(
@@ -100,6 +100,43 @@ validate_doc_links() {
   if [[ "${stale_found}" == "1" ]]; then
     exit 1
   fi
+}
+
+run_shellcheck() {
+  if [[ "${RUN_SHELLCHECK}" != "1" ]]; then
+    return
+  fi
+  if ! command -v shellcheck >/dev/null 2>&1; then
+    echo "ERROR: shellcheck is required when REALITYVK_GATE_RUN_SHELLCHECK=1." >&2
+    exit 127
+  fi
+
+  local -a files=(
+    "${ROOT_DIR}/scripts/local_gate.sh"
+    "${ROOT_DIR}/scripts/paper_mario_parity.sh"
+    "${ROOT_DIR}/scripts/paper_mario_smoke_runner.sh"
+    "${ROOT_DIR}/scripts/paper_mario_compare_view.sh"
+    "${ROOT_DIR}/scripts/lib/validation.sh"
+    "${ROOT_DIR}/scripts/lib/compare_view.sh"
+    "${ROOT_DIR}/scripts/lib/paper_mario_parity_env.sh"
+  )
+  echo "==> [lint] Shellcheck"
+  shellcheck "${files[@]}"
+  echo "==> [lint] Shellcheck OK"
+}
+
+run_script_tests() {
+  if [[ "${RUN_SCRIPT_TESTS}" != "1" ]]; then
+    return
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "ERROR: python3 is required when REALITYVK_GATE_RUN_SCRIPT_TESTS=1." >&2
+    exit 127
+  fi
+
+  echo "==> [tests] Python script/unit tests"
+  python3 -m unittest discover -s "${ROOT_DIR}/tests/python" -p "test_*.py" -v
+  echo "==> [tests] Python script/unit tests OK"
 }
 
 configure_and_build() {
@@ -203,6 +240,8 @@ validate_texture_pack_index() {
 mkdir -p "${BUILD_ROOT}"
 validate_doc_links
 validate_texture_pack_index
+run_shellcheck
+run_script_tests
 
 configure_and_build "linux-release-cli" "Release"
 configure_and_build "linux-debug-cli" "Debug"
@@ -233,8 +272,13 @@ if [[ "${WITH_SMOKE}" == "1" ]]; then
   fi
 
   echo "==> [smoke] Run Paper Mario visual compare"
+  smoke_profile="basic"
+  if [[ "${SMOKE_DEEP_TELEMETRY}" == "1" ]]; then
+    smoke_profile="deep"
+  fi
   smoke_env=(
     REALITYVK_PM_CANDIDATE_PLUGIN="${smoke_plugin_path}"
+    REALITYVK_PM_PROFILE="${smoke_profile}"
   )
   if [[ "${SMOKE_DEEP_TELEMETRY}" == "1" ]]; then
     mkdir -p "${SMOKE_DEEP_TELEMETRY_ROOT}"
