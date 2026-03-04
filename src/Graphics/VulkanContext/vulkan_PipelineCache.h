@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include <functional>
 #include "vulkan_DrawRecorder.h"
+#include "vulkan_Env.h"
 
 #ifndef REALITYVK_INTERNAL_HAS_VULKAN_HEADERS
 #if __has_include(<vulkan/vulkan.h>)
@@ -213,12 +214,12 @@ private:
 	PipelineKey _buildKey(const DrawPacket & _packet) const
 	{
 		PipelineKey key{};
-		static const bool forceBlendOff = std::getenv("REALITYVK_VK_DEBUG_FORCE_BLEND_OFF") != nullptr;
-		static const bool forceAlphaBlend = std::getenv("REALITYVK_VK_DEBUG_FORCE_ALPHA_BLEND") != nullptr;
-		static const bool forceDepthTest = std::getenv("REALITYVK_VK_DEBUG_FORCE_DEPTH_TEST") != nullptr;
-		static const bool forceDepthWrite = std::getenv("REALITYVK_VK_DEBUG_FORCE_DEPTH_WRITE") != nullptr;
-		static const bool disableFillDepthOnlyBlendFix = std::getenv("REALITYVK_VK_DISABLE_FILL_DEPTH_ONLY_BLEND_FIX") != nullptr;
-		static const bool debugFillDepthOnlyBlendFix = std::getenv("REALITYVK_VK_DEBUG_FILL_DEPTH_ONLY_BLEND_FIX") != nullptr;
+		static const bool forceBlendOff = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_FORCE_BLEND_OFF", false);
+		static const bool forceAlphaBlend = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_FORCE_ALPHA_BLEND", false);
+		static const bool forceDepthTest = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_FORCE_DEPTH_TEST", false);
+		static const bool forceDepthWrite = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_FORCE_DEPTH_WRITE", false);
+		static const bool disableFillDepthOnlyBlendFix = vulkan::env::flagEnabled("REALITYVK_VK_DISABLE_FILL_DEPTH_ONLY_BLEND_FIX", false);
+		static const bool debugFillDepthOnlyBlendFix = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_FILL_DEPTH_ONLY_BLEND_FIX", false);
 		static u32 debugFillDepthOnlyBlendFixCount = 0U;
 		key.primitive = _packet.primitive;
 		if (forceAlphaBlend) {

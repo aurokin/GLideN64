@@ -8,6 +8,8 @@
 #include <PaletteTexture.h>
 #include <gDP.h>
 
+#include "vulkan_Env.h"
+
 namespace vulkan {
 namespace special_programs {
 
@@ -233,9 +235,9 @@ bool isTexrectClearProgram(const graphics::CombinerProgram * _combiner)
 
 void applyRectSpecialProgramState(const graphics::CombinerProgram * _combiner, vulkan::DrawPacket & _packet)
 {
-	static const bool disableSpecialTexrect = std::getenv("REALITYVK_VK_DISABLE_SPECIAL_TEXRECT") != nullptr;
-	static const bool disableSpecialGamma = std::getenv("REALITYVK_VK_DISABLE_SPECIAL_GAMMA") != nullptr;
-	static const bool disableSpecialFXAA = std::getenv("REALITYVK_VK_DISABLE_SPECIAL_FXAA") != nullptr;
+	static const bool disableSpecialTexrect = vulkan::env::flagEnabled("REALITYVK_VK_DISABLE_SPECIAL_TEXRECT", false);
+	static const bool disableSpecialGamma = vulkan::env::flagEnabled("REALITYVK_VK_DISABLE_SPECIAL_GAMMA", false);
+	static const bool disableSpecialFXAA = vulkan::env::flagEnabled("REALITYVK_VK_DISABLE_SPECIAL_FXAA", false);
 
 	const auto * texrectDrawProgram = dynamic_cast<const VulkanTexrectDrawerShaderProgram *>(_combiner);
 	if (texrectDrawProgram != nullptr && !disableSpecialTexrect) {

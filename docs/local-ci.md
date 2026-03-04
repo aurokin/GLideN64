@@ -115,5 +115,5 @@ python3 scripts/rvk2_packet_trace_replay.py \
 - Runtime path is `rvk2` only.
 - Trace/packet schema tag is `rvk2_schema_v1`.
 - Trace controls:
-  - `REALITYVK2_TRACE_FILE`
-  - `REALITYVK2_PACKET_TRACE_FILE`
+  - `REALITYVK_RVK2_TRACE_FILE` (legacy alias: `REALITYVK2_TRACE_FILE`)
+  - `REALITYVK_RVK2_PACKET_TRACE_FILE` (legacy alias: `REALITYVK2_PACKET_TRACE_FILE`)

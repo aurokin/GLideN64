@@ -335,6 +335,16 @@ void appendDebugEntry(std::vector<std::string> & _out, const char * _key, const 
 	_out.push_back(std::move(entry));
 }
 
+inline void appendBoolDebugEntry(
+	std::vector<std::string> & _out,
+	const char * _key,
+	bool _value,
+	bool _defaultValue)
+{
+	if (_value != _defaultValue)
+		appendDebugEntry(_out, _key, _value ? "1" : "0");
+}
+
 bool shouldLogActiveDebugToggles()
 {
 	static const bool enabled = rvk2::envFlagEnabled("REALITYVK_RVK2_DEBUG_LOG_ACTIVE", true);
@@ -378,6 +388,97 @@ void collectActiveDebugToggles(std::vector<std::string> & _out)
 		appendDebugEntry(_out, "REALITYVK_RVK2_DEBUG_TRIANGLE_SAMPLE_X_SUBPIXEL_BIAS", raw);
 	if (const char * raw = rvk2::envStringOrNull("REALITYVK_RVK2_DEBUG_TEXTURE_BUCKET_MASK"))
 		appendDebugEntry(_out, "REALITYVK_RVK2_DEBUG_TEXTURE_BUCKET_MASK", raw);
+
+	appendBoolDebugEntry(
+		_out,
+		"REALITYVK_RVK2_PRESENT_FLIP_Y",
+		rvk2::envFlagEnabled("REALITYVK_RVK2_PRESENT_FLIP_Y", true),
+		true);
+	appendBoolDebugEntry(
+		_out,
+		"REALITYVK_RVK2_SHADOW_DRAW",
+		rvk2::envFlagEnabled("REALITYVK_RVK2_SHADOW_DRAW", false),
+		false);
+	appendBoolDebugEntry(
+		_out,
+		"REALITYVK_RVK2_SHADOW_PRESENT",
+		rvk2::envFlagEnabled("REALITYVK_RVK2_SHADOW_PRESENT", false),
+		false);
+	appendBoolDebugEntry(
+		_out,
+		"REALITYVK_RVK2_DEBUG_DISABLE_SAME_FRAME_PRESENT_ACCUM",
+		rvk2::envFlagEnabled("REALITYVK_RVK2_DEBUG_DISABLE_SAME_FRAME_PRESENT_ACCUM", false),
+		false);
+
+	appendBoolDebugEntry(
+		_out,
+		"REALITYVK_RVK2_DEBUG_DISABLE_VI_ORIGIN_OFFSET",
+		rvk2::envFlagEnabled("REALITYVK_RVK2_DEBUG_DISABLE_VI_ORIGIN_OFFSET", false),
+		false);
+	const bool enableVIPixelAdvance =
+		rvk2::envFlagEnabled("REALITYVK_RVK2_DEBUG_ENABLE_VI_PIXEL_ADVANCE", false);
+	const bool disableVIPixelAdvance =
+		rvk2::envFlagEnabled("REALITYVK_RVK2_DEBUG_DISABLE_VI_PIXEL_ADVANCE", false);
+	appendBoolDebugEntry(
+		_out,
+		"REALITYVK_RVK2_DEBUG_ENABLE_VI_PIXEL_ADVANCE",
+		enableVIPixelAdvance,
+		false);
+	appendBoolDebugEntry(
+		_out,
+		"REALITYVK_RVK2_DEBUG_DISABLE_VI_PIXEL_ADVANCE",
+		disableVIPixelAdvance,
+		false);
+	if (enableVIPixelAdvance || disableVIPixelAdvance) {
+		appendDebugEntry(
+			_out,
+			"REALITYVK_RVK2_DEBUG_VI_PIXEL_ADVANCE_EFFECTIVE",
+			(enableVIPixelAdvance && !disableVIPixelAdvance) ? "1" : "0");
+	}
+	if (const char * viAspect = rvk2::envStringOrNullWithFallback(
+		"REALITYVK_RVK2_VI_ASPECT",
+		"REALITYVK2_VI_ASPECT")) {
+		appendDebugEntry(_out, "REALITYVK_RVK2_VI_ASPECT", viAspect);
+	}
+
+	if (const char * tracePath = rvk2::envStringOrNullWithFallback(
+		"REALITYVK_RVK2_TRACE_FILE",
+		"REALITYVK2_TRACE_FILE")) {
+		appendDebugEntry(_out, "REALITYVK_RVK2_TRACE_FILE", tracePath);
+	}
+	if (const char * packetTracePath = rvk2::envStringOrNullWithFallback(
+		"REALITYVK_RVK2_PACKET_TRACE_FILE",
+		"REALITYVK2_PACKET_TRACE_FILE")) {
+		appendDebugEntry(_out, "REALITYVK_RVK2_PACKET_TRACE_FILE", packetTracePath);
+	}
+	if (const char * forensicsPath = rvk2::envStringOrNullWithFallback(
+		"REALITYVK_RVK2_FRAME_FORENSICS_FILE",
+		"REALITYVK2_FRAME_FORENSICS_FILE")) {
+		appendDebugEntry(_out, "REALITYVK_RVK2_FRAME_FORENSICS_FILE", forensicsPath);
+	}
+	appendBoolDebugEntry(
+		_out,
+		"REALITYVK_RVK2_TRACE_LOG_SUMMARY",
+		rvk2::envFlagEnabledWithFallback(
+			"REALITYVK_RVK2_TRACE_LOG_SUMMARY",
+			"REALITYVK2_TRACE_LOG_SUMMARY",
+			false),
+		false);
+
+	appendBoolDebugEntry(
+		_out,
+		"REALITYVK_VK_TRACE_FBO",
+		rvk2::envFlagEnabled("REALITYVK_VK_TRACE_FBO", false),
+		false);
+	appendBoolDebugEntry(
+		_out,
+		"REALITYVK_VK_DEBUG_READBACK",
+		rvk2::envFlagEnabled("REALITYVK_VK_DEBUG_READBACK", false),
+		false);
+	if (const char * raw = rvk2::envStringOrNull("REALITYVK_VK_TRACE_FBO_LIMIT"))
+		appendDebugEntry(_out, "REALITYVK_VK_TRACE_FBO_LIMIT", raw);
+	if (const char * raw = rvk2::envStringOrNull("REALITYVK_VK_DEBUG_READBACK_LIMIT"))
+		appendDebugEntry(_out, "REALITYVK_VK_DEBUG_READBACK_LIMIT", raw);
 }
 
 void logActiveDebugTogglesOnce()

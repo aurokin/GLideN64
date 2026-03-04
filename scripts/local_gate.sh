@@ -298,7 +298,7 @@ if [[ "${WITH_SMOKE}" == "1" ]]; then
     if [[ "${SMOKE_DEEP_TELEMETRY}" != "1" ]]; then
       smoke_env+=(
         REALITYVK2_CAPTURE_RDP_TRACE=1
-        REALITYVK2_PACKET_TRACE_FILE="${RVK2_TRACE_FILE}"
+        REALITYVK_RVK2_PACKET_TRACE_FILE="${RVK2_TRACE_FILE}"
       )
     fi
   fi

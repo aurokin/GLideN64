@@ -87,6 +87,7 @@ class PaperMarioParityDryRunTests(unittest.TestCase):
         self.assertEqual(int(payload.get("deep_telemetry", -1)), 0)
 
         candidate_env = self._capture_env(payload, "candidate")
+        self.assertFalse(any(item.startswith("REALITYVK_RVK2_TRACE_FILE=") for item in candidate_env))
         self.assertFalse(any(item.startswith("REALITYVK2_TRACE_FILE=") for item in candidate_env))
 
     def test_deep_profile_defaults_to_deep_telemetry(self):
@@ -95,7 +96,7 @@ class PaperMarioParityDryRunTests(unittest.TestCase):
         self.assertEqual(int(payload.get("deep_telemetry", -1)), 1)
 
         candidate_env = self._capture_env(payload, "candidate")
-        self.assertTrue(any(item.startswith("REALITYVK2_TRACE_FILE=") for item in candidate_env))
+        self.assertTrue(any(item.startswith("REALITYVK_RVK2_TRACE_FILE=") for item in candidate_env))
 
     def test_explicit_deep_telemetry_override_wins(self):
         payload = self._run_dry("deep", deep_override="0")
@@ -103,6 +104,7 @@ class PaperMarioParityDryRunTests(unittest.TestCase):
         self.assertEqual(int(payload.get("deep_telemetry", -1)), 0)
 
         candidate_env = self._capture_env(payload, "candidate")
+        self.assertFalse(any(item.startswith("REALITYVK_RVK2_TRACE_FILE=") for item in candidate_env))
         self.assertFalse(any(item.startswith("REALITYVK2_TRACE_FILE=") for item in candidate_env))
 
 

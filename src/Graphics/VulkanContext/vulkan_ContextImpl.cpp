@@ -26,6 +26,7 @@
 #include "vulkan_PacketBuilder.h"
 #include "vulkan_PacketNormalize.h"
 #include "vulkan_SpecialPrograms.h"
+#include "vulkan_Env.h"
 
 namespace {
 
@@ -104,10 +105,10 @@ ReadbackDebugStats computeReadbackDebugStats(
 
 void attachPacketBindings(const vulkan::BindingState & _bindingState, vulkan::DrawPacket & _packet)
 {
-	static const bool debugBindings = std::getenv("REALITYVK_VK_DEBUG_BINDINGS") != nullptr;
-	static const bool forceUntextured = std::getenv("REALITYVK_VK_DEBUG_FORCE_UNTEXTURED") != nullptr;
-	static const bool forceTexture0Only = std::getenv("REALITYVK_VK_DEBUG_FORCE_TEXTURE0_ONLY") != nullptr;
-	static const bool forceTexturedNoSample = std::getenv("REALITYVK_VK_DEBUG_FORCE_TEXTURED_NO_SAMPLE") != nullptr;
+	static const bool debugBindings = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_BINDINGS", false);
+	static const bool forceUntextured = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_FORCE_UNTEXTURED", false);
+	static const bool forceTexture0Only = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_FORCE_TEXTURE0_ONLY", false);
+	static const bool forceTexturedNoSample = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_FORCE_TEXTURED_NO_SAMPLE", false);
 	static const char * forcedTextureHandleEnv = std::getenv("REALITYVK_VK_DEBUG_FORCE_TEXTURE_HANDLE");
 	static const u32 forcedTextureHandle = forcedTextureHandleEnv != nullptr && forcedTextureHandleEnv[0] != '\0'
 		? static_cast<u32>(std::strtoul(forcedTextureHandleEnv, nullptr, 10))
@@ -286,9 +287,9 @@ void attachPacketBindings(const vulkan::BindingState & _bindingState, vulkan::Dr
 
 void normalizePacketTextureCoordinates(const vulkan::TextureStore & _textureStore, vulkan::DrawPacket & _packet)
 {
-	static const bool debugBindings = std::getenv("REALITYVK_VK_DEBUG_BINDINGS") != nullptr;
-	static const bool disableNormalize = std::getenv("REALITYVK_VK_DISABLE_TEXCOORD_NORMALIZE") != nullptr;
-	static const bool enableFixedPointTexcoordScale = std::getenv("REALITYVK_VK_ENABLE_TEXCOORD_FIXEDPOINT_SCALE") != nullptr;
+	static const bool debugBindings = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_BINDINGS", false);
+	static const bool disableNormalize = vulkan::env::flagEnabled("REALITYVK_VK_DISABLE_TEXCOORD_NORMALIZE", false);
+	static const bool enableFixedPointTexcoordScale = vulkan::env::flagEnabled("REALITYVK_VK_ENABLE_TEXCOORD_FIXEDPOINT_SCALE", false);
 	if (disableNormalize)
 		return;
 
@@ -431,13 +432,13 @@ const char * bufferAttachmentName(graphics::BufferAttachmentParam _attachment)
 
 bool isVkFboTraceEnabled()
 {
-	static const bool traceEnabled = std::getenv("REALITYVK_VK_TRACE_FBO") != nullptr;
+	static const bool traceEnabled = vulkan::env::flagEnabled("REALITYVK_VK_TRACE_FBO", false);
 	return traceEnabled;
 }
 
 bool isVkFboTraceVerboseEnabled()
 {
-	static const bool traceVerboseEnabled = std::getenv("REALITYVK_VK_TRACE_FBO_VERBOSE") != nullptr;
+	static const bool traceVerboseEnabled = vulkan::env::flagEnabled("REALITYVK_VK_TRACE_FBO_VERBOSE", false);
 	return traceVerboseEnabled;
 }
 
@@ -1089,7 +1090,7 @@ void ContextImpl::bindTexture(const graphics::Context::BindTextureParameters & _
 #if REALITYVK_VULKAN_HEADERS_AVAILABLE
 	if (!m_vk)
 		return;
-	static const bool debugBindings = std::getenv("REALITYVK_VK_DEBUG_BINDINGS") != nullptr;
+	static const bool debugBindings = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_BINDINGS", false);
 	if (debugBindings) {
 		static u32 debugBindTextureLogCount = 0U;
 		if (debugBindTextureLogCount < 64U) {
@@ -1635,7 +1636,7 @@ bool ContextImpl::readScreen2(void * _dest, int _width, int _height, int _front)
 	return false;
 #else
 	(void)_front;
-	static const bool debugReadScreen = std::getenv("REALITYVK_VK_DEBUG_READSCREEN") != nullptr;
+	static const bool debugReadScreen = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_READSCREEN", false);
 	if (_dest == nullptr || _width <= 0 || _height <= 0)
 		return false;
 	if (!m_coreReady || !m_vk)
@@ -1964,7 +1965,7 @@ graphics::PixelReadBuffer * ContextImpl::createPixelReadBuffer(size_t _sizeInByt
 			}
 			if (rowBytes == 0U || bytesPerPixel == 0U || (rowBytes % bytesPerPixel) != 0U)
 				return false;
-			static const bool debugReadback = std::getenv("REALITYVK_VK_DEBUG_READBACK") != nullptr;
+			static const bool debugReadback = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_READBACK", false);
 			if (debugReadback) {
 				static u32 readbackLogCount = 0U;
 				static const u32 readbackLogLimit = []() -> u32 {
@@ -2069,7 +2070,7 @@ graphics::ColorBufferReader * ContextImpl::createColorBufferReader(CachedTexture
 			}
 			if (rowBytes == 0U || bytesPerPixel == 0U || (rowBytes % bytesPerPixel) != 0U)
 				return false;
-			static const bool debugReadback = std::getenv("REALITYVK_VK_DEBUG_READBACK") != nullptr;
+			static const bool debugReadback = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_READBACK", false);
 			if (debugReadback) {
 				static u32 readbackLogCount = 0U;
 				static const u32 readbackLogLimit = []() -> u32 {
@@ -2683,7 +2684,7 @@ bool ContextImpl::executeOffscreenDrawPacket(const DrawPacket & _packet, graphic
 				normalizePacket.state.raster.viewportWidth = static_cast<s32>(renderExtent.width);
 				normalizePacket.state.raster.viewportHeight = static_cast<s32>(renderExtent.height);
 				normalizePacket.state.raster.viewportValid = true;
-			static const bool forceOffscreenRasterRectTransform = std::getenv("REALITYVK_VK_FORCE_OFFSCREEN_RASTER_RECT_TRANSFORM") != nullptr;
+			static const bool forceOffscreenRasterRectTransform = vulkan::env::flagEnabled("REALITYVK_VK_FORCE_OFFSCREEN_RASTER_RECT_TRANSFORM", false);
 				normalizePacket.forceRasterRectTransform = forceOffscreenRasterRectTransform
 					&& normalizePacket.transformMode == vulkan::VertexTransformMode::Rect;
 			std::vector<DrawVertex> normalizedVertices;
@@ -2753,7 +2754,7 @@ bool ContextImpl::executeOffscreenDrawPacket(const DrawPacket & _packet, graphic
 
 		m_vk->descriptorBinder.beginFrame(m_vk->frameSyncIndex);
 		DrawPacket packetCopy = _packet;
-		static const bool disableStrictOffscreen = std::getenv("REALITYVK_VK_STRICT_OFFSCREEN_DISABLE") != nullptr;
+		static const bool disableStrictOffscreen = vulkan::env::flagEnabled("REALITYVK_VK_STRICT_OFFSCREEN_DISABLE", false);
 		if (disableStrictOffscreen) {
 			packetCopy.shaderFlags &= ~vulkan::draw_shader_flags::kSpecialStrictBlendMux;
 			packetCopy.blendMux1Packed = 0U;
@@ -2761,7 +2762,7 @@ bool ContextImpl::executeOffscreenDrawPacket(const DrawPacket & _packet, graphic
 			packetCopy.blendParamsPacked = 0U;
 		}
 		packetCopy.vertices = std::move(normalizedVertices);
-		static const bool debugFlipRtTexrectY = std::getenv("REALITYVK_VK_DEBUG_FLIP_RT_TEXRECT_Y") != nullptr;
+		static const bool debugFlipRtTexrectY = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_FLIP_RT_TEXRECT_Y", false);
 		if (debugFlipRtTexrectY
 			&& packetCopy.debugTexrect
 			&& !packetCopy.vertices.empty()) {
@@ -2782,7 +2783,7 @@ bool ContextImpl::executeOffscreenDrawPacket(const DrawPacket & _packet, graphic
 				}
 			}
 		}
-		static const bool debugFlipOffscreenTexrectY = std::getenv("REALITYVK_VK_DEBUG_FLIP_OFFSCREEN_TEXRECT_Y") != nullptr;
+		static const bool debugFlipOffscreenTexrectY = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_FLIP_OFFSCREEN_TEXRECT_Y", false);
 		static const u32 debugFlipOffscreenTexrectHandle = []() -> u32 {
 			const char * env = std::getenv("REALITYVK_VK_DEBUG_FLIP_OFFSCREEN_TEXRECT_HANDLE");
 			if (env == nullptr || env[0] == '\0')
@@ -2812,7 +2813,7 @@ bool ContextImpl::executeOffscreenDrawPacket(const DrawPacket & _packet, graphic
 				}
 			}
 		}
-		static const bool debugFlipOffscreenTexrectPosY = std::getenv("REALITYVK_VK_DEBUG_FLIP_OFFSCREEN_TEXRECT_POS_Y") != nullptr;
+		static const bool debugFlipOffscreenTexrectPosY = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_FLIP_OFFSCREEN_TEXRECT_POS_Y", false);
 		if (debugFlipOffscreenTexrectPosY
 			&& packetCopy.debugSource == kPacketSourceRects
 			&& packetCopy.debugTexrect
@@ -2820,7 +2821,7 @@ bool ContextImpl::executeOffscreenDrawPacket(const DrawPacket & _packet, graphic
 			for (DrawVertex & vertex : packetCopy.vertices)
 				vertex.y = -vertex.y;
 		}
-		static const bool debugFlipOffscreenFillRectPosY = std::getenv("REALITYVK_VK_DEBUG_FLIP_OFFSCREEN_FILLRECT_POS_Y") != nullptr;
+		static const bool debugFlipOffscreenFillRectPosY = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_FLIP_OFFSCREEN_FILLRECT_POS_Y", false);
 		if (debugFlipOffscreenFillRectPosY
 			&& packetCopy.debugSource == kPacketSourceRects
 			&& !packetCopy.debugTexrect
@@ -2828,14 +2829,14 @@ bool ContextImpl::executeOffscreenDrawPacket(const DrawPacket & _packet, graphic
 			for (DrawVertex & vertex : packetCopy.vertices)
 				vertex.y = -vertex.y;
 		}
-		static const bool debugFlipOffscreenTriangleY = std::getenv("REALITYVK_VK_DEBUG_FLIP_OFFSCREEN_TRIANGLE_Y") != nullptr;
+		static const bool debugFlipOffscreenTriangleY = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_FLIP_OFFSCREEN_TRIANGLE_Y", false);
 		if (debugFlipOffscreenTriangleY
 			&& packetCopy.transformMode == vulkan::VertexTransformMode::Triangle
 			&& !packetCopy.vertices.empty()) {
 			for (DrawVertex & vertex : packetCopy.vertices)
 				vertex.y = -vertex.y;
 		}
-		static const bool debugPaintOffscreenTriangles = std::getenv("REALITYVK_VK_DEBUG_PAINT_OFFSCREEN_TRIANGLES") != nullptr;
+		static const bool debugPaintOffscreenTriangles = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_PAINT_OFFSCREEN_TRIANGLES", false);
 		if (debugPaintOffscreenTriangles
 			&& packetCopy.transformMode == vulkan::VertexTransformMode::Triangle
 			&& !packetCopy.vertices.empty()) {
@@ -2851,7 +2852,7 @@ bool ContextImpl::executeOffscreenDrawPacket(const DrawPacket & _packet, graphic
 				vertex.a = 1.0f;
 			}
 		}
-		static const bool debugPaintOffscreenTexrects = std::getenv("REALITYVK_VK_DEBUG_PAINT_OFFSCREEN_TEXRECTS") != nullptr;
+		static const bool debugPaintOffscreenTexrects = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_PAINT_OFFSCREEN_TEXRECTS", false);
 		if (debugPaintOffscreenTexrects
 			&& packetCopy.transformMode == vulkan::VertexTransformMode::Rect
 			&& packetCopy.debugTexrect
@@ -2874,7 +2875,7 @@ bool ContextImpl::executeOffscreenDrawPacket(const DrawPacket & _packet, graphic
 			packetCopy.state.raster.viewportHeight = static_cast<s32>(renderExtent.height);
 			packetCopy.state.raster.viewportValid = true;
 			packetCopy.dirtyMask |= draw_dirty::kViewport;
-		static const bool debugOffscreen = std::getenv("REALITYVK_VK_DEBUG_OFFSCREEN") != nullptr;
+		static const bool debugOffscreen = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_OFFSCREEN", false);
 		static const u32 debugTraceRtHandle = []() -> u32 {
 			const char * env = std::getenv("REALITYVK_VK_DEBUG_TRACE_RT_HANDLE");
 			if (env == nullptr || env[0] == '\0')
@@ -3343,8 +3344,8 @@ bool ContextImpl::present()
 					bool appliedRtTexrectFlip = false;
 					u32 appliedRtTexrectFlipSlotMask = 0U;
 
-					static const bool autoFlipRtTexrectY = std::getenv("REALITYVK_VK_DISABLE_RT_TEXRECT_Y_FLIP") == nullptr;
-					static const bool debugFlipRtTexrectY = std::getenv("REALITYVK_VK_DEBUG_FLIP_RT_TEXRECT_Y") != nullptr;
+					static const bool autoFlipRtTexrectY = !vulkan::env::flagEnabled("REALITYVK_VK_DISABLE_RT_TEXRECT_Y_FLIP", false);
+					static const bool debugFlipRtTexrectY = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_FLIP_RT_TEXRECT_Y", false);
 					static const u32 debugFlipRtTexrectHandle = []() -> u32 {
 						const char * env = std::getenv("REALITYVK_VK_DEBUG_FLIP_RT_TEXRECT_HANDLE");
 						if (env == nullptr || env[0] == '\0')
@@ -3385,7 +3386,7 @@ bool ContextImpl::present()
 						}
 					}
 
-					static const bool debugFlipPresentTexrectY = std::getenv("REALITYVK_VK_DEBUG_FLIP_PRESENT_TEXRECT_Y") != nullptr;
+					static const bool debugFlipPresentTexrectY = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_FLIP_PRESENT_TEXRECT_Y", false);
 					if (debugFlipPresentTexrectY
 						&& packetCopy.debugSource == kPacketSourceRects
 						&& packetCopy.debugTexrect
@@ -3405,8 +3406,8 @@ bool ContextImpl::present()
 							}
 						}
 					}
-					static const bool canonicalizeFinalRtTexrectPos = std::getenv("REALITYVK_VK_DISABLE_CANONICAL_FINAL_RT_TEXRECT_POS") == nullptr;
-					static const bool canonicalizeFinalRtTexrectUv = std::getenv("REALITYVK_VK_DISABLE_CANONICAL_FINAL_RT_TEXRECT_UV") == nullptr;
+					static const bool canonicalizeFinalRtTexrectPos = !vulkan::env::flagEnabled("REALITYVK_VK_DISABLE_CANONICAL_FINAL_RT_TEXRECT_POS", false);
+					static const bool canonicalizeFinalRtTexrectUv = !vulkan::env::flagEnabled("REALITYVK_VK_DISABLE_CANONICAL_FINAL_RT_TEXRECT_UV", false);
 					if (canonicalizeFinalRtTexrectPos
 						&& packetCopy.debugTexrect
 						&& packetIsFullscreen(packetCopy)
@@ -3478,7 +3479,7 @@ bool ContextImpl::present()
 				packetCopy.state.raster.viewportHeight = static_cast<s32>(m_vk->swapchainExtent.height);
 				packetCopy.state.raster.viewportValid = true;
 				packetCopy.dirtyMask |= draw_dirty::kViewport;
-				static const bool debugDisablePresentScissor = std::getenv("REALITYVK_VK_DEBUG_DISABLE_PRESENT_SCISSOR") != nullptr;
+				static const bool debugDisablePresentScissor = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_DISABLE_PRESENT_SCISSOR", false);
 				if (debugDisablePresentScissor) {
 					packetCopy.state.raster.scissorEnabled = false;
 					packetCopy.dirtyMask |= draw_dirty::kScissor;
@@ -3675,8 +3676,8 @@ bool ContextImpl::present()
 					static_cast<unsigned long long>(offscreenSkippedVertices()),
 					0U);
 			}
-				static const bool debugPresent = std::getenv("REALITYVK_VK_DEBUG_PRESENT") != nullptr;
-				static const bool debugPresentPackets = std::getenv("REALITYVK_VK_DEBUG_PRESENT_PACKETS") != nullptr;
+				static const bool debugPresent = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_PRESENT", false);
+				static const bool debugPresentPackets = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_PRESENT_PACKETS", false);
 				if (debugPresent) {
 				f32 minX = 0.0f;
 				f32 minY = 0.0f;
@@ -4009,13 +4010,13 @@ bool ContextImpl::present()
 
 bool ContextImpl::isSupported(graphics::SpecialFeatures _feature) const
 {
-	static const bool experimentalFetchBlendAll = std::getenv("REALITYVK_VK_EXPERIMENTAL_FETCH_BLEND") != nullptr;
+	static const bool experimentalFetchBlendAll = vulkan::env::flagEnabled("REALITYVK_VK_EXPERIMENTAL_FETCH_BLEND", false);
 	static const bool experimentalFetchDepth = experimentalFetchBlendAll
-		|| std::getenv("REALITYVK_VK_EXPERIMENTAL_FB_FETCH_DEPTH") != nullptr;
+		|| vulkan::env::flagEnabled("REALITYVK_VK_EXPERIMENTAL_FB_FETCH_DEPTH", false);
 	static const bool experimentalFetchColor = experimentalFetchBlendAll
-		|| std::getenv("REALITYVK_VK_EXPERIMENTAL_FB_FETCH_COLOR") != nullptr;
+		|| vulkan::env::flagEnabled("REALITYVK_VK_EXPERIMENTAL_FB_FETCH_COLOR", false);
 	static const bool experimentalDualSource = experimentalFetchBlendAll
-		|| std::getenv("REALITYVK_VK_EXPERIMENTAL_DUAL_SOURCE") != nullptr;
+		|| vulkan::env::flagEnabled("REALITYVK_VK_EXPERIMENTAL_DUAL_SOURCE", false);
 	switch (_feature) {
 	case graphics::SpecialFeatures::Multisampling:
 		return m_maxMsaaLevel > 1;

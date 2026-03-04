@@ -26,6 +26,7 @@
 #include "Log.h"
 #include "Graphics/RealityVK2/rvk2_Runtime.h"
 #include "Graphics/RealityVK2/rvk2_SyntheticTriangle.h"
+#include "Graphics/VulkanContext/vulkan_Env.h"
 
 using namespace graphics;
 
@@ -609,7 +610,7 @@ void GraphicsDrawer::setBlendMode(bool _forceBlendOverride) const
 	}
 
 	if (Context::DualSourceBlending && !isTexrectDrawerMode()) {
-		static const bool strictDualSourceBlend = std::getenv("REALITYVK_VK_STRICT_DUAL_SOURCE_BLEND") != nullptr;
+		static const bool strictDualSourceBlend = vulkan::env::flagEnabled("REALITYVK_VK_STRICT_DUAL_SOURCE_BLEND", false);
 		if (strictDualSourceBlend)
 			_dualSourceBlending();
 		else
@@ -618,7 +619,7 @@ void GraphicsDrawer::setBlendMode(bool _forceBlendOverride) const
 	}
 
 	if (Context::FramebufferFetchColor && !isTexrectDrawerMode()) {
-		static const bool strictFramebufferFetchColor = std::getenv("REALITYVK_VK_STRICT_FB_FETCH_COLOR") != nullptr;
+		static const bool strictFramebufferFetchColor = vulkan::env::flagEnabled("REALITYVK_VK_STRICT_FB_FETCH_COLOR", false);
 		if (strictFramebufferFetchColor)
 			gfxContext.enable(enable::BLEND, false);
 		else

@@ -9,6 +9,8 @@
 #include <gDP.h>
 #include <gSP.h>
 
+#include "vulkan_Env.h"
+
 namespace vulkan {
 namespace packet_normalize {
 
@@ -109,9 +111,9 @@ bool normalizeRectWithColorImageSpace(const vulkan::DrawVertex & _src, vulkan::D
 
 vulkan::DrawVertex normalizePacketVertex(const vulkan::DrawPacket & _packet, const vulkan::DrawVertex & _src)
 {
-	static const bool disablePositionNormalize = std::getenv("REALITYVK_VK_DISABLE_POSITION_NORMALIZE") != nullptr;
-	static const bool disableForceRasterRectTransform = std::getenv("REALITYVK_VK_DISABLE_FORCE_RASTER_RECT_TRANSFORM") != nullptr;
-	static const bool debugRectNormalize = std::getenv("REALITYVK_VK_DEBUG_RECT_NORMALIZE") != nullptr;
+	static const bool disablePositionNormalize = vulkan::env::flagEnabled("REALITYVK_VK_DISABLE_POSITION_NORMALIZE", false);
+	static const bool disableForceRasterRectTransform = vulkan::env::flagEnabled("REALITYVK_VK_DISABLE_FORCE_RASTER_RECT_TRANSFORM", false);
+	static const bool debugRectNormalize = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_RECT_NORMALIZE", false);
 	static const u32 debugRectNormalizeLimit = []() -> u32 {
 		const char * env = std::getenv("REALITYVK_VK_DEBUG_RECT_NORMALIZE_LIMIT");
 		if (env == nullptr || env[0] == '\0')
@@ -284,7 +286,7 @@ vulkan::DrawVertex normalizePacketVertex(const vulkan::DrawPacket & _packet, con
 
 void normalizePacketPositions(vulkan::DrawPacket & _packet)
 {
-	static const bool debugPositions = std::getenv("REALITYVK_VK_DEBUG_POSITIONS") != nullptr;
+	static const bool debugPositions = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_POSITIONS", false);
 	f32 preMinX = 0.0f;
 	f32 preMaxX = 0.0f;
 	f32 preMinY = 0.0f;

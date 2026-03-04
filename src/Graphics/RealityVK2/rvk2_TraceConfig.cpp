@@ -12,17 +12,24 @@ std::atomic<u64> g_traceFrameId{1ULL};
 
 const char * getTraceOutputPath()
 {
-	return rvk2::envStringOrNull("REALITYVK2_TRACE_FILE");
+	return rvk2::envStringOrNullWithFallback(
+		"REALITYVK_RVK2_TRACE_FILE",
+		"REALITYVK2_TRACE_FILE");
 }
 
 const char * getPacketTraceOutputPath()
 {
-	return rvk2::envStringOrNull("REALITYVK2_PACKET_TRACE_FILE");
+	return rvk2::envStringOrNullWithFallback(
+		"REALITYVK_RVK2_PACKET_TRACE_FILE",
+		"REALITYVK2_PACKET_TRACE_FILE");
 }
 
 bool shouldLogTraceSummary()
 {
-	return rvk2::envFlagEnabled("REALITYVK2_TRACE_LOG_SUMMARY", false);
+	return rvk2::envFlagEnabledWithFallback(
+		"REALITYVK_RVK2_TRACE_LOG_SUMMARY",
+		"REALITYVK2_TRACE_LOG_SUMMARY",
+		false);
 }
 
 u64 allocateTraceFrameId()

@@ -12,6 +12,7 @@
 #include <gDP.h>
 
 #include "vulkan_CombinerClassify.h"
+#include "vulkan_Env.h"
 
 namespace vulkan {
 namespace combiner {
@@ -20,7 +21,7 @@ namespace {
 
 bool isCombinerIntentTraceEnabled()
 {
-	static const bool enabled = std::getenv("REALITYVK_VK_TRACE_COMBINER_INTENT") != nullptr;
+	static const bool enabled = vulkan::env::flagEnabled("REALITYVK_VK_TRACE_COMBINER_INTENT", false);
 	return enabled;
 }
 
@@ -253,14 +254,14 @@ void applyDirectAlphaOverrideForTextured(CombinerDirectAlphaMode _alphaMode, boo
 
 void applyCombinerSolidColorOverride(const graphics::CombinerProgram * _combiner, vulkan::DrawPacket & _packet)
 {
-	static const bool disableCombinerSolidOverride = std::getenv("REALITYVK_VK_DISABLE_COMBINER_SOLID_OVERRIDE") != nullptr;
+	static const bool disableCombinerSolidOverride = vulkan::env::flagEnabled("REALITYVK_VK_DISABLE_COMBINER_SOLID_OVERRIDE", false);
 	if (disableCombinerSolidOverride)
 		return;
-	static const bool disableCombinerDirectOverride = std::getenv("REALITYVK_VK_DISABLE_COMBINER_DIRECT_OVERRIDE") != nullptr;
-	static const bool disableCombinerModulateOverride = std::getenv("REALITYVK_VK_DISABLE_COMBINER_MODULATE_OVERRIDE") != nullptr;
-	static const bool disableCombinerAddOverride = std::getenv("REALITYVK_VK_DISABLE_COMBINER_ADD_OVERRIDE") != nullptr;
-	static const bool disableCombinerAlphaScaleOverride = std::getenv("REALITYVK_VK_DISABLE_COMBINER_ALPHA_SCALE_OVERRIDE") != nullptr;
-	static const bool disableCombinerTwoCyclePostModulateOverride = std::getenv("REALITYVK_VK_DISABLE_COMBINER_TWO_CYCLE_POST_MODULATE_OVERRIDE") != nullptr;
+	static const bool disableCombinerDirectOverride = vulkan::env::flagEnabled("REALITYVK_VK_DISABLE_COMBINER_DIRECT_OVERRIDE", false);
+	static const bool disableCombinerModulateOverride = vulkan::env::flagEnabled("REALITYVK_VK_DISABLE_COMBINER_MODULATE_OVERRIDE", false);
+	static const bool disableCombinerAddOverride = vulkan::env::flagEnabled("REALITYVK_VK_DISABLE_COMBINER_ADD_OVERRIDE", false);
+	static const bool disableCombinerAlphaScaleOverride = vulkan::env::flagEnabled("REALITYVK_VK_DISABLE_COMBINER_ALPHA_SCALE_OVERRIDE", false);
+	static const bool disableCombinerTwoCyclePostModulateOverride = vulkan::env::flagEnabled("REALITYVK_VK_DISABLE_COMBINER_TWO_CYCLE_POST_MODULATE_OVERRIDE", false);
 
 	if (_combiner == nullptr || _packet.vertices.empty())
 		return;
@@ -303,8 +304,8 @@ void applyCombinerSolidColorOverride(const graphics::CombinerProgram * _combiner
 	static const u64 forceShadeRgbMux2 = parseDebugMuxEnv("REALITYVK_VK_DEBUG_FORCE_SHADE_RGB_MUX2");
 	static const u64 debugSkipMux = parseDebugMuxEnv("REALITYVK_VK_DEBUG_SKIP_MUX");
 	static const u64 debugSkipMux2 = parseDebugMuxEnv("REALITYVK_VK_DEBUG_SKIP_MUX2");
-	static const bool debugSkipMuxAlphaZeroOnly = std::getenv("REALITYVK_VK_DEBUG_SKIP_MUX_ALPHA_ZERO_ONLY") != nullptr;
-	static const bool debugSkipMuxAlphaNonZeroOnly = std::getenv("REALITYVK_VK_DEBUG_SKIP_MUX_ALPHA_NONZERO_ONLY") != nullptr;
+	static const bool debugSkipMuxAlphaZeroOnly = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_SKIP_MUX_ALPHA_ZERO_ONLY", false);
+	static const bool debugSkipMuxAlphaNonZeroOnly = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_SKIP_MUX_ALPHA_NONZERO_ONLY", false);
 	if (!(key == CombinerKey::getEmpty())) {
 		const u64 mux = key.getMux();
 		if ((debugSkipMux != 0ULL && mux == debugSkipMux)
@@ -355,7 +356,7 @@ void applyCombinerSolidColorOverride(const graphics::CombinerProgram * _combiner
 		addMode = CombinerConstantAddMode::kNone;
 	hasAlphaScaleInfo = alphaScaleInfo.valid && !disableCombinerAlphaScaleOverride;
 	hasTwoCyclePostModulateInfo = twoCyclePostModulateInfo.valid() && !disableCombinerTwoCyclePostModulateOverride;
-	static const bool debugCombinerOverrides = std::getenv("REALITYVK_VK_DEBUG_COMBINER_OVERRIDES") != nullptr;
+	static const bool debugCombinerOverrides = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_COMBINER_OVERRIDES", false);
 	if (debugCombinerOverrides && !(key == CombinerKey::getEmpty())) {
 		struct CombinerOverrideCounter {
 			u64 mux = 0ULL;
@@ -432,7 +433,7 @@ void applyCombinerSolidColorOverride(const graphics::CombinerProgram * _combiner
 		&& addMode == CombinerConstantAddMode::kNone
 		&& !hasAlphaScaleInfo
 		&& !hasTwoCyclePostModulateInfo) {
-		static const bool debugCombinerCoverage = std::getenv("REALITYVK_VK_DEBUG_COMBINER_COVERAGE") != nullptr;
+		static const bool debugCombinerCoverage = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_COMBINER_COVERAGE", false);
 		if (debugCombinerCoverage) {
 			struct UnhandledCombinerKeyCounter {
 				u64 mux = 0ULL;
@@ -658,7 +659,7 @@ void applyCombinerSolidColorOverride(const graphics::CombinerProgram * _combiner
 			b = gDP.envColor.b;
 			a = gDP.envColor.a;
 		}
-		static const bool debugModulateState = std::getenv("REALITYVK_VK_DEBUG_MODULATE_STATE") != nullptr;
+		static const bool debugModulateState = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_MODULATE_STATE", false);
 		if (debugModulateState && !(key == CombinerKey::getEmpty())) {
 			static u32 debugModulateLogCount = 0U;
 			static const u32 debugModulateLogLimit = []() -> u32 {

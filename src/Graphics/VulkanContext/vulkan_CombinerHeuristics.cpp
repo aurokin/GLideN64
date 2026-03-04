@@ -13,6 +13,7 @@
 
 #include "vulkan_CombinerDecode.h"
 #include "vulkan_DrawRecorder.h"
+#include "vulkan_Env.h"
 
 namespace vulkan {
 namespace combiner {
@@ -109,8 +110,8 @@ graphics::CombinerProgram * createInferredCombinerProgram(const CombinerKey & _k
 
 u32 resolveShaderFlags(const graphics::CombinerProgram * _combiner, bool _defaultShade, bool _defaultTexture0)
 {
-	static const bool forceShade = std::getenv("REALITYVK_VK_DEBUG_FORCE_SHADE") != nullptr;
-	static const bool debugCombiners = std::getenv("REALITYVK_VK_DEBUG_COMBINERS") != nullptr;
+	static const bool forceShade = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_FORCE_SHADE", false);
+	static const bool debugCombiners = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_COMBINERS", false);
 	u32 flags = _defaultShade ? vulkan::draw_shader_flags::kShade : 0U;
 	if (_defaultTexture0)
 		flags |= vulkan::draw_shader_flags::kTexture0;

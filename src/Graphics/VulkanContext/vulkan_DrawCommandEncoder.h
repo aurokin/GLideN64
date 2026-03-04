@@ -8,6 +8,7 @@
 #include "vulkan_DescriptorBinder.h"
 #include "vulkan_DrawRecorder.h"
 #include "vulkan_DrawShaderConfig.h"
+#include "vulkan_Env.h"
 #include "vulkan_PipelineCache.h"
 #include <Log.h>
 
@@ -64,15 +65,15 @@ public:
 		u32 drawnPackets = 0;
 		u32 zeroScissorPackets = 0;
 		u32 texturedPackets = 0;
-			static const bool debugEncoder = std::getenv("REALITYVK_VK_DEBUG_ENCODER") != nullptr;
-			static const bool debugBlendState = std::getenv("REALITYVK_VK_DEBUG_BLEND_STATE") != nullptr;
+			static const bool debugEncoder = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_ENCODER", false);
+			static const bool debugBlendState = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_BLEND_STATE", false);
 			static const u32 debugBlendStateLimit = []() -> u32 {
 				const char * env = std::getenv("REALITYVK_VK_DEBUG_BLEND_STATE_LIMIT");
 				if (env == nullptr || env[0] == '\0')
 					return 96U;
 				return static_cast<u32>(std::strtoul(env, nullptr, 10));
 			}();
-			static const bool debugStrictBlendState = std::getenv("REALITYVK_VK_DEBUG_STRICT_BLEND_STATE") != nullptr;
+			static const bool debugStrictBlendState = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_STRICT_BLEND_STATE", false);
 		static const u32 debugStrictBlendStateLimit = []() -> u32 {
 			const char * env = std::getenv("REALITYVK_VK_DEBUG_STRICT_BLEND_STATE_LIMIT");
 			if (env == nullptr || env[0] == '\0')

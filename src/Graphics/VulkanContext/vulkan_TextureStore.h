@@ -21,6 +21,7 @@
 #endif
 
 #include "vulkan_TextureUploader.h"
+#include "vulkan_Env.h"
 
 namespace vulkan {
 
@@ -155,7 +156,7 @@ public:
 			LOG(LOG_WARNING, "Unsupported Vulkan texture format combination; texture init skipped.");
 			return;
 		}
-		static const bool debugTextureInit = std::getenv("REALITYVK_VK_DEBUG_TEXTURE_INIT") != nullptr;
+		static const bool debugTextureInit = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_TEXTURE_INIT", false);
 		if (debugTextureInit) {
 			LOG(
 				LOG_WARNING,
@@ -175,7 +176,7 @@ public:
 			return;
 		_ensureTextureSampler(texture);
 
-		static const bool debugUploads = std::getenv("REALITYVK_VK_DEBUG_TEXTURE_UPLOAD") != nullptr;
+		static const bool debugUploads = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_TEXTURE_UPLOAD", false);
 		if (_params.data != nullptr && texture.width > 0 && texture.height > 0) {
 			TextureUploader::UploadRequest uploadRequest{};
 			uploadRequest.width = _params.width;
@@ -297,7 +298,7 @@ public:
 		TextureResource & texture = it->second;
 		if (texture.image == VK_NULL_HANDLE)
 			return;
-		static const bool debugTextureInit = std::getenv("REALITYVK_VK_DEBUG_TEXTURE_INIT") != nullptr;
+		static const bool debugTextureInit = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_TEXTURE_INIT", false);
 		if (debugTextureInit) {
 			LOG(
 				LOG_WARNING,
@@ -342,7 +343,7 @@ public:
 				texture.contentHeight = std::max(texture.contentHeight, static_cast<u32>(std::min<u64>(bottom, texture.height)));
 			}
 		}
-		static const bool debugUploads = std::getenv("REALITYVK_VK_DEBUG_TEXTURE_UPLOAD") != nullptr;
+		static const bool debugUploads = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_TEXTURE_UPLOAD", false);
 		if (debugUploads) {
 			static u32 updateLogCount = 0U;
 			if (updateLogCount < 256U) {

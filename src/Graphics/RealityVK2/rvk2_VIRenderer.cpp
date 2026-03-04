@@ -75,6 +75,13 @@ bool debugEnableVIPixelAdvance()
 	return enabled;
 }
 
+bool shouldApplyVIPixelAdvance()
+{
+	// Disable has precedence so agents can quickly nullify the path without
+	// editing run profiles that still carry enable=1.
+	return debugEnableVIPixelAdvance() && !debugDisableVIPixelAdvance();
+}
+
 inline u32 clampU32(u32 _value, u32 _minimum, u32 _maximum)
 {
 	if (_value < _minimum)
@@ -412,7 +419,7 @@ VIResolvedState resolveVIState(
 	// Most reference implementations effectively ignore VI pixel advance in scanout
 	// for common game paths (including Paper Mario title). Keep it off by default
 	// and allow opt-in for focused experiments.
-	if (!debugEnableVIPixelAdvance() || debugDisableVIPixelAdvance())
+	if (!shouldApplyVIPixelAdvance())
 		state.pixelAdvance = 0U;
 	const u32 viWidth = _input.registers.width & 0x0FFFU;
 	if (viWidth == 0U) {
@@ -475,7 +482,10 @@ VIRendererConfig loadVIRendererConfigFromEnv()
 	VIRendererConfig config{};
 	u8 aspectX = config.aspectX;
 	u8 aspectY = config.aspectY;
-	if (parseAspect(std::getenv("REALITYVK2_VI_ASPECT"), aspectX, aspectY)) {
+	if (parseAspect(
+		rvk2::envStringOrNullWithFallback("REALITYVK_RVK2_VI_ASPECT", "REALITYVK2_VI_ASPECT"),
+		aspectX,
+		aspectY)) {
 		config.aspectX = aspectX;
 		config.aspectY = aspectY;
 	}

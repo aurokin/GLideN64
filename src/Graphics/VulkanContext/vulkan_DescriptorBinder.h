@@ -7,6 +7,7 @@
 #include <Log.h>
 #include "vulkan_DescriptorLayoutRegistry.h"
 #include "vulkan_DrawRecorder.h"
+#include "vulkan_Env.h"
 #include "vulkan_TextureStore.h"
 
 #ifndef REALITYVK_INTERNAL_HAS_VULKAN_HEADERS
@@ -85,7 +86,7 @@ public:
 		if (descriptorSet == VK_NULL_HANDLE)
 			return false;
 
-		static const bool debugBindings = std::getenv("REALITYVK_VK_DEBUG_BINDINGS") != nullptr;
+		static const bool debugBindings = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_BINDINGS", false);
 		std::array<VkWriteDescriptorSet, DescriptorLayoutRegistry::kTextureBindingCount> writes{};
 		std::array<VkDescriptorImageInfo, DescriptorLayoutRegistry::kTextureBindingCount> imageInfos{};
 		u32 writeCount = 0;

@@ -8,6 +8,8 @@
 #include <Log.h>
 #include <gDP.h>
 
+#include "vulkan_Env.h"
+
 namespace vulkan {
 namespace blendmux {
 
@@ -43,8 +45,8 @@ u32 packBlendParams(bool _texrect)
 
 bool shouldEnableStrictBlendMux(bool _texrect)
 {
-	static const bool strictDualSource = std::getenv("REALITYVK_VK_STRICT_DUAL_SOURCE_BLEND") != nullptr;
-	static const bool strictFramebufferFetchColor = std::getenv("REALITYVK_VK_STRICT_FB_FETCH_COLOR") != nullptr;
+	static const bool strictDualSource = vulkan::env::flagEnabled("REALITYVK_VK_STRICT_DUAL_SOURCE_BLEND", false);
+	static const bool strictFramebufferFetchColor = vulkan::env::flagEnabled("REALITYVK_VK_STRICT_FB_FETCH_COLOR", false);
 	if (_texrect)
 		return false;
 	if (gDP.otherMode.cycleType >= G_CYC_COPY)
@@ -54,7 +56,7 @@ bool shouldEnableStrictBlendMux(bool _texrect)
 
 bool isBlendMuxTraceEnabled()
 {
-	static const bool enabled = std::getenv("REALITYVK_VK_TRACE_BLEND_MUX") != nullptr;
+	static const bool enabled = vulkan::env::flagEnabled("REALITYVK_VK_TRACE_BLEND_MUX", false);
 	return enabled;
 }
 
@@ -213,7 +215,7 @@ void applyStrictBlendMuxPacketState(bool _texrect, vulkan::DrawPacket & _packet)
 
 	traceBlendMuxIntent(_packet, _texrect, _packet.blendMux1Packed, _packet.blendMux2Packed, _packet.blendParamsPacked, "applied");
 
-	static const bool debugStrictBlendMux = std::getenv("REALITYVK_VK_DEBUG_STRICT_BLEND_MUX") != nullptr;
+	static const bool debugStrictBlendMux = vulkan::env::flagEnabled("REALITYVK_VK_DEBUG_STRICT_BLEND_MUX", false);
 	if (debugStrictBlendMux) {
 		struct StrictBlendMuxCounter {
 			u32 mux1 = 0U;
