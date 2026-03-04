@@ -725,6 +725,18 @@ bool debugPreferLiveSurfaceOverHistory()
 	return parseBooleanToken(raw, parsed) ? parsed : true;
 }
 
+bool debugKeepVIMatchedHistorySelection()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_KEEP_VI_MATCHED_HISTORY_SELECTION");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
 bool debugEnableSurfaceHistoryBootstrap()
 {
 	static const bool enabled = []() -> bool {
@@ -7289,7 +7301,9 @@ ExecutorOutput Executor::executeWithOutput(
 					: kExecutorPresentSelectionPreviousSurface;
 		}
 	}
-	if (historyIt != m_surfaceHistory.end() && debugPreferLiveSurfaceOverHistory()) {
+	if (historyIt != m_surfaceHistory.end()
+		&& debugPreferLiveSurfaceOverHistory()
+		&& !(viOriginMatchedSurface && debugKeepVIMatchedHistorySelection())) {
 		const auto selectedLiveWriteIt = surfaceColorWrites.find(presentSurfaceAddress);
 		const bool selectedHasLiveWrites =
 			selectedLiveWriteIt != surfaceColorWrites.end()
