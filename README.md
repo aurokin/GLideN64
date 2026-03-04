@@ -34,12 +34,15 @@ cmake --build build/release-vulkan-smoke -j$(nproc)
 
 ```bash
 REALITYVK_GATE_WITH_SMOKE=1 ./scripts/local_gate.sh
+REALITYVK_GATE_WITH_SMOKE=1 REALITYVK_GATE_SMOKE_DEEP_TELEMETRY=1 ./scripts/local_gate.sh
 ```
 
 ## Core Maintainer Commands
 
 ```bash
 ./scripts/paper_mario_parity.sh
+REALITYVK_PM_PROFILE=basic ./scripts/paper_mario_parity.sh
+REALITYVK_PM_PROFILE=deep ./scripts/paper_mario_parity.sh
 ./scripts/local_smoke.sh
 ./scripts/paper_mario_compare_view.sh
 
@@ -64,6 +67,8 @@ python3 scripts/rvk2_packet_trace_replay.py \
 
 - `docs/README.md`
 - `docs/local-ci.md`
+- `docs/workflow.md`
+- `docs/status.md`
 - `docs/references/n64/README.md`
 
 ## License

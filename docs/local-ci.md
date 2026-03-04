@@ -6,25 +6,28 @@
 ./scripts/local_gate.sh
 ```
 
-Runs:
-- release build
-- debug build
+Default gate stages:
+- stale-doc reference validation
+- shellcheck (`REALITYVK_GATE_RUN_SHELLCHECK=1`)
+- Python script tests (`REALITYVK_GATE_RUN_SCRIPT_TESTS=1`)
+- release build + debug build
 - `rvk2_unit_tests` (release + debug)
 - `rvk2_conformance_tests` (release + debug)
 
-## Gate With Smoke/Parity
+## Gate with Smoke/Parity
 
 ```bash
 REALITYVK_GATE_WITH_SMOKE=1 ./scripts/local_gate.sh
 ```
 
-Smoke/parity configuration:
+Smoke/parity defaults in gate mode:
+- profile: `basic`
 - candidate: this repo (`RealityVK`)
-- comparison reference: upstream `GLideN64`
-- smoke backend: `Vulkan` only
-- packet trace replay: enabled in smoke gate
+- reference: upstream `GLideN64`
+- backend: Vulkan only
+- packet replay check: enabled (`REALITYVK_GATE_RVK2_TRACE_REPLAY=1`)
 
-## Deep Telemetry (Single Smoke Run)
+## Deep Telemetry from One Smoke Run
 
 ```bash
 REALITYVK_GATE_WITH_SMOKE=1 \
@@ -32,63 +35,23 @@ REALITYVK_GATE_SMOKE_DEEP_TELEMETRY=1 \
 ./scripts/local_gate.sh
 ```
 
-Deep telemetry artifacts (Paper Mario intro) are emitted under:
-- `build/local-gate/paper-mario-telemetry/`
-  - `paper_mario_intro.candidate.packet.tsv`
-  - `paper_mario_intro.candidate.packet.replay.json`
-  - `paper_mario_intro.candidate.frame-forensics.tsv`
-  - `paper_mario_intro.candidate.frame-forensics.summary.txt`
-  - `paper_mario_intro.candidate.frame-forensics.active.summary.txt`
-  - `paper_mario_intro.candidate.trace.tsv`
-  - `paper_mario_intro.candidate.launch.log`
-  - `paper_mario_intro.candidate.command-census.json`
-  - `paper_mario_intro.candidate.command-census.md`
-  - `paper_mario_intro.candidate.missing-region-focus.json`
-    - includes triangle-packet-aware hotspot ranking:
-      - `missing_write_attribution.missing_with_write_packet_hits_ranked`
-      - `missing_write_attribution.auto_overwrite_packet_ids_suggested`
-      - `missing_write_attribution.auto_overwrite_packet_ranking_summary`
-  - `paper_mario_intro.candidate.history-merge.tsv`
-  - `paper_mario_intro.deviation/`
-    - `diff.png`
-    - `mask_raw.png`
-    - `mask.png`
-    - `overlay.png`
-    - `boxes.json`
-    - `summary.json`
-    - `playbook_snippet.md`
-  - `paper_mario_intro.telemetry.bundle.json`
+Deep gate defaults:
+- profile switched to `deep`
+- telemetry root: `build/local-gate/paper-mario-telemetry/`
+- stateful replay: `REALITYVK_GATE_SMOKE_DEEP_TELEMETRY_REPLAY_STATEFUL=1`
+- replay report reuse: `REALITYVK_GATE_SMOKE_DEEP_TELEMETRY_REUSE_REPLAY_REPORT=1`
 
-Key deep-telemetry provenance fields:
-- frame-forensics rows now include raw VI register snapshot plus VI stage hashes:
-  - `vi_hash_decode`
-  - `vi_hash_filter`
-  - `vi_hash_gdither`
-- frame-forensics rows also include pre-VI selected surface fingerprint:
-  - `selected_surface_hash`
-- replay/bundle correlation reports include stage and surface-hash mismatch counts for present-hash failures.
-
-Deep telemetry replay defaults:
-- `REALITYVK_GATE_SMOKE_DEEP_TELEMETRY_REPLAY_STATEFUL=1` (carry state across frames for lower-noise mismatch classification)
-- `REALITYVK_GATE_SMOKE_DEEP_TELEMETRY_REUSE_REPLAY_REPORT=1` (reuse parity-generated replay report in gate smoke check)
-
-Deep telemetry deviation/census defaults:
-- `REALITYVK_PM_DEEP_TELEMETRY_DIFF_PLAYBOOK=1`
-- `REALITYVK_PM_DEEP_TELEMETRY_COMMAND_CENSUS=1`
-- `REALITYVK_PM_DEEP_TELEMETRY_HISTORY_MERGE_LOG=1`
-
-Diff playbook tuning knobs:
-- `REALITYVK_PM_DEEP_TELEMETRY_DIFF_MODE` (default `missing_non_black`; options: `absdiff`, `missing_non_black`, `extra_non_black`)
-- `REALITYVK_PM_DEEP_TELEMETRY_DIFF_THRESHOLD` (default `20`)
-- `REALITYVK_PM_DEEP_TELEMETRY_DIFF_MIN_AREA` (default `256`)
-- `REALITYVK_PM_DEEP_TELEMETRY_DIFF_MAX_BOXES` (default `32`)
-- `REALITYVK_PM_DEEP_TELEMETRY_DIFF_DILATE` (default `1`)
-- `REALITYVK_PM_DEEP_TELEMETRY_DIFF_REF_NONBLACK_THRESHOLD` (default `8`)
-- `REALITYVK_PM_DEEP_TELEMETRY_DIFF_TEST_NONBLACK_THRESHOLD` (default `8`)
-- `REALITYVK_PM_DEEP_TELEMETRY_DIFF_IGNORE_BOXES` (default `238,245,482,380`; semicolon-separated `x0,y0,x1,y1` boxes)
-
-Command census tuning knob:
-- `REALITYVK_PM_DEEP_TELEMETRY_COMMAND_FOCUS_WINDOW` (default `1`, frames around replay first-failure)
+Key deep artifacts:
+- `paper_mario_intro.candidate.packet.tsv`
+- `paper_mario_intro.candidate.packet.replay.json`
+- `paper_mario_intro.candidate.frame-forensics.tsv`
+- `paper_mario_intro.candidate.missing-region-focus.json`
+- `paper_mario_intro.candidate.command-census.json`
+- `paper_mario_intro.candidate.history-merge.tsv`
+- `paper_mario_intro.candidate.overwrite.tsv`
+- `paper_mario_intro.candidate.triangle-packet.tsv`
+- `paper_mario_intro.deviation/` (`diff.png`, `mask.png`, `overlay.png`, `boxes.json`, `summary.json`)
+- `paper_mario_intro.telemetry.bundle.json`
 
 ## Core Validation Commands
 
@@ -98,45 +61,25 @@ Command census tuning knob:
 ./scripts/paper_mario_compare_view.sh
 ```
 
+Profile-based parity usage:
+
+```bash
+REALITYVK_PM_PROFILE=basic ./scripts/paper_mario_parity.sh
+REALITYVK_PM_PROFILE=deep  ./scripts/paper_mario_parity.sh
+```
+
+Dry-run plan (no emulator launch):
+
+```bash
+REALITYVK_PM_DRY_RUN=1 ./scripts/paper_mario_parity.sh
+```
+
 ## Baseline/Reference Refresh
 
 ```bash
 REALITYVK_SMOKE_UPDATE_BASELINES=1 ./scripts/local_smoke.sh
 REALITYVK_PM_REFRESH_REFERENCE=1 ./scripts/paper_mario_parity.sh
 ```
-
-## Replay Validation
-
-```bash
-python3 scripts/rvk2_packet_trace_replay.py \
-  --input build/local-gate/rvk2.packet.tsv \
-  --forensics-file build/local-gate/rvk2.frame-forensics.tsv \
-  --json-out build/local-gate/rvk2.packet.replay.json \
-  --jobs 0 --strict
-```
-
-When deep telemetry smoke is enabled, `local_gate.sh` auto-wires replay to
-`paper_mario_intro.candidate.frame-forensics.tsv` if present.
-
-## RVK2 Shadow Debugging
-
-Optional debug toggles for ingress-vs-render-plan investigation:
-
-- `REALITYVK_RVK2_SHADOW_DRAW=1`
-  - Forwards rvk2 context draw/state API calls through base Vulkan path.
-- `REALITYVK_RVK2_SHADOW_PRESENT=1`
-  - Presents the forwarded Vulkan path instead of executor output.
-  - Requires `REALITYVK_RVK2_SHADOW_DRAW=1`.
-
-Frame-forensics rows now include ingress counters and gaps:
-
-- `ing_state_calls`
-- `ing_tri_calls`, `ing_tri_verts`
-- `ing_rect_calls`, `ing_rect_verts`
-- `ing_line_calls`, `ing_line_verts`
-- `ing_shadow_draw`, `ing_shadow_present`
-- `ing_gap_tri_work` (`work_tri - ing_tri_calls`)
-- `ing_gap_texrect_work` (`work_texrect - ing_rect_calls`)
 
 ## Archive Compare
 
@@ -148,10 +91,29 @@ python3 scripts/rvk2_archive_compare.py \
   --md-out build/parity-runs/paper-mario/archive/compare.latest.md
 ```
 
+## Knob History
+
+```bash
+python3 scripts/rvk2_knob_history.py summary \
+  --history build/parity-runs/paper-mario/knob-history.tsv \
+  --scenario-id paper_mario_intro \
+  --limit 20
+```
+
+## Replay Validation (Manual)
+
+```bash
+python3 scripts/rvk2_packet_trace_replay.py \
+  --input build/local-gate/rvk2.packet.tsv \
+  --forensics-file build/local-gate/rvk2.frame-forensics.tsv \
+  --json-out build/local-gate/rvk2.packet.replay.json \
+  --jobs 0 --strict
+```
+
 ## Runtime/Trace Invariants
 
 - Runtime path is `rvk2` only.
-- Schema tag for trace/packet tooling is `rvk2_schema_v1`.
+- Trace/packet schema tag is `rvk2_schema_v1`.
 - Trace controls:
   - `REALITYVK2_TRACE_FILE`
   - `REALITYVK2_PACKET_TRACE_FILE`

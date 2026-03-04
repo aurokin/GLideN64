@@ -80,8 +80,8 @@ validate_doc_links() {
     "${ROOT_DIR}/AGENTS.md"
     "${ROOT_DIR}/docs/README.md"
     "${ROOT_DIR}/docs/local-ci.md"
-    "${ROOT_DIR}/docs/vulkan-core-status.md"
-    "${ROOT_DIR}/docs/references/n64/README.md"
+    "${ROOT_DIR}/docs/workflow.md"
+    "${ROOT_DIR}/docs/status.md"
   )
 
   local stale_found=0

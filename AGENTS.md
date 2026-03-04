@@ -41,14 +41,14 @@ Co-Authored-By: Codex GPT-5 <codex@openai.com>
 - Quick smoke (default for fast iteration):
 ```bash
 REALITYVK_PM_SCENARIO_ID=paper_mario_intro \
-REALITYVK_PM_DEEP_TELEMETRY=0 \
+REALITYVK_PM_PROFILE=basic \
 REALITYVK_PM_VISUAL_GATE=0 \
 ./scripts/paper_mario_parity.sh
 ```
 - Deep smoke (required for render/present behavior changes and checkpoint evidence):
 ```bash
 REALITYVK_PM_SCENARIO_ID=paper_mario_intro \
-REALITYVK_PM_DEEP_TELEMETRY=1 \
+REALITYVK_PM_PROFILE=deep \
 REALITYVK_PM_VISUAL_GATE=0 \
 ./scripts/paper_mario_parity.sh
 ```
@@ -58,11 +58,13 @@ REALITYVK_PM_VISUAL_GATE=0 \
 - Use `REALITYVK_PM_DEEP_TELEMETRY_REPLAY_STATEFUL=1` only for sequential state-carry checks.
 
 ## Archive Comparison Workflow
-- Deep telemetry archives are mandatory by default (`REALITYVK_PM_DEEP_TELEMETRY_ARCHIVE=1`).
+- Archive defaults are profile-driven:
+  - `basic`: `REALITYVK_PM_DEEP_TELEMETRY_ARCHIVE=0`
+  - `deep`: `REALITYVK_PM_DEEP_TELEMETRY_ARCHIVE=1`
 - Archive root: `build/parity-runs/paper-mario/archive`.
 - Archive index: `build/parity-runs/paper-mario/archive/index.tsv`.
 - Latest archive symlink: `build/parity-runs/paper-mario/archive/paper_mario_intro.latest`.
-- Compare latest run against previous index row before and after each fix lane:
+- Compare the latest deep run against the prior deep run:
 ```bash
 python3 scripts/rvk2_archive_compare.py \
   --index build/parity-runs/paper-mario/archive/index.tsv \
@@ -78,6 +80,17 @@ python3 scripts/rvk2_archive_compare.py \
 ```
 - Minimum comparison fields: `rmse`, `mae`, `candidate_non_black_ratio`, `candidate_mean_luma`, `missing_without_write_ratio`, telemetry bundle `suspected_gaps`.
 - Use archived evidence for conclusions; do not rely only on on-screen screenshots.
+
+## Knob History Workflow
+- History file: `build/parity-runs/paper-mario/knob-history.tsv`.
+- Default tracking is on (`REALITYVK_PM_KNOB_TRACK_ENABLE=1`).
+- Summarize recent runs:
+```bash
+python3 scripts/rvk2_knob_history.py summary \
+  --history build/parity-runs/paper-mario/knob-history.tsv \
+  --scenario-id paper_mario_intro \
+  --limit 12
+```
 
 ## Replay Interpretation Rule
 - Non-stateful replay can report broad frame failures; treat it as signal, not final class attribution.
