@@ -7499,6 +7499,82 @@ ExecutorOutput Executor::executeWithOutput(
 		summary.selectedPresentSurfaceWidth = it->second.width;
 		summary.selectedPresentSurfaceHeight = it->second.height;
 		summary.selectedPresentSurfaceSize = it->second.size;
+		const bool applyVIHistoryCandidateCarry =
+			allowVIHistorySelection
+			&& summary.presentSelectionReason == kExecutorPresentSelectionMostWrittenFallback
+			&& summary.historyVIOriginCandidateFound != 0U
+			&& summary.historyVIOriginCandidateRejectedByAge == 0U
+			&& summary.historyVIOriginCandidateAddress != 0U
+			&& summary.historyVIOriginCandidateAddress != presentSurfaceAddress
+			&& summary.selectedPresentSurfaceLiveWriteCount > 0ULL;
+		if (applyVIHistoryCandidateCarry) {
+			ColorSurface & selectedSurface = it->second;
+			const size_t pixelCount =
+				static_cast<size_t>(selectedSurface.width) * static_cast<size_t>(selectedSurface.height);
+			const auto historyCandidateIt = m_surfaceHistory.find(summary.historyVIOriginCandidateAddress);
+			if (pixelCount > 0U
+				&& selectedSurface.pixels.size() >= pixelCount
+				&& historyCandidateIt != m_surfaceHistory.end()) {
+				const ExecutorCachedSurface & historyCandidate = historyCandidateIt->second;
+					if (historyCandidate.valid
+						&& historyCandidate.address != presentSurfaceAddress
+						&& !(isDepthOnlyColorAddress(historyCandidate.address) && !allowDepthAliasedHistoryCarry)
+						&& historyCandidate.format == selectedSurface.format
+						&& historyCandidate.size == selectedSurface.size
+						&& historyCandidate.width == selectedSurface.width
+						&& historyCandidate.height >= selectedSurface.height
+						&& historyCandidate.pixels.size() >= pixelCount) {
+						const bool destinationHasWriteMask = selectedSurface.writeMask.size() >= pixelCount;
+						const bool sourceHasCoverage = historyCandidate.coverage.size() >= pixelCount;
+						const bool sourceHasHiddenCoverage = historyCandidate.hiddenCoverage.size() >= pixelCount;
+						u64 potentialBlackFill = 0ULL;
+						u64 potentialNonBlackDiff = 0ULL;
+						u64 potentialUnwrittenDiff = 0ULL;
+						u64 copiedPixels = 0ULL;
+						u64 copiedUnwrittenPixels = 0ULL;
+						for (size_t i = 0U; i < pixelCount; ++i) {
+							const u32 sourcePixel = historyCandidate.pixels[i];
+							if (!pixelHasVisibleColor(sourcePixel))
+								continue;
+							const u32 destinationPixel = selectedSurface.pixels[i];
+							const bool destinationVisible = pixelHasVisibleColor(destinationPixel);
+							const bool destinationUnwritten =
+								destinationHasWriteMask && (selectedSurface.writeMask[i] == 0U);
+							if (!destinationVisible)
+								++potentialBlackFill;
+							else if (destinationPixel != sourcePixel)
+								++potentialNonBlackDiff;
+							if (destinationUnwritten && destinationPixel != sourcePixel)
+								++potentialUnwrittenDiff;
+							const bool allowCarryForPixel =
+								!destinationVisible
+								|| destinationUnwritten;
+							if (!allowCarryForPixel || destinationPixel == sourcePixel)
+								continue;
+							selectedSurface.pixels[i] = sourcePixel;
+							if (sourceHasCoverage && selectedSurface.coverage.size() >= pixelCount) {
+								selectedSurface.coverage[i] =
+									static_cast<u8>(historyCandidate.coverage[i] & 0x7U);
+						}
+						if (sourceHasHiddenCoverage && selectedSurface.hiddenCoverage.size() >= pixelCount) {
+								selectedSurface.hiddenCoverage[i] =
+									static_cast<u8>(historyCandidate.hiddenCoverage[i] & 0x1U);
+							}
+							++copiedPixels;
+							if (destinationUnwritten)
+								++copiedUnwrittenPixels;
+						}
+						summary.selectedPresentSurfaceVIHistoryCarrySourceAddress = historyCandidate.address;
+						summary.selectedPresentSurfaceVIHistoryCarryPotentialBlackFillCount = potentialBlackFill;
+						summary.selectedPresentSurfaceVIHistoryCarryPotentialNonBlackDiffCount = potentialNonBlackDiff;
+						summary.selectedPresentSurfaceVIHistoryCarryPotentialUnwrittenDiffCount = potentialUnwrittenDiff;
+						summary.selectedPresentSurfaceVIHistoryCarryCopiedCount = copiedPixels;
+						summary.selectedPresentSurfaceVIHistoryCarryCopiedUnwrittenCount = copiedUnwrittenPixels;
+						if (copiedPixels > 0ULL)
+							summary.selectedPresentSurfaceVIHistoryCarryApplied = 1U;
+					}
+				}
+			}
 		VIFrameInput presentInput{};
 		presentInput.sourceAddressValid = viOriginMatchedSurface;
 		presentInput.sourceAddress = presentSurfaceAddress;

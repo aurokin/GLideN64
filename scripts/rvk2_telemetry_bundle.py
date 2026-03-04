@@ -1769,6 +1769,25 @@ def _build_signals(
         "selected_surface_history_merge_potential_nonblack_diff",
     )
     selected_surface_history_merge_copied = _u64(last_record, "selected_surface_history_merge_copied")
+    selected_surface_vi_history_carry_applied = _u64(last_record, "selected_surface_vi_history_carry_applied")
+    selected_surface_vi_history_carry_src = _u64(last_record, "selected_surface_vi_history_carry_src")
+    selected_surface_vi_history_carry_potential_black_fill = _u64(
+        last_record,
+        "selected_surface_vi_history_carry_potential_black_fill",
+    )
+    selected_surface_vi_history_carry_potential_nonblack_diff = _u64(
+        last_record,
+        "selected_surface_vi_history_carry_potential_nonblack_diff",
+    )
+    selected_surface_vi_history_carry_potential_unwritten_diff = _u64(
+        last_record,
+        "selected_surface_vi_history_carry_potential_unwritten_diff",
+    )
+    selected_surface_vi_history_carry_copied = _u64(last_record, "selected_surface_vi_history_carry_copied")
+    selected_surface_vi_history_carry_copied_unwritten = _u64(
+        last_record,
+        "selected_surface_vi_history_carry_copied_unwritten",
+    )
     selected_surface_untouched_carry = _u64(last_record, "selected_surface_untouched_carry")
     selected_surface_quantized_black = _u64(last_record, "selected_surface_quantized_black")
     selected_surface_quantized_black_texrect = _u64(
@@ -1851,6 +1870,21 @@ def _build_signals(
         "selected_surface_quantized_black": selected_surface_quantized_black,
         "selected_surface_quantized_black_texrect": selected_surface_quantized_black_texrect,
         "selected_surface_quantized_black_triangle": selected_surface_quantized_black_triangle,
+        "selected_surface_vi_history_carry_applied": selected_surface_vi_history_carry_applied,
+        "selected_surface_vi_history_carry_src": selected_surface_vi_history_carry_src,
+        "selected_surface_vi_history_carry_potential_black_fill": (
+            selected_surface_vi_history_carry_potential_black_fill
+        ),
+        "selected_surface_vi_history_carry_potential_nonblack_diff": (
+            selected_surface_vi_history_carry_potential_nonblack_diff
+        ),
+        "selected_surface_vi_history_carry_potential_unwritten_diff": (
+            selected_surface_vi_history_carry_potential_unwritten_diff
+        ),
+        "selected_surface_vi_history_carry_copied": selected_surface_vi_history_carry_copied,
+        "selected_surface_vi_history_carry_copied_unwritten": (
+            selected_surface_vi_history_carry_copied_unwritten
+        ),
         "vi_hash_decode": vi_hash_decode,
         "vi_hash_filter": vi_hash_filter,
         "vi_hash_gdither": vi_hash_gdither,
@@ -1967,6 +2001,21 @@ def _build_signals(
             "forensics_history_merge_potential_nonblack_diff": selected_surface_history_merge_potential_nonblack_diff,
             "forensics_history_merge_copied": selected_surface_history_merge_copied,
             "forensics_selected_surface_untouched_carry": selected_surface_untouched_carry,
+            "forensics_vi_history_carry_applied": selected_surface_vi_history_carry_applied,
+            "forensics_vi_history_carry_src": selected_surface_vi_history_carry_src,
+            "forensics_vi_history_carry_potential_black_fill": (
+                selected_surface_vi_history_carry_potential_black_fill
+            ),
+            "forensics_vi_history_carry_potential_nonblack_diff": (
+                selected_surface_vi_history_carry_potential_nonblack_diff
+            ),
+            "forensics_vi_history_carry_potential_unwritten_diff": (
+                selected_surface_vi_history_carry_potential_unwritten_diff
+            ),
+            "forensics_vi_history_carry_copied": selected_surface_vi_history_carry_copied,
+            "forensics_vi_history_carry_copied_unwritten": (
+                selected_surface_vi_history_carry_copied_unwritten
+            ),
         }
 
     overwrite_signal: Dict[str, Any] = {}
@@ -3370,6 +3419,13 @@ def _selected_forensics_fields(record: Dict[str, Any]) -> Dict[str, Any]:
         "selected_surface_history_merge_potential_black_fill",
         "selected_surface_history_merge_potential_nonblack_diff",
         "selected_surface_history_merge_copied",
+        "selected_surface_vi_history_carry_applied",
+        "selected_surface_vi_history_carry_src",
+        "selected_surface_vi_history_carry_potential_black_fill",
+        "selected_surface_vi_history_carry_potential_nonblack_diff",
+        "selected_surface_vi_history_carry_potential_unwritten_diff",
+        "selected_surface_vi_history_carry_copied",
+        "selected_surface_vi_history_carry_copied_unwritten",
         "vi_valid",
         "vi_origin",
         "vi_status",

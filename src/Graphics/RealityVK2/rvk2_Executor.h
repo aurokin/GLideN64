@@ -105,7 +105,13 @@ struct ExecutorSummary {
 	u64 selectedPresentSurfaceHistoryMergePotentialBlackFillCount = 0ULL;
 	u64 selectedPresentSurfaceHistoryMergePotentialNonBlackDiffCount = 0ULL;
 	u64 selectedPresentSurfaceHistoryMergeCopiedCount = 0ULL;
+	u64 selectedPresentSurfaceVIHistoryCarryPotentialBlackFillCount = 0ULL;
+	u64 selectedPresentSurfaceVIHistoryCarryPotentialNonBlackDiffCount = 0ULL;
+	u64 selectedPresentSurfaceVIHistoryCarryPotentialUnwrittenDiffCount = 0ULL;
+	u64 selectedPresentSurfaceVIHistoryCarryCopiedCount = 0ULL;
+	u64 selectedPresentSurfaceVIHistoryCarryCopiedUnwrittenCount = 0ULL;
 	u32 selectedPresentSurfaceUntouchedCarrySourceAddress = 0U;
+	u32 selectedPresentSurfaceVIHistoryCarrySourceAddress = 0U;
 	u64 selectedPresentSurfaceHistoryAge = 0ULL;
 	u32 historySurfaceCount = 0U;
 	u32 historyVIOriginCandidateAddress = 0U;
@@ -113,7 +119,7 @@ struct ExecutorSummary {
 	u8 historyVIOriginCandidateFound = 0U;
 	u8 historyVIOriginCandidateExact = 0U;
 	u8 historyVIOriginCandidateRejectedByAge = 0U;
-	u8 reservedHistoryDebug = 0U;
+	u8 selectedPresentSurfaceVIHistoryCarryApplied = 0U;
 	u64 selectedPresentSurfaceHash = 1469598103934665603ULL;
 	u64 surfaceBootstrapSameAddressAttemptCount = 0ULL;
 	u64 surfaceBootstrapSameAddressSuccessCount = 0ULL;
