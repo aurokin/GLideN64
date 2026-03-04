@@ -531,6 +531,12 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
                 "kill_at_combiner_count": 0,
                 "kill_at_blender_count": 0,
                 "kill_after_blender_count": 0,
+                "tex0_valid_count": 0,
+                "tex0_sample_black_count": 0,
+                "tex0_final_black_count": 0,
+                "tex0_rdram_probe_valid_count": 0,
+                "tex0_rdram_probe_non_black_count": 0,
+                "tex0_rdram_probe_beats_tmem_count": 0,
                 "op_counts": {},
                 "phase_counts": {},
             }
@@ -775,6 +781,31 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
                 idx_key = f"{idx_a:04X}|{idx_b:04X}"
                 _bucket_bump(texel_slot_tmem_index_counts[slot], idx_key)
 
+            if slot == "tex0" and source_packet_id > 0:
+                packet_stage = _packet_stage_row(source_packet_id)
+                packet_stage["tex0_valid_count"] = int(packet_stage.get("tex0_valid_count", 0) or 0) + 1
+                if sampled_black:
+                    packet_stage["tex0_sample_black_count"] = int(
+                        packet_stage.get("tex0_sample_black_count", 0) or 0
+                    ) + 1
+                if (final_slot_color & 0x00FFFFFF) == 0:
+                    packet_stage["tex0_final_black_count"] = int(
+                        packet_stage.get("tex0_final_black_count", 0) or 0
+                    ) + 1
+                if int(_u64(record, "tex0_rdram_probe_valid")) != 0:
+                    packet_stage["tex0_rdram_probe_valid_count"] = int(
+                        packet_stage.get("tex0_rdram_probe_valid_count", 0) or 0
+                    ) + 1
+                    probe_non_black = (int(_u64(record, "tex0_rdram_probe_final_color")) & 0x00FFFFFF) != 0
+                    if probe_non_black:
+                        packet_stage["tex0_rdram_probe_non_black_count"] = int(
+                            packet_stage.get("tex0_rdram_probe_non_black_count", 0) or 0
+                        ) + 1
+                        if sampled_black:
+                            packet_stage["tex0_rdram_probe_beats_tmem_count"] = int(
+                                packet_stage.get("tex0_rdram_probe_beats_tmem_count", 0) or 0
+                            ) + 1
+
     record_count = len(records)
     non_overwrite_black_write_count = max(0, record_count - overwrite_record_count)
 
@@ -968,6 +999,16 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
         kill_at_combiner_count_for_packet = int(row.get("kill_at_combiner_count", 0) or 0)
         kill_at_blender_count_for_packet = int(row.get("kill_at_blender_count", 0) or 0)
         kill_after_blender_count_for_packet = int(row.get("kill_after_blender_count", 0) or 0)
+        tex0_valid_count_for_packet = int(row.get("tex0_valid_count", 0) or 0)
+        tex0_sample_black_count_for_packet = int(row.get("tex0_sample_black_count", 0) or 0)
+        tex0_final_black_count_for_packet = int(row.get("tex0_final_black_count", 0) or 0)
+        tex0_probe_valid_count_for_packet = int(row.get("tex0_rdram_probe_valid_count", 0) or 0)
+        tex0_probe_non_black_count_for_packet = int(
+            row.get("tex0_rdram_probe_non_black_count", 0) or 0
+        )
+        tex0_probe_beats_tmem_count_for_packet = int(
+            row.get("tex0_rdram_probe_beats_tmem_count", 0) or 0
+        )
         source_packet_stage_profiles.append(
             {
                 "source_packet_id": int(row.get("source_packet_id", 0) or 0),
@@ -989,6 +1030,18 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
                 "kill_at_blender_ratio": _ratio(kill_at_blender_count_for_packet, record_count_for_packet),
                 "kill_after_blender_count": kill_after_blender_count_for_packet,
                 "kill_after_blender_ratio": _ratio(kill_after_blender_count_for_packet, record_count_for_packet),
+                "tex0_valid_count": tex0_valid_count_for_packet,
+                "tex0_sample_black_ratio": _ratio(tex0_sample_black_count_for_packet, tex0_valid_count_for_packet),
+                "tex0_final_black_ratio": _ratio(tex0_final_black_count_for_packet, tex0_valid_count_for_packet),
+                "tex0_rdram_probe_valid_count": tex0_probe_valid_count_for_packet,
+                "tex0_rdram_probe_non_black_ratio": _ratio(
+                    tex0_probe_non_black_count_for_packet,
+                    tex0_probe_valid_count_for_packet,
+                ),
+                "tex0_rdram_probe_beats_tmem_ratio": _ratio(
+                    tex0_probe_beats_tmem_count_for_packet,
+                    tex0_probe_valid_count_for_packet,
+                ),
                 "op_counts": (
                     dict(sorted((row.get("op_counts", {}) or {}).items()))
                     if isinstance(row.get("op_counts"), dict)
@@ -2227,6 +2280,14 @@ def _build_signals(
                     merged_row["kill_at_combiner_ratio"] = stage_row.get("kill_at_combiner_ratio")
                     merged_row["kill_at_blender_ratio"] = stage_row.get("kill_at_blender_ratio")
                     merged_row["kill_after_blender_ratio"] = stage_row.get("kill_after_blender_ratio")
+                    merged_row["tex0_sample_black_ratio"] = stage_row.get("tex0_sample_black_ratio")
+                    merged_row["tex0_final_black_ratio"] = stage_row.get("tex0_final_black_ratio")
+                    merged_row["tex0_rdram_probe_non_black_ratio"] = stage_row.get(
+                        "tex0_rdram_probe_non_black_ratio"
+                    )
+                    merged_row["tex0_rdram_probe_beats_tmem_ratio"] = stage_row.get(
+                        "tex0_rdram_probe_beats_tmem_ratio"
+                    )
                     merged_row["op_counts"] = (
                         stage_row.get("op_counts", {})
                         if isinstance(stage_row.get("op_counts"), dict)
