@@ -6142,6 +6142,8 @@ ExecutorOutput Executor::executeWithOutput(
 						return _a->lastTouched > _b->lastTouched;
 					return _a->address < _b->address;
 				});
+			summary.selectedPresentSurfaceHistoryMergeCandidateCount =
+				static_cast<u64>(historyMergeCandidates.size());
 
 			u64 mergedHistoryPixels = 0ULL;
 			u32 mergedHistorySource = 0U;
@@ -6178,6 +6180,9 @@ ExecutorOutput Executor::executeWithOutput(
 					}
 					++mergedFromCandidate;
 				}
+				summary.selectedPresentSurfaceHistoryMergePotentialBlackFillCount += potentialBlackFill;
+				summary.selectedPresentSurfaceHistoryMergePotentialNonBlackDiffCount += potentialNonBlackDiff;
+				summary.selectedPresentSurfaceHistoryMergeCopiedCount += mergedFromCandidate;
 				if (mergedFromCandidate > 0ULL) {
 					mergedHistoryPixels += mergedFromCandidate;
 					if (mergedHistorySource == 0U)

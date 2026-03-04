@@ -149,6 +149,118 @@ def _parse_launch_log(path: Optional[Path]) -> Dict[str, Any]:
     }
 
 
+def _parse_history_merge_log(path: Optional[Path]) -> Dict[str, Any]:
+    if path is None or not path.is_file():
+        return {
+            "record_count": 0,
+            "frame_count": 0,
+            "present_surface_count": 0,
+            "candidate_surface_count": 0,
+            "total_potential_black_fill": 0,
+            "total_potential_nonblack_diff": 0,
+            "total_copied": 0,
+            "records_with_potential_black_fill": 0,
+            "records_with_potential_nonblack_diff": 0,
+            "records_with_copied": 0,
+            "max_potential_black_fill": 0,
+            "max_potential_nonblack_diff": 0,
+            "max_copied": 0,
+            "top_nonblack_diff_record": {},
+            "top_black_fill_record": {},
+            "top_copied_record": {},
+        }
+
+    records: List[Dict[str, Any]] = []
+    unique_frames: set[int] = set()
+    unique_present_surfaces: set[int] = set()
+    unique_candidate_surfaces: set[int] = set()
+
+    total_potential_black_fill = 0
+    total_potential_nonblack_diff = 0
+    total_copied = 0
+    records_with_potential_black_fill = 0
+    records_with_potential_nonblack_diff = 0
+    records_with_copied = 0
+
+    max_potential_black_fill = 0
+    max_potential_nonblack_diff = 0
+    max_copied = 0
+    top_nonblack_diff_record: Dict[str, Any] = {}
+    top_black_fill_record: Dict[str, Any] = {}
+    top_copied_record: Dict[str, Any] = {}
+
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        record: Dict[str, Any] = {}
+        for token in stripped.split("\t"):
+            if "=" not in token:
+                continue
+            key, raw = token.split("=", 1)
+            key = key.strip()
+            raw = raw.strip()
+            if not key:
+                continue
+            parsed = _parse_int(raw)
+            record[key] = parsed if parsed is not None else raw
+        if not record:
+            continue
+        records.append(record)
+
+        frame_value = _u64(record, "frame")
+        if frame_value > 0:
+            unique_frames.add(frame_value)
+        present_surface = _u64(record, "present")
+        if present_surface > 0:
+            unique_present_surfaces.add(present_surface)
+        candidate_surface = _u64(record, "candidate")
+        if candidate_surface > 0:
+            unique_candidate_surfaces.add(candidate_surface)
+
+        potential_black_fill = _u64(record, "potential_black_fill")
+        potential_nonblack_diff = _u64(record, "potential_nonblack_diff")
+        copied = _u64(record, "copied")
+        total_potential_black_fill += potential_black_fill
+        total_potential_nonblack_diff += potential_nonblack_diff
+        total_copied += copied
+        if potential_black_fill > 0:
+            records_with_potential_black_fill += 1
+        if potential_nonblack_diff > 0:
+            records_with_potential_nonblack_diff += 1
+        if copied > 0:
+            records_with_copied += 1
+        if potential_black_fill > max_potential_black_fill:
+            max_potential_black_fill = potential_black_fill
+            top_black_fill_record = record
+        if potential_nonblack_diff > max_potential_nonblack_diff:
+            max_potential_nonblack_diff = potential_nonblack_diff
+            top_nonblack_diff_record = record
+        if copied > max_copied:
+            max_copied = copied
+            top_copied_record = record
+
+    return {
+        "record_count": len(records),
+        "frame_count": len(unique_frames),
+        "present_surface_count": len(unique_present_surfaces),
+        "candidate_surface_count": len(unique_candidate_surfaces),
+        "total_potential_black_fill": total_potential_black_fill,
+        "total_potential_nonblack_diff": total_potential_nonblack_diff,
+        "total_copied": total_copied,
+        "records_with_potential_black_fill": records_with_potential_black_fill,
+        "records_with_potential_nonblack_diff": records_with_potential_nonblack_diff,
+        "records_with_copied": records_with_copied,
+        "max_potential_black_fill": max_potential_black_fill,
+        "max_potential_nonblack_diff": max_potential_nonblack_diff,
+        "max_copied": max_copied,
+        "top_nonblack_diff_record": top_nonblack_diff_record,
+        "top_black_fill_record": top_black_fill_record,
+        "top_copied_record": top_copied_record,
+    }
+
+
 def _summarize_replay(replay: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     if replay is None:
         return {
@@ -210,6 +322,7 @@ def _build_signals(
     last_record: Dict[str, Any],
     replay_summary: Dict[str, Any],
     launch_summary: Dict[str, Any],
+    history_merge_summary: Dict[str, Any],
     depth_summary: Optional[Dict[str, Any]],
     metrics: Optional[Dict[str, Any]],
     command_census: Optional[Dict[str, Any]],
@@ -245,6 +358,17 @@ def _build_signals(
     selected_surface_live_works = _u64(last_record, "selected_surface_live_works")
     selected_surface_from_history = _u64(last_record, "selected_surface_from_history")
     selected_surface_history_age = _u64(last_record, "selected_surface_history_age")
+    selected_surface_history_merge_candidates = _u64(last_record, "selected_surface_history_merge_candidates")
+    selected_surface_history_merge_potential_black_fill = _u64(
+        last_record,
+        "selected_surface_history_merge_potential_black_fill",
+    )
+    selected_surface_history_merge_potential_nonblack_diff = _u64(
+        last_record,
+        "selected_surface_history_merge_potential_nonblack_diff",
+    )
+    selected_surface_history_merge_copied = _u64(last_record, "selected_surface_history_merge_copied")
+    selected_surface_untouched_carry = _u64(last_record, "selected_surface_untouched_carry")
     vi_hash_decode = _u64(last_record, "vi_hash_decode")
     vi_hash_filter = _u64(last_record, "vi_hash_filter")
     vi_hash_gdither = _u64(last_record, "vi_hash_gdither")
@@ -360,6 +484,44 @@ def _build_signals(
         "depth_summary": depth_summary,
     }
 
+    history_merge_signal: Dict[str, Any] = {}
+    if isinstance(history_merge_summary, dict):
+        history_merge_record_count = int(history_merge_summary.get("record_count", 0) or 0)
+        history_merge_total_potential_black_fill = int(
+            history_merge_summary.get("total_potential_black_fill", 0) or 0
+        )
+        history_merge_total_potential_nonblack_diff = int(
+            history_merge_summary.get("total_potential_nonblack_diff", 0) or 0
+        )
+        history_merge_total_copied = int(history_merge_summary.get("total_copied", 0) or 0)
+        history_merge_signal = {
+            "record_count": history_merge_record_count,
+            "frame_count": int(history_merge_summary.get("frame_count", 0) or 0),
+            "present_surface_count": int(history_merge_summary.get("present_surface_count", 0) or 0),
+            "candidate_surface_count": int(history_merge_summary.get("candidate_surface_count", 0) or 0),
+            "total_potential_black_fill": history_merge_total_potential_black_fill,
+            "total_potential_nonblack_diff": history_merge_total_potential_nonblack_diff,
+            "total_copied": history_merge_total_copied,
+            "records_with_potential_black_fill": int(
+                history_merge_summary.get("records_with_potential_black_fill", 0) or 0
+            ),
+            "records_with_potential_nonblack_diff": int(
+                history_merge_summary.get("records_with_potential_nonblack_diff", 0) or 0
+            ),
+            "records_with_copied": int(history_merge_summary.get("records_with_copied", 0) or 0),
+            "max_potential_black_fill": int(history_merge_summary.get("max_potential_black_fill", 0) or 0),
+            "max_potential_nonblack_diff": int(history_merge_summary.get("max_potential_nonblack_diff", 0) or 0),
+            "max_copied": int(history_merge_summary.get("max_copied", 0) or 0),
+            "top_nonblack_diff_record": history_merge_summary.get("top_nonblack_diff_record", {}),
+            "top_black_fill_record": history_merge_summary.get("top_black_fill_record", {}),
+            "top_copied_record": history_merge_summary.get("top_copied_record", {}),
+            "forensics_history_merge_candidates": selected_surface_history_merge_candidates,
+            "forensics_history_merge_potential_black_fill": selected_surface_history_merge_potential_black_fill,
+            "forensics_history_merge_potential_nonblack_diff": selected_surface_history_merge_potential_nonblack_diff,
+            "forensics_history_merge_copied": selected_surface_history_merge_copied,
+            "forensics_selected_surface_untouched_carry": selected_surface_untouched_carry,
+        }
+
     suspected_gaps: List[str] = []
     hard_faults: List[str] = []
 
@@ -449,6 +611,39 @@ def _build_signals(
     ):
         suspected_gaps.append("presented surface had no live writes in this frame (buffer handoff mismatch candidate)")
         hard_faults.append("present-surface handoff fault: selected history surface with zero live writes in an active frame")
+    if (
+        selected_surface_history_merge_candidates > 0
+        and selected_surface_history_merge_potential_black_fill == 0
+        and selected_surface_history_merge_potential_nonblack_diff > 0
+    ):
+        suspected_gaps.append(
+            "history-merge candidates contain no black-fill opportunities in the selected frame while non-black divergence remains high"
+        )
+    if (
+        selected_surface_from_history != 0
+        and selected_surface_history_merge_potential_black_fill > 0
+        and selected_surface_history_merge_copied == 0
+        and selected_surface_untouched_carry == 0
+    ):
+        suspected_gaps.append(
+            "history-merge detected black-fill potential but no carry-forward pixels were copied in the selected frame"
+        )
+    if isinstance(history_merge_summary, dict):
+        history_merge_record_count = int(history_merge_summary.get("record_count", 0) or 0)
+        history_merge_total_potential_black_fill = int(
+            history_merge_summary.get("total_potential_black_fill", 0) or 0
+        )
+        history_merge_total_potential_nonblack_diff = int(
+            history_merge_summary.get("total_potential_nonblack_diff", 0) or 0
+        )
+        if (
+            history_merge_record_count > 0
+            and history_merge_total_potential_black_fill == 0
+            and history_merge_total_potential_nonblack_diff > 0
+        ):
+            suspected_gaps.append(
+                "history-merge log shows no black-fill candidates across probed pairs; divergence is dominated by conflicting non-black content"
+            )
 
     visibility_signal = {}
     if isinstance(metrics, dict):
@@ -942,6 +1137,7 @@ def _build_signals(
         "texture": texture_signal,
         "geometry": geometry_signal,
         "depth": depth_signal,
+        "history_merge": history_merge_signal,
         "visibility": visibility_signal,
         "command": command_signal,
         "missing_region": missing_region_signal,
@@ -1155,6 +1351,18 @@ def _selected_forensics_fields(record: Dict[str, Any]) -> Dict[str, Any]:
         "selected_surface_live_works",
         "selected_surface_from_history",
         "selected_surface_history_age",
+        "selected_surface_overwrite_black",
+        "selected_surface_overwrite_black_texrect",
+        "selected_surface_overwrite_black_triangle",
+        "selected_surface_triangle_preserve_non_black",
+        "selected_surface_texrect_nonblack",
+        "selected_surface_triangle_nonblack",
+        "selected_surface_untouched_carry",
+        "selected_surface_untouched_carry_src",
+        "selected_surface_history_merge_candidates",
+        "selected_surface_history_merge_potential_black_fill",
+        "selected_surface_history_merge_potential_nonblack_diff",
+        "selected_surface_history_merge_copied",
         "vi_valid",
         "vi_origin",
         "vi_status",
@@ -1245,6 +1453,7 @@ def main() -> int:
     parser.add_argument("--diff-playbook-boxes")
     parser.add_argument("--diff-playbook-snippet")
     parser.add_argument("--missing-region-focus")
+    parser.add_argument("--history-merge-log")
     parser.add_argument("--command-census")
     parser.add_argument("--packet-replay-exit", type=int, default=-1)
     parser.add_argument("--forensics-summary-exit", type=int, default=-1)
@@ -1271,6 +1480,7 @@ def main() -> int:
     diff_playbook_boxes_path = Path(args.diff_playbook_boxes) if args.diff_playbook_boxes else None
     diff_playbook_snippet_path = Path(args.diff_playbook_snippet) if args.diff_playbook_snippet else None
     missing_region_focus_path = Path(args.missing_region_focus) if args.missing_region_focus else None
+    history_merge_log_path = Path(args.history_merge_log) if args.history_merge_log else None
     command_census_path = Path(args.command_census) if args.command_census else None
 
     metrics = _load_json(metrics_path)
@@ -1281,6 +1491,7 @@ def main() -> int:
     diff_playbook_boxes = _load_json_any(diff_playbook_boxes_path)
     diff_playbook_snippet = _load_text(diff_playbook_snippet_path)
     missing_region_focus = _load_json(missing_region_focus_path)
+    history_merge_summary = _parse_history_merge_log(history_merge_log_path)
     command_census = _load_json(command_census_path)
 
     forensics_data = _parse_forensics(forensics)
@@ -1301,6 +1512,7 @@ def main() -> int:
         forensics_data.get("last_record", {}),
         replay_summary,
         launch_summary,
+        history_merge_summary,
         depth_summary,
         metrics,
         command_census,
@@ -1339,6 +1551,7 @@ def main() -> int:
             "diff_playbook_boxes": _file_meta(diff_playbook_boxes_path),
             "diff_playbook_snippet": _file_meta(diff_playbook_snippet_path),
             "missing_region_focus": _file_meta(missing_region_focus_path),
+            "history_merge_log": _file_meta(history_merge_log_path),
             "command_census": _file_meta(command_census_path),
         },
         "metrics": metrics,
@@ -1349,6 +1562,7 @@ def main() -> int:
             "snippet": diff_playbook_snippet,
         },
         "missing_region_focus": missing_region_focus,
+        "history_merge_summary": history_merge_summary,
         "command_census": command_census,
         "packet_replay_summary": replay_summary,
         "forensics": {
@@ -1363,6 +1577,7 @@ def main() -> int:
             "texture": signal_summary["texture"],
             "geometry": signal_summary["geometry"],
             "depth": signal_summary["depth"],
+            "history_merge": signal_summary["history_merge"],
             "visibility": signal_summary["visibility"],
             "command": signal_summary["command"],
             "missing_region": signal_summary["missing_region"],

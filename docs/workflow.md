@@ -57,6 +57,9 @@
   - Cross-surface differences are predominantly non-black (`potential_nonblack_diff` typically `18k..51k` pixels per candidate pair).
   - Aggressive non-black history merge (`REALITYVK_RVK2_DEBUG_HISTORY_MERGE_COPY_NONBLACK=1`) copied ~`51k` pixels on history-present frames, but top-line parity remained flat (`rmse≈0.3675`).
   - Forcing static present surfaces (`REALITYVK_RVK2_DEBUG_FORCE_PRESENT_SURFACE`) to `0x00583430`, `0x005A8C30`, or `0x005CE430` each regressed parity vs dynamic default selection.
+- New telemetry coverage (commit `a8689dd6` + follow-up instrumentation):
+  - Deep telemetry now auto-captures `paper_mario_intro.candidate.history-merge.tsv` and records a parsed summary inside `paper_mario_intro.telemetry.bundle.json`.
+  - Latest archive (`paper_mario_intro.20260304-044041Z.a8689dd6`) confirms `record_count=107`, `total_potential_black_fill=0`, `total_potential_nonblack_diff=2316053`, `total_copied=0`.
 - Interpretation:
   - primary deficit is not black-hole carry loss; it is conflicting non-black content/state across rotating surfaces.
   - texrect state-cluster correctness and temporal surface-content coherence remain the primary fix lanes.

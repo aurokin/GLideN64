@@ -6,6 +6,7 @@
 - Evidence:
   - `missing_without_write_with_prior_write_ratio=1.0` with strong overlap across prior color-image targets.
   - History-merge probe (`REALITYVK_RVK2_DEBUG_HISTORY_MERGE_LOG`) shows `potential_black_fill=0` while `potential_nonblack_diff` remains high (roughly `18k..51k` pixels per candidate surface pair).
+  - Latest archived deep run history-merge telemetry (`paper_mario_intro.20260304-044041Z.a8689dd6`) reports `record_count=107`, `total_potential_black_fill=0`, `total_potential_nonblack_diff=2316053`, `total_copied=0`.
   - Forcing static present surfaces (`0x00583430`, `0x005A8C30`, `0x005CE430`) worsens parity vs default selection.
 - Exit signal: cross-surface non-black divergence drops materially and missing-region dominance no longer comes from prior-frame state clusters.
 
@@ -33,7 +34,7 @@
 - Exit signal: no required fix depends on persistent debug-only env toggles.
 
 ## Current Baseline
-- Latest archive run: `paper_mario_intro.20260303-232934Z.ca92fb7a`
+- Latest archive run: `paper_mario_intro.20260304-044041Z.a8689dd6`
 - Archive index: `build/parity-runs/paper-mario/archive/index.tsv`
 - Key metrics:
   - `rmse=0.367518`

@@ -98,6 +98,10 @@ struct ExecutorSummary {
 	u64 selectedPresentSurfaceTexRectNonBlackWriteCount = 0ULL;
 	u64 selectedPresentSurfaceTriangleNonBlackWriteCount = 0ULL;
 	u64 selectedPresentSurfaceUntouchedCarryCount = 0ULL;
+	u64 selectedPresentSurfaceHistoryMergeCandidateCount = 0ULL;
+	u64 selectedPresentSurfaceHistoryMergePotentialBlackFillCount = 0ULL;
+	u64 selectedPresentSurfaceHistoryMergePotentialNonBlackDiffCount = 0ULL;
+	u64 selectedPresentSurfaceHistoryMergeCopiedCount = 0ULL;
 	u32 selectedPresentSurfaceUntouchedCarrySourceAddress = 0U;
 	u64 selectedPresentSurfaceHistoryAge = 0ULL;
 	u64 selectedPresentSurfaceHash = 1469598103934665603ULL;

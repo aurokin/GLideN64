@@ -358,7 +358,7 @@ void appendFrameForensicsRecord(
 		static_cast<unsigned long long>(summary.viOutputNonBlackCount));
 	std::fprintf(
 		file,
-		"\tselected_surface_live_writes=%llu\tselected_surface_live_works=%llu\tselected_surface_from_history=%u\tselected_surface_history_age=%llu\tselected_surface_overwrite_black=%llu\tselected_surface_overwrite_black_texrect=%llu\tselected_surface_overwrite_black_triangle=%llu\tselected_surface_triangle_preserve_non_black=%llu\tselected_surface_texrect_nonblack=%llu\tselected_surface_triangle_nonblack=%llu\tselected_surface_untouched_carry=%llu\tselected_surface_untouched_carry_src=0x%08X\tdbg_disable_vi_history_present=%u\tdbg_prefer_live_surface_over_history=%u\tdbg_enable_surface_history_bootstrap=%u\tdbg_enable_cross_surface_bootstrap=%u\tdbg_cross_surface_bootstrap_copy_all=%u\tdbg_disable_same_frame_present_accum=%u\tboot_same_attempt=%llu\tboot_same_success=%llu\tboot_same_pixels=%llu\tboot_fallback_success=%llu\tboot_fallback_pixels=%llu\tboot_cross_candidates=%llu\tboot_cross_pixels=%llu\tboot_cross_copy_all_pixels=%llu\toverwrite_black_total=%llu\toverwrite_black_texrect=%llu\toverwrite_black_triangle=%llu\toverwrite_black_triangle_preserved=%llu",
+		"\tselected_surface_live_writes=%llu\tselected_surface_live_works=%llu\tselected_surface_from_history=%u\tselected_surface_history_age=%llu\tselected_surface_overwrite_black=%llu\tselected_surface_overwrite_black_texrect=%llu\tselected_surface_overwrite_black_triangle=%llu\tselected_surface_triangle_preserve_non_black=%llu\tselected_surface_texrect_nonblack=%llu\tselected_surface_triangle_nonblack=%llu\tselected_surface_untouched_carry=%llu\tselected_surface_history_merge_candidates=%llu\tselected_surface_history_merge_potential_black_fill=%llu\tselected_surface_history_merge_potential_nonblack_diff=%llu\tselected_surface_history_merge_copied=%llu\tselected_surface_untouched_carry_src=0x%08X\tdbg_disable_vi_history_present=%u\tdbg_prefer_live_surface_over_history=%u\tdbg_enable_surface_history_bootstrap=%u\tdbg_enable_cross_surface_bootstrap=%u\tdbg_cross_surface_bootstrap_copy_all=%u\tdbg_disable_same_frame_present_accum=%u\tboot_same_attempt=%llu\tboot_same_success=%llu\tboot_same_pixels=%llu\tboot_fallback_success=%llu\tboot_fallback_pixels=%llu\tboot_cross_candidates=%llu\tboot_cross_pixels=%llu\tboot_cross_copy_all_pixels=%llu\toverwrite_black_total=%llu\toverwrite_black_texrect=%llu\toverwrite_black_triangle=%llu\toverwrite_black_triangle_preserved=%llu",
 		static_cast<unsigned long long>(summary.selectedPresentSurfaceLiveWriteCount),
 		static_cast<unsigned long long>(summary.selectedPresentSurfaceLiveWorkCount),
 		static_cast<u32>(summary.selectedPresentSurfaceFromHistory),
@@ -370,6 +370,10 @@ void appendFrameForensicsRecord(
 		static_cast<unsigned long long>(summary.selectedPresentSurfaceTexRectNonBlackWriteCount),
 		static_cast<unsigned long long>(summary.selectedPresentSurfaceTriangleNonBlackWriteCount),
 		static_cast<unsigned long long>(summary.selectedPresentSurfaceUntouchedCarryCount),
+		static_cast<unsigned long long>(summary.selectedPresentSurfaceHistoryMergeCandidateCount),
+		static_cast<unsigned long long>(summary.selectedPresentSurfaceHistoryMergePotentialBlackFillCount),
+		static_cast<unsigned long long>(summary.selectedPresentSurfaceHistoryMergePotentialNonBlackDiffCount),
+		static_cast<unsigned long long>(summary.selectedPresentSurfaceHistoryMergeCopiedCount),
 		summary.selectedPresentSurfaceUntouchedCarrySourceAddress,
 		static_cast<u32>(debugDisableVIHistoryPresentRequested()),
 		static_cast<u32>(debugPreferLiveSurfaceOverHistoryRequested()),
