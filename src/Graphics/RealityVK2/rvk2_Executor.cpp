@@ -1411,6 +1411,14 @@ inline TileAxisSampleCoord applyTileAxisTransform(
 		else
 			localTexel = wrapCoordPositive(localTexel, period);
 	}
+	else {
+		// Legacy texture decode effectively bounds mask=0 coordinates to tile span.
+		const s32 maxLocal = std::max<s32>(0, tileTop - tileBase);
+		if (localTexel < 0)
+			localTexel = 0;
+		else if (localTexel > maxLocal)
+			localTexel = maxLocal;
+	}
 
 	mapped.texel = tileBase + localTexel;
 	return mapped;
