@@ -2633,12 +2633,19 @@ def _build_signals(
                     )
 
         if isinstance(missing_write_attribution, dict):
-            packet_hits_raw = missing_write_attribution.get("missing_with_write_packet_hits", [])
-            packet_hits: List[Dict[str, Any]] = (
-                [row for row in packet_hits_raw if isinstance(row, dict)]
-                if isinstance(packet_hits_raw, list)
-                else []
+            packet_hits_ranked_raw = missing_write_attribution.get(
+                "missing_with_write_packet_hits_ranked", []
             )
+            packet_hits_raw = missing_write_attribution.get("missing_with_write_packet_hits", [])
+            packet_hit_source = "unranked"
+            packet_hits: List[Dict[str, Any]] = []
+            if isinstance(packet_hits_ranked_raw, list):
+                ranked_rows = [row for row in packet_hits_ranked_raw if isinstance(row, dict)]
+                if ranked_rows:
+                    packet_hits = ranked_rows
+                    packet_hit_source = "ranked"
+            if not packet_hits and isinstance(packet_hits_raw, list):
+                packet_hits = [row for row in packet_hits_raw if isinstance(row, dict)]
             packet_rows_considered = min(32, len(packet_hits))
             packet_rows_matched = 0
             packet_rows_triangle_matched = 0
@@ -2667,6 +2674,13 @@ def _build_signals(
                     "missing_work_hits": int(row.get("work_hits", 0) or 0),
                     "missing_pixel_hits": int(row.get("pixel_hits", 0) or 0),
                     "missing_pixel_hit_ratio": row.get("pixel_hit_ratio"),
+                    "analysis_priority_score": row.get("analysis_priority_score"),
+                    "analysis_deprioritized": bool(row.get("analysis_deprioritized", False)),
+                    "analysis_notes": (
+                        row.get("analysis_notes", [])
+                        if isinstance(row.get("analysis_notes"), list)
+                        else []
+                    ),
                     "overwrite_log_stage_coverage": "missing",
                     "triangle_packet_log_coverage": "missing",
                 }
@@ -2746,6 +2760,7 @@ def _build_signals(
 
             missing_with_write_packet_stage_summary = {
                 "candidate_packet_count": len(packet_hits),
+                "candidate_packet_source": packet_hit_source,
                 "rows_considered": packet_rows_considered,
                 "rows_matched_to_overwrite_log": packet_rows_matched,
                 "rows_missing_from_overwrite_log": max(0, packet_rows_considered - packet_rows_matched),
