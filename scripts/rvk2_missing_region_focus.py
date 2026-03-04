@@ -71,6 +71,268 @@ def _load_packet_replay_module(path: Path):
     return module
 
 
+def _parse_int(value: str) -> Optional[int]:
+    text = value.strip()
+    if not text:
+        return None
+    try:
+        if text.startswith(("0x", "0X")):
+            return int(text, 16)
+        return int(text, 10)
+    except ValueError:
+        return None
+
+
+def _u64(record: Dict[str, Any], key: str) -> int:
+    value = record.get(key, 0)
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        parsed = _parse_int(value)
+        if parsed is not None:
+            return parsed
+    return 0
+
+
+def _parse_triangle_packet_log(
+    path: Optional[Path],
+) -> Tuple[Dict[int, Dict[str, Any]], Dict[str, Any]]:
+    summary: Dict[str, Any] = {
+        "path": str(path) if path is not None else None,
+        "exists": bool(path is not None and path.is_file()),
+        "record_count": 0,
+        "source_packet_profile_count": 0,
+        "zero_sample_records": 0,
+    }
+    if path is None or not path.is_file():
+        return {}, summary
+
+    profiles: Dict[int, Dict[str, Any]] = {}
+    record_count = 0
+    zero_sample_records = 0
+
+    def _profile_row(packet_id: int) -> Dict[str, Any]:
+        row = profiles.get(packet_id)
+        if row is None:
+            row = {
+                "source_packet_id": int(packet_id),
+                "record_count": 0,
+                "sample_candidates": 0,
+                "writes": 0,
+                "alpha_reject": 0,
+                "coverage_reject": 0,
+                "depth_reject": 0,
+                "scissor_field_reject_rows": 0,
+                "y_range_reject_rows": 0,
+                "x_edge_reject": 0,
+                "bounds_reject_records": 0,
+                "degenerate_reject_records": 0,
+                "zero_sample_records": 0,
+                "zero_sample_y_range_records": 0,
+                "zero_sample_x_edge_records": 0,
+                "zero_sample_scissor_records": 0,
+                "zero_sample_bounds_records": 0,
+                "zero_sample_degenerate_records": 0,
+                "zero_sample_other_records": 0,
+            }
+            profiles[packet_id] = row
+        return row
+
+    for raw_line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        record: Dict[str, Any] = {}
+        for token in line.split("\t"):
+            if "=" not in token:
+                continue
+            key, raw = token.split("=", 1)
+            key = key.strip()
+            raw = raw.strip()
+            if not key:
+                continue
+            parsed = _parse_int(raw)
+            record[key] = parsed if parsed is not None else raw
+        if not record:
+            continue
+
+        record_count += 1
+        sample_candidates = int(_u64(record, "sample_candidates"))
+        writes = int(_u64(record, "writes"))
+        alpha_reject = int(_u64(record, "alpha_reject"))
+        coverage_reject = int(_u64(record, "coverage_reject"))
+        depth_reject = int(_u64(record, "depth_reject"))
+        scissor_field_reject_rows = int(_u64(record, "scissor_field_reject_rows"))
+        y_range_reject_rows = int(_u64(record, "y_range_reject_rows"))
+        x_edge_reject = int(_u64(record, "x_edge_reject"))
+        bounds_reject = int(_u64(record, "bounds_reject"))
+        degenerate_reject = int(_u64(record, "degenerate_reject"))
+        source_packet_id = int(_u64(record, "source_packet_id"))
+
+        if sample_candidates == 0:
+            zero_sample_records += 1
+
+        if source_packet_id <= 0:
+            continue
+        row = _profile_row(source_packet_id)
+        row["record_count"] = int(row.get("record_count", 0) or 0) + 1
+        row["sample_candidates"] = int(row.get("sample_candidates", 0) or 0) + sample_candidates
+        row["writes"] = int(row.get("writes", 0) or 0) + writes
+        row["alpha_reject"] = int(row.get("alpha_reject", 0) or 0) + alpha_reject
+        row["coverage_reject"] = int(row.get("coverage_reject", 0) or 0) + coverage_reject
+        row["depth_reject"] = int(row.get("depth_reject", 0) or 0) + depth_reject
+        row["scissor_field_reject_rows"] = (
+            int(row.get("scissor_field_reject_rows", 0) or 0) + scissor_field_reject_rows
+        )
+        row["y_range_reject_rows"] = int(row.get("y_range_reject_rows", 0) or 0) + y_range_reject_rows
+        row["x_edge_reject"] = int(row.get("x_edge_reject", 0) or 0) + x_edge_reject
+        if bounds_reject != 0:
+            row["bounds_reject_records"] = int(row.get("bounds_reject_records", 0) or 0) + 1
+        if degenerate_reject != 0:
+            row["degenerate_reject_records"] = int(row.get("degenerate_reject_records", 0) or 0) + 1
+
+        if sample_candidates == 0:
+            row["zero_sample_records"] = int(row.get("zero_sample_records", 0) or 0) + 1
+            reason_marked = False
+            if bounds_reject != 0:
+                row["zero_sample_bounds_records"] = int(row.get("zero_sample_bounds_records", 0) or 0) + 1
+                reason_marked = True
+            if degenerate_reject != 0:
+                row["zero_sample_degenerate_records"] = (
+                    int(row.get("zero_sample_degenerate_records", 0) or 0) + 1
+                )
+                reason_marked = True
+            if scissor_field_reject_rows > 0:
+                row["zero_sample_scissor_records"] = int(row.get("zero_sample_scissor_records", 0) or 0) + 1
+                reason_marked = True
+            if y_range_reject_rows > 0:
+                row["zero_sample_y_range_records"] = int(row.get("zero_sample_y_range_records", 0) or 0) + 1
+                reason_marked = True
+            if x_edge_reject > 0:
+                row["zero_sample_x_edge_records"] = int(row.get("zero_sample_x_edge_records", 0) or 0) + 1
+                reason_marked = True
+            if not reason_marked:
+                row["zero_sample_other_records"] = int(row.get("zero_sample_other_records", 0) or 0) + 1
+
+    for row in profiles.values():
+        record_total = int(row.get("record_count", 0) or 0)
+        zero_sample_total = int(row.get("zero_sample_records", 0) or 0)
+        sample_candidates = int(row.get("sample_candidates", 0) or 0)
+        writes = int(row.get("writes", 0) or 0)
+        reason_counts = {
+            "y_range": int(row.get("zero_sample_y_range_records", 0) or 0),
+            "x_edge": int(row.get("zero_sample_x_edge_records", 0) or 0),
+            "scissor_field": int(row.get("zero_sample_scissor_records", 0) or 0),
+            "bounds": int(row.get("zero_sample_bounds_records", 0) or 0),
+            "degenerate": int(row.get("zero_sample_degenerate_records", 0) or 0),
+            "other": int(row.get("zero_sample_other_records", 0) or 0),
+        }
+        dominant_reason = None
+        dominant_count = 0
+        for reason, count in reason_counts.items():
+            if count > dominant_count:
+                dominant_reason = reason
+                dominant_count = count
+        row["write_ratio"] = _ratio(writes, sample_candidates)
+        row["zero_sample_ratio"] = _ratio(zero_sample_total, record_total)
+        row["zero_sample_reason_counts"] = reason_counts
+        row["dominant_zero_sample_reason"] = dominant_reason
+        row["dominant_zero_sample_reason_ratio"] = _ratio(dominant_count, zero_sample_total)
+
+    summary["record_count"] = int(record_count)
+    summary["source_packet_profile_count"] = int(len(profiles))
+    summary["zero_sample_records"] = int(zero_sample_records)
+    return profiles, summary
+
+
+def _annotate_missing_packet_row(
+    row: Dict[str, Any],
+    triangle_profiles: Dict[int, Dict[str, Any]],
+) -> Dict[str, Any]:
+    packet_id = int(row.get("source_packet_id", 0) or 0)
+    pixel_hits = int(row.get("pixel_hits", 0) or 0)
+    work_hits = int(row.get("work_hits", 0) or 0)
+    score = float(pixel_hits) + (0.05 * float(work_hits))
+    notes: List[str] = []
+    deprioritized = False
+
+    row["triangle_packet_log_coverage"] = "missing"
+    row["triangle_sample_candidates"] = 0
+    row["triangle_writes"] = 0
+    row["triangle_write_ratio"] = None
+    row["triangle_zero_sample_records"] = 0
+    row["triangle_zero_sample_ratio"] = None
+    row["triangle_dominant_zero_sample_reason"] = None
+    row["triangle_dominant_zero_sample_reason_ratio"] = None
+    row["triangle_scissor_field_reject_rows"] = 0
+    row["triangle_y_range_reject_rows"] = 0
+    row["triangle_x_edge_reject"] = 0
+    row["triangle_zero_sample_reason_counts"] = {}
+
+    triangle = triangle_profiles.get(packet_id)
+    if triangle is not None:
+        row["triangle_packet_log_coverage"] = "matched"
+        sample_candidates = int(triangle.get("sample_candidates", 0) or 0)
+        writes = int(triangle.get("writes", 0) or 0)
+        row["triangle_sample_candidates"] = sample_candidates
+        row["triangle_writes"] = writes
+        row["triangle_write_ratio"] = triangle.get("write_ratio")
+        row["triangle_zero_sample_records"] = int(triangle.get("zero_sample_records", 0) or 0)
+        row["triangle_zero_sample_ratio"] = triangle.get("zero_sample_ratio")
+        row["triangle_dominant_zero_sample_reason"] = triangle.get("dominant_zero_sample_reason")
+        row["triangle_dominant_zero_sample_reason_ratio"] = triangle.get(
+            "dominant_zero_sample_reason_ratio"
+        )
+        row["triangle_scissor_field_reject_rows"] = int(
+            triangle.get("scissor_field_reject_rows", 0) or 0
+        )
+        row["triangle_y_range_reject_rows"] = int(triangle.get("y_range_reject_rows", 0) or 0)
+        row["triangle_x_edge_reject"] = int(triangle.get("x_edge_reject", 0) or 0)
+        row["triangle_zero_sample_reason_counts"] = (
+            triangle.get("zero_sample_reason_counts", {})
+            if isinstance(triangle.get("zero_sample_reason_counts"), dict)
+            else {}
+        )
+
+        if sample_candidates > 0:
+            score *= 1.15
+            notes.append("triangle_has_sample_candidates")
+        elif writes > 0:
+            score *= 1.05
+            notes.append("triangle_has_writes_without_samples")
+        else:
+            dominant = row.get("triangle_dominant_zero_sample_reason")
+            if dominant in ("y_range", "x_edge", "bounds", "degenerate"):
+                score *= 0.05
+                deprioritized = True
+                notes.append(f"triangle_zero_sample_{dominant}_deprioritized")
+            elif dominant == "scissor_field":
+                score *= 0.20
+                deprioritized = True
+                notes.append("triangle_zero_sample_scissor_field_deprioritized")
+            else:
+                score *= 0.30
+                deprioritized = True
+                notes.append("triangle_zero_sample_other_deprioritized")
+    else:
+        notes.append("triangle_packet_log_missing")
+
+    row["analysis_priority_score"] = round(score, 6)
+    row["analysis_deprioritized"] = bool(deprioritized)
+    row["analysis_notes"] = notes
+    return row
+
+
+def _missing_packet_rank_key(row: Dict[str, Any]) -> Tuple[float, int, int]:
+    return (
+        -float(row.get("analysis_priority_score", 0.0) or 0.0),
+        -int(row.get("pixel_hits", 0) or 0),
+        int(row.get("source_packet_id", 0) or 0),
+    )
+
+
 def _sign_extend14(value: int) -> int:
     raw = value & 0x3FFF
     return (raw ^ 0x2000) - 0x2000
@@ -515,6 +777,11 @@ def main() -> int:
     parser.add_argument("--diff-summary", required=True, help="diff playbook summary.json path")
     parser.add_argument("--output", required=True, help="output JSON path")
     parser.add_argument("--forensics", default="", help="optional frame-forensics TSV path")
+    parser.add_argument(
+        "--triangle-packet-log",
+        default="",
+        help="optional triangle packet TSV path for hotspot packet ranking",
+    )
     parser.add_argument("--frame-id", type=int, default=0, help="frame id to analyze (default: last frame with render work)")
     parser.add_argument(
         "--max-hit-samples",
@@ -543,6 +810,10 @@ def main() -> int:
     diff_summary_path = Path(args.diff_summary)
     output_path = Path(args.output)
     forensics_path = Path(args.forensics) if args.forensics else None
+    triangle_packet_log_path = Path(args.triangle_packet_log) if args.triangle_packet_log else None
+    triangle_packet_profiles, triangle_packet_summary = _parse_triangle_packet_log(
+        triangle_packet_log_path
+    )
 
     if not packet_trace_path.is_file():
         raise SystemExit(f"ERROR: packet trace not found: {packet_trace_path}")
@@ -582,6 +853,7 @@ def main() -> int:
             "work_hit_samples": [],
             "missing_write_attribution": {},
             "work_hit_stats": {},
+            "triangle_packet_log": triangle_packet_summary,
             "notes": ["no diff boxes available"],
         }
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1109,6 +1381,7 @@ def main() -> int:
             row["work_hits"] = int(missing_with_write_packet_work_hits.get(packet_id, 0))
             row["pixel_hits"] = int(pixel_hits)
             row["pixel_hit_ratio"] = _ratio(int(pixel_hits), missing_with_write_pixels)
+            _annotate_missing_packet_row(row, triangle_packet_profiles)
             missing_with_write_packet_rows.append(row)
         missing_with_write_packet_rows.sort(
             key=lambda row: (
@@ -1116,6 +1389,43 @@ def main() -> int:
                 int(row.get("source_packet_id", 0) or 0),
             )
         )
+        missing_with_write_packet_rows_ranked = sorted(
+            missing_with_write_packet_rows,
+            key=_missing_packet_rank_key,
+        )
+        auto_overwrite_packet_ids: List[int] = []
+        seen_auto_packet_ids: set[int] = set()
+        for row in missing_with_write_packet_rows_ranked:
+            packet_id = int(row.get("source_packet_id", 0) or 0)
+            if packet_id <= 0 or packet_id in seen_auto_packet_ids:
+                continue
+            if bool(row.get("analysis_deprioritized", False)):
+                continue
+            seen_auto_packet_ids.add(packet_id)
+            auto_overwrite_packet_ids.append(packet_id)
+            if len(auto_overwrite_packet_ids) >= 64:
+                break
+        if len(auto_overwrite_packet_ids) < min(8, len(missing_with_write_packet_rows_ranked)):
+            for row in missing_with_write_packet_rows_ranked:
+                packet_id = int(row.get("source_packet_id", 0) or 0)
+                if packet_id <= 0 or packet_id in seen_auto_packet_ids:
+                    continue
+                seen_auto_packet_ids.add(packet_id)
+                auto_overwrite_packet_ids.append(packet_id)
+                if len(auto_overwrite_packet_ids) >= 64:
+                    break
+
+        ranked_rows_considered = min(64, len(missing_with_write_packet_rows_ranked))
+        ranked_rows_deprioritized = 0
+        ranked_rows_triangle_matched = 0
+        ranked_rows_triangle_zero_sample = 0
+        for row in missing_with_write_packet_rows_ranked[:ranked_rows_considered]:
+            if bool(row.get("analysis_deprioritized", False)):
+                ranked_rows_deprioritized += 1
+            if row.get("triangle_packet_log_coverage") == "matched":
+                ranked_rows_triangle_matched += 1
+                if int(row.get("triangle_sample_candidates", 0) or 0) == 0:
+                    ranked_rows_triangle_zero_sample += 1
 
         max_address_overlap = max(0, int(args.max_address_overlap))
         present_surface_address = int(forensics_last.get("present_surface", 0) or 0)
@@ -1313,6 +1623,15 @@ def main() -> int:
                 for key, counter in sorted(missing_with_write_state_pixel_counters.items())
             },
             "missing_with_write_packet_hits": missing_with_write_packet_rows[:64],
+            "missing_with_write_packet_hits_ranked": missing_with_write_packet_rows_ranked[:64],
+            "auto_overwrite_packet_ids_suggested": auto_overwrite_packet_ids,
+            "auto_overwrite_packet_ids_suggested_count": len(auto_overwrite_packet_ids),
+            "auto_overwrite_packet_ranking_summary": {
+                "rows_considered": ranked_rows_considered,
+                "rows_deprioritized": ranked_rows_deprioritized,
+                "rows_triangle_matched": ranked_rows_triangle_matched,
+                "rows_triangle_zero_sample": ranked_rows_triangle_zero_sample,
+            },
             "missing_without_write_prior_phase_work_hits": dict(
                 prior_missing_phase_work_hits.most_common()
             ),
@@ -1373,6 +1692,7 @@ def main() -> int:
                 "prior_address_overlap_rows_truncated": prior_address_overlap_truncated,
             },
             "segments": segment_missing,
+            "triangle_packet_log": triangle_packet_summary,
         }
 
     address_write_stats: List[Dict[str, Any]] = []
@@ -1621,6 +1941,7 @@ def main() -> int:
             "max_hit_samples": max(0, int(args.max_hit_samples)),
         },
         "missing_write_attribution": missing_write_attribution,
+        "triangle_packet_log": triangle_packet_summary,
     }
 
     output_path.parent.mkdir(parents=True, exist_ok=True)

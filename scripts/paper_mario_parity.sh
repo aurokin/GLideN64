@@ -1024,15 +1024,73 @@ if not isinstance(missing, dict):
     print("")
     raise SystemExit(0)
 
-rows = missing.get("missing_with_write_packet_hits", [])
+auto_ids_raw = missing.get("auto_overwrite_packet_ids_suggested", [])
+if isinstance(auto_ids_raw, list):
+    auto_ids = []
+    seen_auto = set()
+    for value in auto_ids_raw:
+        try:
+            packet_id = int(value or 0)
+        except Exception:
+            packet_id = 0
+        if packet_id <= 0 or packet_id in seen_auto:
+            continue
+        seen_auto.add(packet_id)
+        auto_ids.append(packet_id)
+        if len(auto_ids) >= limit:
+            break
+    if auto_ids:
+        print(",".join(str(pid) for pid in auto_ids))
+        raise SystemExit(0)
+
+rows = missing.get("missing_with_write_packet_hits_ranked", [])
+if not isinstance(rows, list) or not rows:
+    rows = missing.get("missing_with_write_packet_hits", [])
 if not isinstance(rows, list):
     print("")
     raise SystemExit(0)
+
+def _is_truthy(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return False
+
+def _row_is_deprioritized(row):
+    if _is_truthy(row.get("analysis_deprioritized", False)):
+        return True
+    coverage = row.get("triangle_packet_log_coverage")
+    if coverage != "matched":
+        return False
+    try:
+        sample_candidates = int(row.get("triangle_sample_candidates", 0) or 0)
+    except Exception:
+        sample_candidates = 0
+    try:
+        writes = int(row.get("triangle_writes", 0) or 0)
+    except Exception:
+        writes = 0
+    if sample_candidates > 0 or writes > 0:
+        return False
+    reason = row.get("triangle_dominant_zero_sample_reason")
+    return isinstance(reason, str) and reason in {
+        "y_range",
+        "x_edge",
+        "scissor_field",
+        "bounds",
+        "degenerate",
+        "other",
+    }
 
 packet_ids = []
 seen = set()
 for row in rows:
     if not isinstance(row, dict):
+        continue
+    if _row_is_deprioritized(row):
         continue
     try:
         packet_id = int(row.get("source_packet_id", 0) or 0)
@@ -1044,6 +1102,21 @@ for row in rows:
     packet_ids.append(packet_id)
     if len(packet_ids) >= limit:
         break
+
+if len(packet_ids) < min(8, limit):
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        try:
+            packet_id = int(row.get("source_packet_id", 0) or 0)
+        except Exception:
+            packet_id = 0
+        if packet_id <= 0 or packet_id in seen:
+            continue
+        seen.add(packet_id)
+        packet_ids.append(packet_id)
+        if len(packet_ids) >= limit:
+            break
 
 print(",".join(str(pid) for pid in packet_ids))
 PY
@@ -1366,6 +1439,7 @@ if [[ "${DEEP_TELEMETRY}" == "1" ]]; then
       --packet-trace "${CANDIDATE_PACKET_TRACE_OUT}" \
       --diff-summary "${DIFF_PLAYBOOK_SUMMARY_OUT}" \
       --forensics "${CANDIDATE_FRAME_FORENSICS_OUT}" \
+      --triangle-packet-log "${CANDIDATE_TRIANGLE_PACKET_LOG_OUT}" \
       --max-hit-samples "${DEEP_TELEMETRY_MISSING_REGION_MAX_HIT_SAMPLES}" \
       --history-frame-window "${DEEP_TELEMETRY_MISSING_REGION_HISTORY_WINDOW}" \
       --max-address-overlap "${DEEP_TELEMETRY_MISSING_REGION_MAX_ADDRESS_OVERLAP}" \

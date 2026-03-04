@@ -44,6 +44,10 @@ Deep telemetry artifacts (Paper Mario intro) are emitted under:
   - `paper_mario_intro.candidate.command-census.json`
   - `paper_mario_intro.candidate.command-census.md`
   - `paper_mario_intro.candidate.missing-region-focus.json`
+    - includes triangle-packet-aware hotspot ranking:
+      - `missing_write_attribution.missing_with_write_packet_hits_ranked`
+      - `missing_write_attribution.auto_overwrite_packet_ids_suggested`
+      - `missing_write_attribution.auto_overwrite_packet_ranking_summary`
   - `paper_mario_intro.candidate.history-merge.tsv`
   - `paper_mario_intro.deviation/`
     - `diff.png`
