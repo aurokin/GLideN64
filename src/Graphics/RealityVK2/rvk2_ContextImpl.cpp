@@ -73,6 +73,68 @@ bool debugDisableSameFramePresentAccumRequested()
 	return envFlagEnabled("REALITYVK_RVK2_DEBUG_DISABLE_SAME_FRAME_PRESENT_ACCUM", false);
 }
 
+const char * debugExecutorPresentDumpPath()
+{
+	static const char * path = []() -> const char * {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_EXECUTOR_PRESENT_DUMP");
+		if (raw == nullptr || raw[0] == '\0')
+			return nullptr;
+		return raw;
+	}();
+	return path;
+}
+
+u64 debugExecutorPresentDumpFrame()
+{
+	static const u64 frame = []() -> u64 {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_EXECUTOR_PRESENT_DUMP_FRAME");
+		if (raw == nullptr || raw[0] == '\0')
+			return 0ULL;
+		char * end = nullptr;
+		const unsigned long long value = std::strtoull(raw, &end, 10);
+		if (end == raw)
+			return 0ULL;
+		return static_cast<u64>(value);
+	}();
+	return frame;
+}
+
+void dumpExecutorPresentFrameIfRequested(
+	u64 _frameId,
+	const rvk2::ExecutorOutput & _output)
+{
+	const char * dumpPath = debugExecutorPresentDumpPath();
+	if (dumpPath == nullptr)
+		return;
+	const u64 frameFilter = debugExecutorPresentDumpFrame();
+	if (frameFilter != 0ULL && frameFilter != _frameId)
+		return;
+	if (_output.presentFrame.width == 0U
+		|| _output.presentFrame.height == 0U
+		|| _output.presentFrame.pixels.empty())
+		return;
+	const size_t requiredPixelCount =
+		static_cast<size_t>(_output.presentFrame.width)
+		* static_cast<size_t>(_output.presentFrame.height);
+	if (_output.presentFrame.pixels.size() < requiredPixelCount)
+		return;
+
+	std::FILE * file = std::fopen(dumpPath, "wb");
+	if (file == nullptr)
+		return;
+	std::fprintf(file, "P6\n%u %u\n255\n", _output.presentFrame.width, _output.presentFrame.height);
+	for (size_t i = 0; i < requiredPixelCount; ++i) {
+		const u32 pixel = _output.presentFrame.pixels[i];
+		const u8 rgb[3] = {
+			static_cast<u8>((pixel >> 24U) & 0xFFU),
+			static_cast<u8>((pixel >> 16U) & 0xFFU),
+			static_cast<u8>((pixel >> 8U) & 0xFFU),
+		};
+		std::fwrite(rgb, 1U, 3U, file);
+	}
+	std::fclose(file);
+}
+
 struct ForensicsIngressSnapshot {
 	u64 frameId = 0ULL;
 	u64 stateCallCount = 0ULL;
@@ -1042,6 +1104,7 @@ bool ContextImpl::present()
 			ingress.sameFramePresentOutputNonBlackCount = m_sameFramePresent.nonBlackCount;
 		}
 	}
+	dumpExecutorPresentFrameIfRequested(frameId, output);
 
 	if (config.textureReplacementLogSummary && output.summary.textureReplacementEnabled) {
 		LOG(

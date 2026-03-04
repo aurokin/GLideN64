@@ -710,6 +710,11 @@ void appendOverwriteLog(
 	u32 _y,
 	u32 _previousEncodedColor,
 	u32 _newEncodedColor,
+	u32 _textureColor,
+	u32 _combinerColor,
+	u32 _blenderColor,
+	u32 _finalColor,
+	u32 _textureSourceBits,
 	bool _preservedNonBlack,
 	const rvk2::RenderWorkPacket & _work)
 {
@@ -734,7 +739,7 @@ void appendOverwriteLog(
 				: (_opKind == static_cast<u8>(rvk2::RasterOpKind::kFillRect) ? "fill" : "other"));
 	std::fprintf(
 		file,
-		"work_ordinal=%llu\tsource_packet_id=%llu\top_kind=%u\top_name=%s\tphase=%u\tcolor_image=0x%08X\tx=%u\ty=%u\tprev=0x%08X\tnew=0x%08X\tpreserved=%u\tcombine_mux=0x%016llX\tother_modes=0x%016llX\tblend_params=0x%08X\ttile=%u\ttile_format=%u\ttile_size=%u\ttile_line=%u\ttile_tmem=%u\ttexture_image_width=%u\ttexture_image_address=0x%08X\n",
+		"work_ordinal=%llu\tsource_packet_id=%llu\top_kind=%u\top_name=%s\tphase=%u\tcolor_image=0x%08X\tx=%u\ty=%u\tprev=0x%08X\tnew=0x%08X\ttexel=0x%08X\tcombiner=0x%08X\tblender=0x%08X\tfinal=0x%08X\ttexture_source_bits=0x%08X\tpreserved=%u\tcombine_mux=0x%016llX\tother_modes=0x%016llX\tblend_params=0x%08X\ttile=%u\ttile_format=%u\ttile_size=%u\ttile_line=%u\ttile_tmem=%u\ttexture_image_width=%u\ttexture_image_address=0x%08X\n",
 		static_cast<unsigned long long>(_workOrdinal),
 		static_cast<unsigned long long>(_sourcePacketId),
 		static_cast<unsigned>(_opKind),
@@ -745,6 +750,11 @@ void appendOverwriteLog(
 		_y,
 		_previousEncodedColor,
 		_newEncodedColor,
+		_textureColor,
+		_combinerColor,
+		_blenderColor,
+		_finalColor,
+		_textureSourceBits,
 		_preservedNonBlack ? 1U : 0U,
 		static_cast<unsigned long long>(_work.combineMux),
 		static_cast<unsigned long long>(_work.otherModes),
@@ -4859,6 +4869,11 @@ void writeRect(
 					y,
 					previousEncodedColor,
 					encodedWriteColor,
+					textureColor,
+					combinerColor,
+					blenderColor,
+					finalColor,
+					textureSourceBits,
 					preserveTexRectNonBlack,
 					_work);
 			}
@@ -5207,6 +5222,11 @@ void writeTriangle(
 						y,
 						previousEncodedColor,
 						encodedWriteColor,
+						textureColor,
+						combinerColor,
+						blenderColor,
+						finalColor,
+						textureSourceBits,
 						preserveNonBlackOverwrite,
 						_work);
 				}

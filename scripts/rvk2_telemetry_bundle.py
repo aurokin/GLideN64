@@ -268,18 +268,29 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
             "preserved_count": 0,
             "preserved_ratio": None,
             "op_counts": {},
+            "texture_source_bit_counts": {},
             "unique_color_image_count": 0,
             "top_color_images": [],
             "dominant_state": {},
             "dominant_state_ratio": None,
+            "stage_black": {},
+            "stage_kill_counts": {},
         }
 
     records: List[Dict[str, Any]] = []
     op_counts: Dict[str, int] = {}
+    texture_source_bit_counts: Dict[str, int] = {}
     color_image_counts: Dict[int, int] = {}
     state_counts: Dict[str, int] = {}
     state_rows: Dict[str, Dict[str, Any]] = {}
     preserved_count = 0
+    texel_black_count = 0
+    combiner_black_count = 0
+    blender_black_count = 0
+    final_black_count = 0
+    kill_at_combiner_count = 0
+    kill_at_blender_count = 0
+    kill_after_blender_count = 0
 
     for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         stripped = line.strip()
@@ -316,6 +327,33 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
 
         if _u64(record, "preserved") != 0:
             preserved_count += 1
+
+        texture_source_bits = _u64(record, "texture_source_bits")
+        source_key = f"0x{texture_source_bits:08X}"
+        texture_source_bit_counts[source_key] = texture_source_bit_counts.get(source_key, 0) + 1
+
+        texel = _u64(record, "texel")
+        combiner = _u64(record, "combiner")
+        blender = _u64(record, "blender")
+        final = _u64(record, "final")
+        texel_black = (texel & 0x00FFFFFF) == 0
+        combiner_black = (combiner & 0x00FFFFFF) == 0
+        blender_black = (blender & 0x00FFFFFF) == 0
+        final_black = (final & 0x00FFFFFF) == 0
+        if texel_black:
+            texel_black_count += 1
+        if combiner_black:
+            combiner_black_count += 1
+        if blender_black:
+            blender_black_count += 1
+        if final_black:
+            final_black_count += 1
+        if not texel_black and combiner_black:
+            kill_at_combiner_count += 1
+        if not combiner_black and blender_black:
+            kill_at_blender_count += 1
+        if not blender_black and final_black:
+            kill_after_blender_count += 1
 
         color_image = _u64(record, "color_image")
         if color_image > 0:
@@ -368,10 +406,29 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
         "preserved_count": preserved_count,
         "preserved_ratio": _ratio(preserved_count, record_count),
         "op_counts": dict(sorted(op_counts.items())),
+        "texture_source_bit_counts": dict(sorted(texture_source_bit_counts.items())),
         "unique_color_image_count": len(color_image_counts),
         "top_color_images": top_color_image_rows,
         "dominant_state": dominant_state,
         "dominant_state_ratio": dominant_state_ratio,
+        "stage_black": {
+            "texel_black_count": texel_black_count,
+            "combiner_black_count": combiner_black_count,
+            "blender_black_count": blender_black_count,
+            "final_black_count": final_black_count,
+            "texel_black_ratio": _ratio(texel_black_count, record_count),
+            "combiner_black_ratio": _ratio(combiner_black_count, record_count),
+            "blender_black_ratio": _ratio(blender_black_count, record_count),
+            "final_black_ratio": _ratio(final_black_count, record_count),
+        },
+        "stage_kill_counts": {
+            "kill_at_combiner_count": kill_at_combiner_count,
+            "kill_at_blender_count": kill_at_blender_count,
+            "kill_after_blender_count": kill_after_blender_count,
+            "kill_at_combiner_ratio": _ratio(kill_at_combiner_count, record_count),
+            "kill_at_blender_ratio": _ratio(kill_at_blender_count, record_count),
+            "kill_after_blender_ratio": _ratio(kill_after_blender_count, record_count),
+        },
     }
 
 
@@ -646,18 +703,26 @@ def _build_signals(
         overwrite_preserved_count = int(overwrite_summary.get("preserved_count", 0) or 0)
         overwrite_preserved_ratio = overwrite_summary.get("preserved_ratio")
         overwrite_op_counts = overwrite_summary.get("op_counts", {})
+        overwrite_texture_source_bit_counts = overwrite_summary.get("texture_source_bit_counts", {})
         overwrite_top_color_images = overwrite_summary.get("top_color_images", [])
         overwrite_dominant_state = overwrite_summary.get("dominant_state", {})
         overwrite_dominant_state_ratio = overwrite_summary.get("dominant_state_ratio")
+        overwrite_stage_black = overwrite_summary.get("stage_black", {})
+        overwrite_stage_kill_counts = overwrite_summary.get("stage_kill_counts", {})
         overwrite_signal = {
             "record_count": overwrite_record_count,
             "preserved_count": overwrite_preserved_count,
             "preserved_ratio": overwrite_preserved_ratio,
             "op_counts": overwrite_op_counts if isinstance(overwrite_op_counts, dict) else {},
+            "texture_source_bit_counts": (
+                overwrite_texture_source_bit_counts if isinstance(overwrite_texture_source_bit_counts, dict) else {}
+            ),
             "unique_color_image_count": int(overwrite_summary.get("unique_color_image_count", 0) or 0),
             "top_color_images": overwrite_top_color_images if isinstance(overwrite_top_color_images, list) else [],
             "dominant_state": overwrite_dominant_state if isinstance(overwrite_dominant_state, dict) else {},
             "dominant_state_ratio": overwrite_dominant_state_ratio,
+            "stage_black": overwrite_stage_black if isinstance(overwrite_stage_black, dict) else {},
+            "stage_kill_counts": overwrite_stage_kill_counts if isinstance(overwrite_stage_kill_counts, dict) else {},
         }
         if overwrite_record_count > 0 and overwrite_preserved_count == 0:
             suspected_gaps.append(
@@ -676,6 +741,32 @@ def _build_signals(
             suspected_gaps.append(
                 "overwrite-to-black events are texrect dominated; prioritize texrect combiner/texture-state parity for missing scene content"
             )
+        if isinstance(overwrite_stage_black, dict):
+            texel_black_ratio = overwrite_stage_black.get("texel_black_ratio")
+            combiner_black_ratio = overwrite_stage_black.get("combiner_black_ratio")
+            if isinstance(texel_black_ratio, (int, float)) and texel_black_ratio > 0.80:
+                suspected_gaps.append(
+                    "overwrite-to-black samples are already black at texel stage (>80%); prioritize TMEM decode/addressing and tile state parity"
+                )
+            if (
+                isinstance(texel_black_ratio, (int, float))
+                and isinstance(combiner_black_ratio, (int, float))
+                and texel_black_ratio + 0.20 < combiner_black_ratio
+            ):
+                suspected_gaps.append(
+                    "combiner stage introduces substantial additional blacking beyond texel stage; combiner mux/input routing likely contributing"
+                )
+        if isinstance(overwrite_stage_kill_counts, dict):
+            kill_at_combiner_ratio = overwrite_stage_kill_counts.get("kill_at_combiner_ratio")
+            kill_at_blender_ratio = overwrite_stage_kill_counts.get("kill_at_blender_ratio")
+            if isinstance(kill_at_combiner_ratio, (int, float)) and kill_at_combiner_ratio > 0.25:
+                suspected_gaps.append(
+                    "many overwrite-to-black events transition non-black texels to black at combiner stage (>25%)"
+                )
+            if isinstance(kill_at_blender_ratio, (int, float)) and kill_at_blender_ratio > 0.25:
+                suspected_gaps.append(
+                    "many overwrite-to-black events transition non-black combiner output to black at blender stage (>25%)"
+                )
         if (
             overwrite_record_count > 0
             and isinstance(overwrite_dominant_state_ratio, (int, float))
@@ -1622,6 +1713,7 @@ def main() -> int:
     parser.add_argument("--missing-region-focus")
     parser.add_argument("--history-merge-log")
     parser.add_argument("--overwrite-log")
+    parser.add_argument("--executor-present-dump")
     parser.add_argument("--command-census")
     parser.add_argument("--packet-replay-exit", type=int, default=-1)
     parser.add_argument("--forensics-summary-exit", type=int, default=-1)
@@ -1650,6 +1742,7 @@ def main() -> int:
     missing_region_focus_path = Path(args.missing_region_focus) if args.missing_region_focus else None
     history_merge_log_path = Path(args.history_merge_log) if args.history_merge_log else None
     overwrite_log_path = Path(args.overwrite_log) if args.overwrite_log else None
+    executor_present_dump_path = Path(args.executor_present_dump) if args.executor_present_dump else None
     command_census_path = Path(args.command_census) if args.command_census else None
 
     metrics = _load_json(metrics_path)
@@ -1724,6 +1817,7 @@ def main() -> int:
             "missing_region_focus": _file_meta(missing_region_focus_path),
             "history_merge_log": _file_meta(history_merge_log_path),
             "overwrite_log": _file_meta(overwrite_log_path),
+            "executor_present_dump": _file_meta(executor_present_dump_path),
             "command_census": _file_meta(command_census_path),
         },
         "metrics": metrics,
