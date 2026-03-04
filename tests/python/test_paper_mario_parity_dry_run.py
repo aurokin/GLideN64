@@ -20,7 +20,13 @@ class PaperMarioParityDryRunTests(unittest.TestCase):
             encoding="utf-8",
         )
 
-    def _run_dry(self, profile: str, *, deep_override: Optional[str] = None) -> dict:
+    def _run_dry(
+        self,
+        profile: str,
+        *,
+        deep_override: Optional[str] = None,
+        reference_plugin_name: str = "reference.so",
+    ) -> dict:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             run_root = root / "run"
@@ -28,7 +34,7 @@ class PaperMarioParityDryRunTests(unittest.TestCase):
             manifest = root / "scenarios.tsv"
             rom = root / "paper-mario.z64"
             candidate_plugin = root / "candidate.so"
-            reference_plugin = root / "reference.so"
+            reference_plugin = root / reference_plugin_name
             candidate_core = root / "candidate-core.so"
             reference_core = root / "reference-core.so"
             dry_out = run_root / "dry-run.json"
@@ -81,6 +87,13 @@ class PaperMarioParityDryRunTests(unittest.TestCase):
                     return [str(item) for item in env]
         return []
 
+    def _capture_env_value(self, payload: dict, label: str, key: str) -> Optional[str]:
+        prefix = f"{key}="
+        for item in self._capture_env(payload, label):
+            if item.startswith(prefix):
+                return item[len(prefix) :]
+        return None
+
     def test_basic_profile_defaults_to_no_deep_telemetry(self):
         payload = self._run_dry("basic")
         self.assertEqual(payload.get("profile"), "basic")
@@ -104,6 +117,18 @@ class PaperMarioParityDryRunTests(unittest.TestCase):
 
         candidate_env = self._capture_env(payload, "candidate")
         self.assertFalse(any(item.startswith("REALITYVK_RVK2_TRACE_FILE=") for item in candidate_env))
+
+    def test_reference_gliden64_disables_reference_non_black_check_only(self):
+        payload = self._run_dry("basic", reference_plugin_name="mupen64plus-video-GLideN64.so")
+
+        reference_require_non_black = self._capture_env_value(
+            payload, "reference", "REALITYVK_SMOKE_REQUIRE_NON_BLACK_CAPTURE"
+        )
+        candidate_require_non_black = self._capture_env_value(
+            payload, "candidate", "REALITYVK_SMOKE_REQUIRE_NON_BLACK_CAPTURE"
+        )
+        self.assertEqual(reference_require_non_black, "0")
+        self.assertEqual(candidate_require_non_black, "1")
 
 
 if __name__ == "__main__":

@@ -93,6 +93,14 @@ RVK2_PREFER_LIVE_SURFACE_OVER_HISTORY="${REALITYVK_PM_RVK2_PREFER_LIVE_SURFACE_O
 AUTO_COMPARE_VIEW="${REALITYVK_PM_AUTO_COMPARE_VIEW:-1}"
 AUTO_COMPARE_CLOSE_ALL_EOG="${REALITYVK_PM_AUTO_COMPARE_CLOSE_ALL_EOG:-1}"
 
+# GLideN64 cannot produce usable agentctl dumpfb-preset captures in our agent-mode flow.
+# Keep this explicit so reference capture behavior is not misdiagnosed as an RVK2 regression.
+REFERENCE_DUMPFB_INCOMPATIBLE=0
+if [[ "${REFERENCE_PLUGIN,,}" == *"gliden64"* ]]; then
+  REFERENCE_DUMPFB_INCOMPATIBLE=1
+fi
+REFERENCE_DUMPFB_WARNING_EMITTED=0
+
 profile_default() {
   local value_name="$1"
   local env_name="$2"
@@ -549,10 +557,14 @@ capture_plugin() {
   local corelib_path="${CANDIDATE_CORELIB}"
   local require_no_depth_fail="0"
   local require_depth_stats="0"
+  local require_non_black_capture="${REQUIRE_NON_BLACK_CAPTURE}"
   local rvk2_present_flip_y=""
   local depth_summary_out=""
   if [[ "${label}" == "reference" ]]; then
     corelib_path="${REFERENCE_CORELIB}"
+    if [[ "${REFERENCE_DUMPFB_INCOMPATIBLE}" == "1" ]]; then
+      require_non_black_capture="0"
+    fi
   fi
   if [[ "${label}" == "candidate" ]]; then
     require_no_depth_fail="${REQUIRE_NO_DEPTH_BLIT_FAIL}"
@@ -584,7 +596,7 @@ capture_plugin() {
     "REALITYVK_SMOKE_REQUIRE_NO_DEPTH_BLIT_FAIL=${require_no_depth_fail}"
     "REALITYVK_SMOKE_REQUIRE_DEPTH_BLIT_STATS=${require_depth_stats}"
     "REALITYVK_SMOKE_DEPTH_BLIT_SUMMARY_OUT=${depth_summary_out}"
-    "REALITYVK_SMOKE_REQUIRE_NON_BLACK_CAPTURE=${REQUIRE_NON_BLACK_CAPTURE}"
+    "REALITYVK_SMOKE_REQUIRE_NON_BLACK_CAPTURE=${require_non_black_capture}"
     "REALITYVK_SMOKE_CAPTURE_RETRY_COUNT=${CAPTURE_RETRY_COUNT}"
     "REALITYVK_SMOKE_CAPTURE_RETRY_STEP_FRAMES=${CAPTURE_RETRY_STEP_FRAMES}"
     "REALITYVK_SMOKE_CAPTURE_RETRY_RESUME_MS=${CAPTURE_RETRY_RESUME_MS}"
@@ -646,6 +658,21 @@ PY
   fi
 
   env "${run_env[@]}" "${cmd[@]}"
+}
+
+warn_reference_dumpfb_incompatibility() {
+  if [[ "${REFERENCE_DUMPFB_INCOMPATIBLE}" != "1" ]]; then
+    return 0
+  fi
+  if [[ "${REFERENCE_DUMPFB_WARNING_EMITTED}" == "1" ]]; then
+    return 0
+  fi
+  REFERENCE_DUMPFB_WARNING_EMITTED=1
+  cat >&2 <<EOF_WARN
+WARN: reference plugin appears to be GLideN64: ${REFERENCE_PLUGIN}
+WARN: GLideN64 does not produce usable agentctl dumpfb-preset output in this workflow.
+WARN: reference non-black capture validation is disabled for this run.
+EOF_WARN
 }
 
 emit_dry_run_plan_and_exit() {
@@ -1181,6 +1208,7 @@ if [[ "${DRY_RUN}" == "1" ]]; then
 fi
 
 if [[ "${REFRESH_REFERENCE}" == "1" || ! -s "${REFERENCE_CAPTURE}" ]]; then
+  warn_reference_dumpfb_incompatibility
   if [[ ! -f "${REFERENCE_PLUGIN}" ]]; then
     echo "ERROR: reference plugin not found: ${REFERENCE_PLUGIN}" >&2
     exit 2
@@ -1193,13 +1221,18 @@ if [[ "${REFRESH_REFERENCE}" == "1" || ! -s "${REFERENCE_CAPTURE}" ]]; then
 else
   echo "==> [compare] using cached reference capture: ${REFERENCE_CAPTURE}"
   if [[ "${REQUIRE_NON_BLACK_CAPTURE}" == "1" && "${VALIDATE_CACHED_REFERENCE_CAPTURE}" == "1" ]]; then
-    if ! capture_has_content "${REFERENCE_CAPTURE}"; then
-      if [[ ! -f "${REFERENCE_PLUGIN}" ]]; then
-        echo "ERROR: cached reference capture is mostly black and reference plugin is unavailable for recapture: ${REFERENCE_PLUGIN}" >&2
-        exit 2
+    if [[ "${REFERENCE_DUMPFB_INCOMPATIBLE}" == "1" ]]; then
+      warn_reference_dumpfb_incompatibility
+      echo "WARN: skipping cached reference non-black validation for GLideN64 dumpfb path." >&2
+    else
+      if ! capture_has_content "${REFERENCE_CAPTURE}"; then
+        if [[ ! -f "${REFERENCE_PLUGIN}" ]]; then
+          echo "ERROR: cached reference capture is mostly black and reference plugin is unavailable for recapture: ${REFERENCE_PLUGIN}" >&2
+          exit 2
+        fi
+        echo "WARN: cached reference capture appears mostly black; recapturing reference." >&2
+        capture_plugin "reference" "${REFERENCE_PLUGIN}" "${REFERENCE_CAPTURE}"
       fi
-      echo "WARN: cached reference capture appears mostly black; recapturing reference." >&2
-      capture_plugin "reference" "${REFERENCE_PLUGIN}" "${REFERENCE_CAPTURE}"
     fi
   fi
 fi
