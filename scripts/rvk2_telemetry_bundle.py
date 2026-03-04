@@ -3427,6 +3427,8 @@ def _selected_forensics_fields(record: Dict[str, Any]) -> Dict[str, Any]:
         "depth_eval",
         "depth_reject",
         "depth_update",
+        "blend_eq_bypass_ops",
+        "blend_mem_alpha_shift_ops",
     ]
     selected = {key: record.get(key) for key in keys if key in record}
     for i in range(4):

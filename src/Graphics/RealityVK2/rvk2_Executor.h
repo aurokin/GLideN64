@@ -200,6 +200,8 @@ struct ExecutorSummary {
 	u64 blenderColorMMemorySelectorCount = 0ULL;
 	u64 blenderDivideOpCount = 0ULL;
 	u64 blenderNoDivideOpCount = 0ULL;
+	u64 blenderEquationBypassCount = 0ULL;
+	u64 blenderMemoryAlphaShiftApplyCount = 0ULL;
 	u64 alphaCompareTestCount = 0ULL;
 	u64 alphaCompareRejectCount = 0ULL;
 	u64 coverageWriteTestCount = 0ULL;

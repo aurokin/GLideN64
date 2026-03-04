@@ -425,6 +425,42 @@ bool debugDisableColorOnCvgInhibit()
 	return enabled;
 }
 
+bool debugDisableBlendEnGating()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_DISABLE_BLEND_EN_GATING");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugDisableLegacyMemoryAlphaShift()
+{
+	static const bool disabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_DISABLE_LEGACY_MEMORY_ALPHA_SHIFT");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return disabled;
+}
+
+bool debugUseWideMemoryAlphaModel()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_USE_WIDE_MEMORY_ALPHA");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
 bool debugBypassBlender()
 {
 	static const bool enabled = []() -> bool {
@@ -1644,6 +1680,40 @@ inline u8 decodeDepthMode(const rvk2::RenderWorkPacket & _work)
 	return static_cast<u8>((mode1Word(_work) >> 10U) & 0x3U);
 }
 
+inline u32 dzCompress16(u32 _value)
+{
+	u32 j = 0U;
+	if ((_value & 0xFF00U) != 0U)
+		j |= 8U;
+	if ((_value & 0xF0F0U) != 0U)
+		j |= 4U;
+	if ((_value & 0xCCCCU) != 0U)
+		j |= 2U;
+	if ((_value & 0xAAAAU) != 0U)
+		j |= 1U;
+	return j;
+}
+
+inline u32 estimateNoZDepthDeltaEncoding(const rvk2::RenderWorkPacket & _work)
+{
+	u32 dz = static_cast<u32>(_work.primDepthDelta);
+	if (dz == 0U)
+		dz = 1U;
+	dz = std::min<u32>(dz, 0xFFFFU);
+	return dzCompress16(dz);
+}
+
+inline u32 noZBlendMemoryAlphaShiftB(const rvk2::RenderWorkPacket & _work)
+{
+	const u32 dzpixenc = estimateNoZDepthDeltaEncoding(_work);
+	return dzpixenc < 0xBU ? 4U : (0xFU - dzpixenc);
+}
+
+inline u8 memoryAlphaFromCoverage3(u8 _coverage3)
+{
+	return static_cast<u8>((static_cast<u32>(_coverage3 & 0x7U) << 5U) & 0xE0U);
+}
+
 inline u8 decodeTextureFilterMode(const rvk2::RenderWorkPacket & _work)
 {
 	const u32 mode0 = mode0Word(_work);
@@ -1845,14 +1915,7 @@ inline TileAxisSampleCoord applyTileAxisTransform(
 		else
 			localTexel = wrapCoordPositive(localTexel, period);
 	}
-	else {
-		// Legacy texture decode effectively bounds mask=0 coordinates to tile span.
-		const s32 maxLocal = std::max<s32>(0, tileTop - tileBase);
-		if (localTexel < 0)
-			localTexel = 0;
-		else if (localTexel > maxLocal)
-			localTexel = maxLocal;
-	}
+	// mask=0 with clamp disabled should free-run coordinates in TMEM address space.
 
 	mapped.texel = tileBase + localTexel;
 	return mapped;
@@ -4832,17 +4895,17 @@ inline u32 applySyntheticBlender(
 	if (_work.alphaCvgSel && (selectors.m1b & 0x3U) == 0U)
 		alphaA = inputCoverageAlpha;
 	const bool useLegacyMemoryAlphaBlend = debugEnableLegacyMemoryAlphaBlend();
-	const u8 memoryCoverageAlpha = useLegacyMemoryAlphaBlend
-		? static_cast<u8>(
-			(std::min<u32>(7U, static_cast<u32>(coverage.destination)) << 5U) & 0xE0U)
-		: [&]() -> u8 {
-			const u32 coverage4 =
-				std::min<u32>(
-					15U,
-					static_cast<u32>(coverage.destination)
-						+ (_memoryHiddenCoverage ? 8U : 0U));
-			return static_cast<u8>((coverage4 * 255U + 7U) / 15U);
-		}();
+	const u8 memoryCoverageAlpha = [&]() -> u8 {
+		const u8 coverage3 = static_cast<u8>(std::min<u32>(7U, static_cast<u32>(coverage.destination)));
+		if (!debugUseWideMemoryAlphaModel())
+			return memoryAlphaFromCoverage3(coverage3);
+		const u32 coverage4 =
+			std::min<u32>(
+				15U,
+				static_cast<u32>(coverage3)
+					+ (_memoryHiddenCoverage ? 8U : 0U));
+		return static_cast<u8>((coverage4 * 255U + 7U) / 15U);
+	}();
 	const u8 alphaB = selectAlphaB(selectors.m2b, alphaA, memoryCoverageAlpha);
 	if (_summary != nullptr && useCoverageControls) {
 		++_summary->blendCoverageEvalCount;
@@ -4853,23 +4916,30 @@ inline u32 applySyntheticBlender(
 	}
 	ColorRGBA out = p;
 	const bool blendEnabled = _work.forceBlender || aaEnable;
+	const bool blendEquationEnabled = debugDisableBlendEnGating()
+		? blendEnabled
+		: (_work.forceBlender || (aaEnable && !coverage.overflow));
 	const bool colorOnCvgInhibitColorWrite =
 		_work.colorOnCvg
 		&& !coverage.overflow
 		&& !debugDisableColorOnCvgInhibit();
-	if (_summary != nullptr && blendEnabled)
-		++_summary->blenderEnabledOpCount;
+	if (_summary != nullptr) {
+		if (blendEnabled)
+			++_summary->blenderEnabledOpCount;
+		if (blendEnabled && !blendEquationEnabled)
+			++_summary->blenderEquationBypassCount;
+	}
 	if (colorOnCvgInhibitColorWrite) {
 		// color_on_cvg inhibit path writes blender M input (2B path) verbatim.
 		out.r = mResolved.r;
 		out.g = mResolved.g;
 		out.b = mResolved.b;
 	}
-	else if (blendEnabled) {
+	else if (blendEquationEnabled) {
 		const bool useDivide = debugForceBlenderDivide()
 			|| (useLegacyMemoryAlphaBlend
 				? (_finalCycle && !_work.forceBlender)
-				: (aaEnable && !_work.forceBlender));
+				: (!_work.forceBlender));
 		if (_summary != nullptr) {
 			if (useDivide)
 				++_summary->blenderDivideOpCount;
@@ -4881,8 +4951,16 @@ inline u32 applySyntheticBlender(
 				u32 blend1a = static_cast<u32>(alphaA >> 3U);
 				u32 blend2a = static_cast<u32>(alphaB >> 3U);
 				if ((selectors.m2b & 0x3U) == 1U) {
-					blend1a = (blend1a & 0x3CU);
-					blend2a = (blend2a | 0x3U);
+					if (!_work.depthCompareEnable && !debugDisableLegacyMemoryAlphaShift()) {
+						blend1a = (blend1a & 0x3CU);
+						blend2a = (blend2a >> noZBlendMemoryAlphaShiftB(_work)) | 0x3U;
+						if (_summary != nullptr)
+							++_summary->blenderMemoryAlphaShiftApplyCount;
+					}
+					else {
+						blend1a = (blend1a & 0x3CU);
+						blend2a = (blend2a | 0x3U);
+					}
 				}
 				const u32 mulb = blend2a + 1U;
 				const u32 numer =

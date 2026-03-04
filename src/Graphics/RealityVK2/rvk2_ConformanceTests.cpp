@@ -1242,6 +1242,70 @@ void testColorOnCvgWritesBlenderMInputConformance()
 		"color_on_cvg blend-color M selector should increase output luma versus memory M selector");
 }
 
+void testBlendEquationGatingConformance()
+{
+	rvk2::Executor executor;
+
+	rvk2::RenderWorkPacket background = makeFillWork(121ULL, 0x00B34000U, 0x102080FFU);
+	background.rectULX = 0U;
+	background.rectULY = 0U;
+	background.rectLRX = 5U;
+	background.rectLRY = 3U;
+
+	rvk2::RenderWorkPacket overlay = makeTexRectWork(false);
+	overlay.sourcePacketId = 122ULL;
+	overlay.colorImageAddress = background.colorImageAddress;
+	overlay.colorImageWidth = 8U;
+	overlay.rectULX = 0U;
+	overlay.rectULY = 0U;
+	overlay.rectLRX = 5U;
+	overlay.rectLRY = 3U;
+	overlay.phase = static_cast<u8>(rvk2::RenderPhase::kCycle1);
+	overlay.cycleType = 0U;
+	overlay.otherModes = 0ULL;
+	overlay.otherModes |= (1ULL << 3U); // aa_en
+	overlay.otherModes |= (1ULL << 6U); // image_read_en
+	overlay.otherModes &= ~(
+		(0x3ULL << 30U)
+		| (0x3ULL << 26U)
+		| (0x3ULL << 22U)
+		| (0x3ULL << 18U));
+	overlay.otherModes |= (1ULL << 26U); // A = fog alpha
+	overlay.otherModes |= (1ULL << 22U); // M = memory color
+	overlay.fogColor = 0x00000040U;
+	overlay.blendMask = 0x1U;
+	overlay.depthCompareEnable = false;
+	overlay.depthUpdateEnable = false;
+
+	const std::vector<rvk2::SubmissionBatchPacket> oneWorkBatch{makeBatchForWorkCount(1U)};
+	const std::vector<rvk2::SubmissionBatchPacket> twoWorkBatch{makeBatchForWorkCount(2U)};
+
+	const rvk2::ExecutorOutput noOverflowOut =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{overlay}, oneWorkBatch);
+	const rvk2::ExecutorOutput overflowOut = executor.executeWithOutput(
+		std::vector<rvk2::RenderWorkPacket>{background, overlay},
+		twoWorkBatch);
+
+	expectTrue(
+		noOverflowOut.summary.colorWriteCount > 0ULL,
+		"blend equation gating baseline should write pixels");
+	expectTrue(
+		overflowOut.summary.colorWriteCount > 0ULL,
+		"blend equation gating overflow case should write pixels");
+	expectTrue(
+		noOverflowOut.summary.blenderEquationBypassCount == 0ULL,
+		"blend equation gating baseline should keep equation enabled");
+	expectTrue(
+		overflowOut.summary.blenderEquationBypassCount > 0ULL,
+		"blend equation gating overflow case should bypass equation");
+	expectTrue(
+		overflowOut.summary.blendCoverageOverflowCount > 0ULL,
+		"blend equation gating overflow case should observe coverage overflow");
+	expectTrue(
+		noOverflowOut.summary.presentHash != overflowOut.summary.presentHash,
+		"blend equation gating should alter presented pixels between overflow/non-overflow cases");
+}
+
 void testCycle2CoverageDestinationConformance()
 {
 	rvk2::Executor executor;
@@ -1844,6 +1908,96 @@ void testTileBaseOffsetInvariantConformance()
 	expectTrue(
 		presentFramesEqual(offsetOut, baseOut),
 		"tile-base offset with matching texture origin should preserve presented pixels");
+
+	for (size_t i = 0; i < savedTMEM.size(); ++i)
+		TMEM[i] = savedTMEM[i];
+}
+
+void testMaskZeroFreeRunCoordinateConformance()
+{
+	std::array<u64, 512> savedTMEM{};
+	for (size_t i = 0; i < savedTMEM.size(); ++i)
+		savedTMEM[i] = TMEM[i];
+
+	u8 * tmem8 = reinterpret_cast<u8 *>(TMEM);
+	for (u32 i = 0U; i < 512U; ++i)
+		tmem8[i] = static_cast<u8>((i * 53U + 17U) & 0xFFU);
+
+	rvk2::Executor executor;
+	rvk2::RenderWorkPacket nearSample = makeTexRectWork(false);
+	nearSample.sourcePacketId = 430ULL;
+	nearSample.colorImageAddress = 0x00B7A000U;
+	nearSample.colorImageWidth = 8U;
+	nearSample.rectULX = 0U;
+	nearSample.rectULY = 0U;
+	nearSample.rectLRX = 0U;
+	nearSample.rectLRY = 0U;
+	nearSample.textured = true;
+	nearSample.phase = static_cast<u8>(rvk2::RenderPhase::kCycle1);
+	nearSample.cycleType = 0U;
+	nearSample.otherModes = 0ULL;
+	nearSample.textureImageFormat = 4U; // I
+	nearSample.textureImageSize = 1U;   // 8b
+	nearSample.tileFormat = 4U;         // I
+	nearSample.tileSize = 1U;           // 8b
+	nearSample.tileTmem = 0U;
+	nearSample.tileLine = 1U;
+	nearSample.tileULS = 0U;
+	nearSample.tileULT = 0U;
+	nearSample.tileLRS = 0x0004U; // small tile span; mask=0+clamp=off must not clamp to this range.
+	nearSample.tileLRT = 0x0004U;
+	nearSample.tileMasks = 0U;
+	nearSample.tileMaskt = 0U;
+	nearSample.tileCms = 0U;
+	nearSample.tileCmt = 0U;
+	nearSample.texS = 0x0020; // texel 1
+	nearSample.texT = 0;
+	nearSample.texDSDX = 0;
+	nearSample.texDTDY = 0;
+
+	constexpr u64 kCycle1SelectorMask =
+		(0xFULL << (32U + 5U))
+		| (0xFULL << 24U)
+		| (0x1FULL << 32U)
+		| (0x7ULL << 6U)
+		| (0x7ULL << 21U)
+		| (0x7ULL << 3U)
+		| (0x7ULL << 18U)
+		| 0x7ULL;
+	constexpr u64 kCycle1Tex0Selectors =
+		(0ULL << (32U + 5U))
+		| (0ULL << 24U)
+		| (0ULL << 32U)
+		| (1ULL << 6U)          // color D: TEXEL0
+		| (0ULL << 21U)
+		| (0ULL << 3U)
+		| (0ULL << 18U)
+		| 1ULL;                 // alpha D: TEXEL0
+	nearSample.combineMux = (nearSample.combineMux & ~kCycle1SelectorMask) | kCycle1Tex0Selectors;
+
+	rvk2::RenderWorkPacket farSample = nearSample;
+	farSample.sourcePacketId = 431ULL;
+	farSample.texS = 0x0100; // texel 8
+
+	const std::vector<rvk2::SubmissionBatchPacket> oneBatch{makeSingleBatch()};
+	const rvk2::ExecutorOutput nearOut =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{nearSample}, oneBatch);
+	const rvk2::ExecutorOutput farOut =
+		executor.executeWithOutput(std::vector<rvk2::RenderWorkPacket>{farSample}, oneBatch);
+
+	expectTrue(
+		nearOut.summary.colorWriteCount > 0ULL,
+		"mask=0 free-run baseline should write pixels");
+	expectEq(
+		farOut.summary.colorWriteCount,
+		nearOut.summary.colorWriteCount,
+		"mask=0 free-run variant should preserve write coverage");
+	expectTrue(
+		farOut.summary.presentHash != nearOut.summary.presentHash,
+		"mask=0 and clamp-off should not clamp coordinates to tile bounds");
+	expectTrue(
+		!presentFramesEqual(farOut, nearOut),
+		"mask=0 and clamp-off should alter sampled texels for distant coordinates");
 
 	for (size_t i = 0; i < savedTMEM.size(); ++i)
 		TMEM[i] = savedTMEM[i];
@@ -4102,6 +4256,7 @@ int main()
 	testCoverageModeFlagConformance();
 	testColorOnCvgOverflowWriteEnableConformance();
 	testColorOnCvgWritesBlenderMInputConformance();
+	testBlendEquationGatingConformance();
 	testCycle2CoverageDestinationConformance();
 	testAlphaCompareConformance();
 	testMixedStateBatchSegmentationConformance();
@@ -4112,6 +4267,7 @@ int main()
 	testCopyPhaseDestinationBypassConformance();
 	testCopyModeIgnoresTileClampConformance();
 	testTileBaseOffsetInvariantConformance();
+	testMaskZeroFreeRunCoordinateConformance();
 	testCycle2PhaseDistinctConformance();
 	testCycle2CombinerSelectorIsolationConformance();
 	testCycle2TexelNextPixelHazardConformance();
