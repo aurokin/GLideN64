@@ -958,6 +958,68 @@ def main() -> int:
             history_window_op_cover_pixels[op_name] = history_window_op_pixels
             history_window_op_cover_ratios[op_name] = _ratio(history_window_op_pixels, missing_source_pixels)
 
+        missing_with_write_phase_work_hits: Counter[str] = Counter()
+        missing_with_write_phase_pixel_hits: Counter[str] = Counter()
+        missing_with_write_state_work_counters: Dict[str, Counter[str]] = defaultdict(Counter)
+        missing_with_write_state_pixel_counters: Dict[str, Counter[str]] = defaultdict(Counter)
+        missing_with_write_packet_work_hits: Counter[int] = Counter()
+        missing_with_write_packet_pixel_hits: Counter[int] = Counter()
+        missing_with_write_packet_meta: Dict[int, Dict[str, Any]] = {}
+        if total_pixels > 0 and missing_with_write_pixels > 0:
+            for work in selected_frame.render_work:
+                write_bounds = _compute_effective_write_bounds(work, source_width, source_height)
+                if write_bounds is None:
+                    continue
+                overlap_pixels = _count_mask_overlap_in_bounds(
+                    missing_with_write_mask,
+                    write_bounds,
+                    source_width,
+                    source_height,
+                )
+                if overlap_pixels <= 0:
+                    continue
+                op_name = _op_kind_name(int(work.op_kind))
+                phase_name = _phase_name(int(work.phase))
+                phase_key = f"{op_name}:{phase_name}"
+                missing_with_write_phase_work_hits[phase_key] += 1
+                missing_with_write_phase_pixel_hits[phase_key] += overlap_pixels
+
+                packet_id = int(work.source_packet_id)
+                missing_with_write_packet_work_hits[packet_id] += 1
+                missing_with_write_packet_pixel_hits[packet_id] += overlap_pixels
+                if packet_id not in missing_with_write_packet_meta:
+                    missing_with_write_packet_meta[packet_id] = {
+                        "source_packet_id": packet_id,
+                        "frame_id": int(selected_frame.frame_id),
+                        "op_kind": op_name,
+                        "phase": phase_name,
+                        "color_image_address": int(work.color_image_address),
+                        "color_image_address_hex": f"0x{int(work.color_image_address):08X}",
+                        "combine_mux": f"0x{int(work.combine_mux):016X}",
+                        "other_modes": f"0x{int(work.other_modes):016X}",
+                        "blend_params": f"0x{int(work.blend_params):08X}",
+                        "tile_format": int(work.tile_format),
+                        "tile_size": int(work.tile_size),
+                        "tile_line": int(work.tile_line),
+                        "tile_tmem": int(work.tile_tmem),
+                        "texture_image_width": int(work.texture_image_width),
+                        "texture_image_address": f"0x{int(work.texture_image_address):08X}",
+                    }
+
+                state_fields: Tuple[Tuple[str, str], ...] = (
+                    ("combine_mux", f"0x{int(work.combine_mux):016X}"),
+                    ("blend_params", f"0x{int(work.blend_params):08X}"),
+                    ("other_modes", f"0x{int(work.other_modes):016X}"),
+                    ("tile_line", str(int(work.tile_line))),
+                    ("tile_tmem", str(int(work.tile_tmem))),
+                    ("texture_image_width", str(int(work.texture_image_width))),
+                    ("texture_image_address", f"0x{int(work.texture_image_address):08X}"),
+                )
+                for field_name, value in state_fields:
+                    counter_key = f"{op_name}:{field_name}"
+                    missing_with_write_state_work_counters[counter_key][value] += 1
+                    missing_with_write_state_pixel_counters[counter_key][value] += overlap_pixels
+
         prior_missing_phase_work_hits: Counter[str] = Counter()
         prior_missing_phase_pixel_hits: Counter[str] = Counter()
         prior_missing_state_work_counters: Dict[str, Counter[str]] = defaultdict(Counter)
@@ -1032,6 +1094,23 @@ def main() -> int:
             row["pixel_hit_ratio"] = _ratio(int(pixel_hits), missing_without_write_pixels)
             prior_missing_packet_rows.append(row)
         prior_missing_packet_rows.sort(
+            key=lambda row: (
+                -int(row.get("pixel_hits", 0) or 0),
+                int(row.get("source_packet_id", 0) or 0),
+            )
+        )
+
+        missing_with_write_packet_rows: List[Dict[str, Any]] = []
+        for packet_id, pixel_hits in missing_with_write_packet_pixel_hits.items():
+            meta = missing_with_write_packet_meta.get(
+                packet_id, {"source_packet_id": int(packet_id)}
+            )
+            row = dict(meta)
+            row["work_hits"] = int(missing_with_write_packet_work_hits.get(packet_id, 0))
+            row["pixel_hits"] = int(pixel_hits)
+            row["pixel_hit_ratio"] = _ratio(int(pixel_hits), missing_with_write_pixels)
+            missing_with_write_packet_rows.append(row)
+        missing_with_write_packet_rows.sort(
             key=lambda row: (
                 -int(row.get("pixel_hits", 0) or 0),
                 int(row.get("source_packet_id", 0) or 0),
@@ -1219,6 +1298,21 @@ def main() -> int:
             "missing_cover_ratio_by_prior_op": prior_op_cover_ratios,
             "missing_cover_pixels_by_history_window_op": history_window_op_cover_pixels,
             "missing_cover_ratio_by_history_window_op": history_window_op_cover_ratios,
+            "missing_with_write_phase_work_hits": dict(
+                missing_with_write_phase_work_hits.most_common()
+            ),
+            "missing_with_write_phase_pixel_hits": dict(
+                missing_with_write_phase_pixel_hits.most_common()
+            ),
+            "missing_with_write_state_work_hits": {
+                key: dict(counter.most_common(64))
+                for key, counter in sorted(missing_with_write_state_work_counters.items())
+            },
+            "missing_with_write_state_pixel_hits": {
+                key: dict(counter.most_common(64))
+                for key, counter in sorted(missing_with_write_state_pixel_counters.items())
+            },
+            "missing_with_write_packet_hits": missing_with_write_packet_rows[:64],
             "missing_without_write_prior_phase_work_hits": dict(
                 prior_missing_phase_work_hits.most_common()
             ),
