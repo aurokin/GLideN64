@@ -604,6 +604,77 @@ bool debugEnableUntouchedPresentCarry()
 	return enabled;
 }
 
+const char * debugHistoryMergeLogPath()
+{
+	static const char * path = []() -> const char * {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_HISTORY_MERGE_LOG");
+		if (raw == nullptr || raw[0] == '\0')
+			return nullptr;
+		return raw;
+	}();
+	return path;
+}
+
+bool debugHistoryMergeCopyNonBlack()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_HISTORY_MERGE_COPY_NONBLACK");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugForcedPresentSurfaceAddress(u32 & _outAddress)
+{
+	static bool hasAddress = false;
+	static u32 address = 0U;
+	static bool parsed = false;
+	if (!parsed) {
+		parsed = true;
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_FORCE_PRESENT_SURFACE");
+		if (raw != nullptr && raw[0] != '\0') {
+			char * end = nullptr;
+			const unsigned long long value = std::strtoull(raw, &end, 0);
+			if (end != raw)
+				hasAddress = true;
+			address = static_cast<u32>(value & 0x00FFFFFFULL);
+		}
+	}
+	if (!hasAddress)
+		return false;
+	_outAddress = address;
+	return true;
+}
+
+void appendHistoryMergeLog(
+	u64 _frameStamp,
+	u32 _presentAddress,
+	u32 _candidateAddress,
+	u64 _potentialBlackFill,
+	u64 _potentialNonBlackDiff,
+	u64 _copiedPixels)
+{
+	const char * logPath = debugHistoryMergeLogPath();
+	if (logPath == nullptr)
+		return;
+	std::FILE * file = std::fopen(logPath, "ab");
+	if (file == nullptr)
+		return;
+	std::fprintf(
+		file,
+		"frame=%llu\tpresent=0x%08X\tcandidate=0x%08X\tpotential_black_fill=%llu\tpotential_nonblack_diff=%llu\tcopied=%llu\n",
+		static_cast<unsigned long long>(_frameStamp),
+		_presentAddress,
+		_candidateAddress,
+		static_cast<unsigned long long>(_potentialBlackFill),
+		static_cast<unsigned long long>(_potentialNonBlackDiff),
+		static_cast<unsigned long long>(_copiedPixels));
+	std::fclose(file);
+}
+
 bool debugTextureFilterStrictPrimary()
 {
 	static const bool enabled = []() -> bool {
@@ -5819,6 +5890,24 @@ ExecutorOutput Executor::executeWithOutput(
 	auto historyIt = allowVIHistorySelection
 		? m_surfaceHistory.find(presentSurfaceAddress)
 		: m_surfaceHistory.end();
+	u32 forcedPresentSurfaceAddress = 0U;
+	if (debugForcedPresentSurfaceAddress(forcedPresentSurfaceAddress)) {
+		const auto forcedLiveIt = surfaces.find(forcedPresentSurfaceAddress);
+		const auto forcedHistoryIt = allowVIHistorySelection
+			? m_surfaceHistory.find(forcedPresentSurfaceAddress)
+			: m_surfaceHistory.end();
+		if (forcedLiveIt != surfaces.end() || forcedHistoryIt != m_surfaceHistory.end()) {
+			presentSurfaceAddress = forcedPresentSurfaceAddress;
+			it = forcedLiveIt;
+			historyIt = forcedHistoryIt;
+			viOriginMatchedSurface = false;
+			summary.viOriginMatchedSurface = 0U;
+			summary.presentSelectionReason =
+				it != surfaces.end()
+					? kExecutorPresentSelectionLastSurface
+					: kExecutorPresentSelectionPreviousSurface;
+		}
+	}
 	if (debugPreferLiveSurfaceOverHistory()
 		&& it == surfaces.end()
 		&& historyIt != m_surfaceHistory.end()) {
@@ -5994,12 +6083,122 @@ ExecutorOutput Executor::executeWithOutput(
 	else if (historyIt != m_surfaceHistory.end()) {
 		summary.selectedPresentSurfaceFromHistory = 1U;
 		const ExecutorCachedSurface & cached = historyIt->second;
+		ExecutorCachedSurface presentCached = cached;
 		summary.selectedPresentSurfaceHistoryAge = frameStamp >= cached.lastTouched
 			? (frameStamp - cached.lastTouched)
 			: 0ULL;
 		summary.selectedPresentSurfaceWidth = cached.width;
 		summary.selectedPresentSurfaceHeight = cached.height;
 		summary.selectedPresentSurfaceSize = cached.size;
+		const bool historyPresentMergeEnabled =
+			debugEnableUntouchedPresentCarry()
+			|| debugHistoryMergeCopyNonBlack()
+			|| debugHistoryMergeLogPath() != nullptr;
+		const size_t presentPixelCount =
+			static_cast<size_t>(cached.width) * static_cast<size_t>(cached.height);
+		if (historyPresentMergeEnabled
+			&& presentPixelCount > 0U
+			&& presentCached.pixels.size() >= presentPixelCount
+			&& summary.selectedPresentSurfaceHistoryAge <= 2ULL
+			&& m_surfaceHistory.size() > 1U) {
+			const auto canMergeHistoryCandidate = [&](const ExecutorCachedSurface & _candidate) {
+				if (!_candidate.valid
+					|| _candidate.address == cached.address
+					|| isDepthOnlyColorAddress(_candidate.address)
+					|| _candidate.format != cached.format
+					|| _candidate.size != cached.size
+					|| _candidate.width != cached.width
+					|| _candidate.height < cached.height
+					|| _candidate.pixels.size() < presentPixelCount) {
+					return false;
+				}
+				const u64 candidateAge = frameStamp >= _candidate.lastTouched
+					? (frameStamp - _candidate.lastTouched)
+					: 0ULL;
+				return candidateAge <= 8ULL;
+			};
+
+			std::vector<const ExecutorCachedSurface *> historyMergeCandidates;
+			historyMergeCandidates.reserve(m_surfaceHistory.size());
+			if (canMergeHistoryCandidate(m_lastSelectedSurface))
+				historyMergeCandidates.push_back(&m_lastSelectedSurface);
+			for (const auto & historyEntry : m_surfaceHistory) {
+				const ExecutorCachedSurface & candidate = historyEntry.second;
+				if (!canMergeHistoryCandidate(candidate))
+					continue;
+				if (!historyMergeCandidates.empty()
+					&& candidate.address == historyMergeCandidates.front()->address) {
+					continue;
+				}
+				historyMergeCandidates.push_back(&candidate);
+			}
+			std::sort(
+				historyMergeCandidates.begin(),
+				historyMergeCandidates.end(),
+				[](const ExecutorCachedSurface * _a, const ExecutorCachedSurface * _b) {
+					if (_a == nullptr || _b == nullptr)
+						return _a != nullptr;
+					if (_a->lastTouched != _b->lastTouched)
+						return _a->lastTouched > _b->lastTouched;
+					return _a->address < _b->address;
+				});
+
+			u64 mergedHistoryPixels = 0ULL;
+			u32 mergedHistorySource = 0U;
+			bool mergedFromMultipleSources = false;
+			const bool copyNonBlackHistoryMerge = debugHistoryMergeCopyNonBlack();
+			for (const ExecutorCachedSurface * candidate : historyMergeCandidates) {
+				if (candidate == nullptr)
+					continue;
+				const bool sourceHasCoverage = candidate->coverage.size() >= presentPixelCount;
+				const bool sourceHasHiddenCoverage = candidate->hiddenCoverage.size() >= presentPixelCount;
+				u64 mergedFromCandidate = 0ULL;
+				u64 potentialBlackFill = 0ULL;
+				u64 potentialNonBlackDiff = 0ULL;
+				for (size_t i = 0U; i < presentPixelCount; ++i) {
+					const u32 sourcePixel = candidate->pixels[i];
+					if ((sourcePixel & 0x00FFFFFFU) == 0U)
+						continue;
+					const u32 destinationPixel = presentCached.pixels[i];
+					const bool destinationVisible = (destinationPixel & 0x00FFFFFFU) != 0U;
+					if (!destinationVisible)
+						++potentialBlackFill;
+					else if (destinationPixel != sourcePixel)
+						++potentialNonBlackDiff;
+					if (destinationVisible && !copyNonBlackHistoryMerge)
+						continue;
+					if (destinationPixel == sourcePixel)
+						continue;
+					presentCached.pixels[i] = sourcePixel;
+					if (sourceHasCoverage && presentCached.coverage.size() >= presentPixelCount)
+						presentCached.coverage[i] = static_cast<u8>(candidate->coverage[i] & 0x7U);
+					if (sourceHasHiddenCoverage && presentCached.hiddenCoverage.size() >= presentPixelCount) {
+						presentCached.hiddenCoverage[i] =
+							static_cast<u8>(candidate->hiddenCoverage[i] & 0x1U);
+					}
+					++mergedFromCandidate;
+				}
+				if (mergedFromCandidate > 0ULL) {
+					mergedHistoryPixels += mergedFromCandidate;
+					if (mergedHistorySource == 0U)
+						mergedHistorySource = candidate->address;
+					else if (mergedHistorySource != candidate->address)
+						mergedFromMultipleSources = true;
+				}
+				appendHistoryMergeLog(
+					frameStamp,
+					cached.address,
+					candidate->address,
+					potentialBlackFill,
+					potentialNonBlackDiff,
+					mergedFromCandidate);
+			}
+			if (mergedHistoryPixels > 0ULL) {
+				summary.selectedPresentSurfaceUntouchedCarryCount = mergedHistoryPixels;
+				summary.selectedPresentSurfaceUntouchedCarrySourceAddress =
+					mergedFromMultipleSources ? 0xFFFFFFFFU : mergedHistorySource;
+			}
+		}
 		bool cacheExactMatch = false;
 		const bool cacheOriginMatch =
 			m_config.viRegistersValid
@@ -6015,11 +6214,11 @@ ExecutorOutput Executor::executeWithOutput(
 
 		VIFrameInput presentInput{};
 		presentInput.sourceAddressValid = cacheOriginMatch;
-		presentInput.sourceAddress = cached.address;
-		presentInput.sourceWidth = cached.width;
-		presentInput.sourceHeight = cached.height;
-		presentInput.sourceSize = cached.size;
-		presentInput.sourcePixels = &cached.pixels;
+		presentInput.sourceAddress = presentCached.address;
+		presentInput.sourceWidth = presentCached.width;
+		presentInput.sourceHeight = presentCached.height;
+		presentInput.sourceSize = presentCached.size;
+		presentInput.sourcePixels = &presentCached.pixels;
 		presentInput.registers.valid = m_config.viRegistersValid;
 		presentInput.registers.status = m_config.viStatus;
 		presentInput.registers.origin = m_config.viOrigin;
@@ -6031,7 +6230,7 @@ ExecutorOutput Executor::executeWithOutput(
 		presentInput.registers.xScale = m_config.viXScale;
 		presentInput.registers.yScale = m_config.viYScale;
 		presentSelectedFrame(presentInput);
-		m_lastSelectedSurface = cached;
+		m_lastSelectedSurface = presentCached;
 		m_lastSelectedSurface.lastTouched = frameStamp;
 	}
 	else if (allowVIHistorySelection && m_lastSelectedSurface.valid) {
