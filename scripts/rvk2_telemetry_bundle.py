@@ -10,6 +10,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+try:
+    import numpy as np
+except Exception:  # pragma: no cover - optional dependency
+    np = None
+
+try:
+    from PIL import Image
+except Exception:  # pragma: no cover - optional dependency
+    Image = None
+
 
 def _load_json(path: Optional[Path]) -> Optional[Dict[str, Any]]:
     if path is None or not path.is_file():
@@ -53,6 +63,79 @@ def _file_meta(path: Optional[Path]) -> Dict[str, Any]:
         "exists": exists,
         "size_bytes": path.stat().st_size if exists else 0,
     }
+
+
+def _compare_executor_present_to_candidate(
+    candidate_capture_path: Optional[Path],
+    executor_present_dump_path: Optional[Path],
+) -> Dict[str, Any]:
+    result: Dict[str, Any] = {
+        "available": False,
+        "candidate_path": str(candidate_capture_path) if candidate_capture_path is not None else None,
+        "executor_present_path": str(executor_present_dump_path) if executor_present_dump_path is not None else None,
+    }
+    if candidate_capture_path is None or not candidate_capture_path.is_file():
+        result["reason"] = "candidate_capture_missing"
+        return result
+    if executor_present_dump_path is None or not executor_present_dump_path.is_file():
+        result["reason"] = "executor_present_dump_missing"
+        return result
+    if Image is None or np is None:
+        result["reason"] = "image_dependencies_unavailable"
+        return result
+
+    try:
+        candidate_image = Image.open(candidate_capture_path).convert("RGB")
+        executor_image = Image.open(executor_present_dump_path).convert("RGB")
+    except Exception as exc:  # pragma: no cover - decode guard
+        result["reason"] = f"image_decode_failed: {exc}"
+        return result
+
+    candidate_resized = candidate_image.resize(executor_image.size, Image.NEAREST)
+    candidate_array = np.asarray(candidate_resized, dtype=np.float32) / 255.0
+    executor_array = np.asarray(executor_image, dtype=np.float32) / 255.0
+
+    def _metric_pair(lhs: Any, rhs: Any) -> Dict[str, float]:
+        diff = lhs - rhs
+        rmse = float(np.sqrt(np.mean(np.square(diff), dtype=np.float64)))
+        mae = float(np.mean(np.abs(diff), dtype=np.float64))
+        return {"rmse": rmse, "mae": mae}
+
+    variants = {
+        "direct": candidate_array,
+        "flip_y": np.flip(candidate_array, axis=0),
+        "swap_rb": candidate_array[..., [2, 1, 0]],
+    }
+    variants["swap_rb_flip_y"] = np.flip(variants["swap_rb"], axis=0)
+
+    variant_metrics: Dict[str, Dict[str, float]] = {}
+    best_variant = "direct"
+    best_rmse: Optional[float] = None
+    for name, data in variants.items():
+        metric = _metric_pair(data, executor_array)
+        variant_metrics[name] = metric
+        rmse = metric["rmse"]
+        if best_rmse is None or rmse < best_rmse:
+            best_rmse = rmse
+            best_variant = name
+
+    direct_metric = variant_metrics.get("direct", {})
+    result.update(
+        {
+            "available": True,
+            "candidate_size": [int(candidate_image.width), int(candidate_image.height)],
+            "executor_present_size": [int(executor_image.width), int(executor_image.height)],
+            "resized_to_executor_present": True,
+            "resize_filter": "nearest",
+            "rmse": direct_metric.get("rmse"),
+            "mae": direct_metric.get("mae"),
+            "variant_metrics": variant_metrics,
+            "best_variant": best_variant,
+            "best_rmse": best_rmse,
+            "best_mae": variant_metrics.get(best_variant, {}).get("mae"),
+        }
+    )
+    return result
 
 
 def _parse_int(value: str) -> Optional[int]:
@@ -728,6 +811,7 @@ def _build_signals(
     command_census: Optional[Dict[str, Any]],
     diff_playbook_summary: Optional[Dict[str, Any]],
     missing_region_focus: Optional[Dict[str, Any]],
+    executor_present_compare: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     tx_samples = _u64(last_record, "tx_samples")
     tx_tmem = _u64(last_record, "tx_tmem")
@@ -840,6 +924,9 @@ def _build_signals(
         "vi_hash_decode": vi_hash_decode,
         "vi_hash_filter": vi_hash_filter,
         "vi_hash_gdither": vi_hash_gdither,
+        "executor_present_compare": (
+            executor_present_compare if isinstance(executor_present_compare, dict) else {}
+        ),
     }
 
     geometry_signal = {
@@ -886,6 +973,30 @@ def _build_signals(
 
     suspected_gaps: List[str] = []
     hard_faults: List[str] = []
+
+    if isinstance(executor_present_compare, dict) and executor_present_compare.get("available") is True:
+        direct_rmse = executor_present_compare.get("rmse")
+        best_rmse = executor_present_compare.get("best_rmse")
+        best_variant = executor_present_compare.get("best_variant")
+        if isinstance(direct_rmse, (int, float)):
+            if (
+                direct_rmse > 0.15
+                and isinstance(best_rmse, (int, float))
+                and best_rmse > 0.15
+            ):
+                suspected_gaps.append(
+                    "candidate capture diverges strongly from executor-present dump; presentation path is introducing non-executor output differences"
+                )
+            elif (
+                direct_rmse > 0.15
+                and isinstance(best_rmse, (int, float))
+                and best_rmse < 0.06
+                and isinstance(best_variant, str)
+                and best_variant != "direct"
+            ):
+                suspected_gaps.append(
+                    f"executor-present dump aligns with candidate only after {best_variant}; orientation/channel mapping mismatch is likely"
+                )
 
     history_merge_signal: Dict[str, Any] = {}
     if isinstance(history_merge_summary, dict):
@@ -2036,6 +2147,10 @@ def main() -> int:
     history_merge_summary = _parse_history_merge_log(history_merge_log_path)
     overwrite_summary = _parse_overwrite_log(overwrite_log_path)
     overwrite_source_profile_summary = _profile_overwrite_source_packets(overwrite_summary, packet_trace)
+    executor_present_compare = _compare_executor_present_to_candidate(
+        candidate_capture,
+        executor_present_dump_path,
+    )
     if isinstance(overwrite_summary, dict):
         overwrite_summary["top_source_packet_profiles"] = overwrite_source_profile_summary.get("profiles", [])
         overwrite_summary["source_profile_requested_count"] = int(
@@ -2074,6 +2189,7 @@ def main() -> int:
         command_census,
         diff_playbook_summary,
         missing_region_focus,
+        executor_present_compare,
     )
 
     payload = {
@@ -2114,6 +2230,7 @@ def main() -> int:
         },
         "metrics": metrics,
         "capture_context": capture_context,
+        "executor_present_compare": executor_present_compare,
         "deviation_playbook": {
             "summary": diff_playbook_summary,
             "boxes": diff_playbook_boxes if isinstance(diff_playbook_boxes, list) else [],
