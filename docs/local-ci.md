@@ -69,6 +69,18 @@ REALITYVK_PM_PROFILE=basic ./scripts/paper_mario_parity.sh
 REALITYVK_PM_PROFILE=deep  ./scripts/paper_mario_parity.sh
 ```
 
+Fast frame override:
+```bash
+REALITYVK_PM_FRAMES_OVERRIDE=20 ./scripts/paper_mario_parity.sh
+```
+
+Iteration helper commands:
+```bash
+./scripts/paper_mario_iterate.sh --preset fast --runs 1 --frames 20
+./scripts/paper_mario_focus_deep.sh --frames 120
+./scripts/paper_mario_shadow_ab.sh --frames 20
+```
+
 Deep profile safety defaults:
 - candidate plugin freshness preflight: `REALITYVK_PM_CANDIDATE_PLUGIN_FRESHNESS_CHECK=1`
 - telemetry root prune before run: `REALITYVK_PM_TELEMETRY_PRUNE_ENABLE=1`

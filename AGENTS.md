@@ -26,6 +26,7 @@ Co-Authored-By: Codex GPT-5 <codex@openai.com>
 - Test policy: Vulkan smoke + upstream `GLideN64` comparison only.
 - Keep candidate captures deterministic: `dumpfb-preset` path.
 - Reference `GLideN64` in agent-mode `dumpfb-preset` is expected black; parity script auto-bypasses reference non-black validation for that path.
+- Inner-loop structural oracle is `shadow-on` candidate output (known-imperfect but accepted for texture/geometry recovery pacing).
 - Keep deep telemetry centered on `paper_mario_intro`.
 - Deep profile preflight requires canonical telemetry keys in candidate plugin (`REALITYVK_RVK2_TRACE_FILE`, `REALITYVK_RVK2_PACKET_TRACE_FILE`, `REALITYVK_RVK2_FRAME_FORENSICS_FILE`); rebuild plugin if stale.
 - Deep profile prunes non-archived telemetry clutter by default (`REALITYVK_PM_TELEMETRY_PRUNE_ENABLE=1`).
@@ -59,6 +60,19 @@ REALITYVK_PM_VISUAL_GATE=0 \
 - Skip deep smoke for compile/unit/conformance-only failures or non-render refactors.
 - Replay performance default: `REALITYVK_PM_DEEP_TELEMETRY_REPLAY_JOBS=0` (all cores).
 - Use `REALITYVK_PM_DEEP_TELEMETRY_REPLAY_STATEFUL=1` only for sequential state-carry checks.
+- Fast frame override for iteration: `REALITYVK_PM_FRAMES_OVERRIDE=<n>`.
+- Quick loop helper:
+```bash
+./scripts/paper_mario_iterate.sh --preset fast --runs 1 --frames 20
+```
+- Focused deep helper (auto packet ids from latest missing-region focus):
+```bash
+./scripts/paper_mario_focus_deep.sh --frames 120
+```
+- Shadow A/B helper (off vs on):
+```bash
+./scripts/paper_mario_shadow_ab.sh --frames 20
+```
 
 ## Archive Comparison Workflow
 - Archive defaults are profile-driven:
@@ -108,6 +122,7 @@ python3 scripts/rvk2_knob_history.py summary \
 - `REALITYVK_RVK2_DEBUG_*` toggles are probe-only unless explicitly promoted.
 - Runtime emits a one-time active-toggle summary when non-default `REALITYVK_RVK2_DEBUG_*` values are detected (`REALITYVK_RVK2_DEBUG_LOG_ACTIVE=0` disables summary logging).
 - Do not land behavior fixes that require permanent debug toggles.
+- Temporary fallback toggles are allowed during active bring-up lanes only when documented and removed (or promoted) before final acceptance.
 - Revert temporary source probes before merge unless converted into intentional telemetry with docs.
 - Keep release-path defaults stable; drive experiments through smoke env vars.
 

@@ -28,6 +28,15 @@
 - Source of truth for decisions: deep archive metrics + telemetry bundle, not monitor screenshots alone.
 - Legacy note: older archives may contain `screenshot_*` reference captures; refresh with `REALITYVK_PM_REFRESH_REFERENCE=1` when migrating old caches.
 
+## Decision Lock (2026-03-04)
+- Inner-loop oracle: accepted `shadow-on` candidate output for structural texture/geometry pacing.
+- Fix order lock:
+  1. `LoadBlock` TMEM addressing (`dxt` progression + odd/even interleave)
+  2. `LoadTLUT` / CI palette path
+  3. tile/load mutation semantics (`SetTileSize` restoration correctness)
+- Temporary fallback toggles are allowed for bring-up only; they must be removed or intentionally promoted before final acceptance.
+- Lane advancement gate: require movement in `candidate_non_black_ratio` + missing-region metrics; do not use RMSE-only wins.
+
 ## Current Diagnosis Snapshot (2026-03-04)
 - Baseline archive run:
   - `paper_mario_intro.20260304-190750Z.10319b63`
@@ -78,6 +87,13 @@ python3 scripts/rvk2_archive_compare.py \
 4. Apply one targeted lane from `docs/status.md`.
 5. Re-run deep smoke and verify metric + `suspected_gaps` movement.
 6. Commit and push incremental checkpoints with required co-author attribution.
+
+## Fast Iteration Helpers
+```bash
+./scripts/paper_mario_iterate.sh --preset fast --runs 1 --frames 20
+./scripts/paper_mario_focus_deep.sh --frames 120
+./scripts/paper_mario_shadow_ab.sh --frames 20
+```
 
 ## Telemetry Hygiene
 - Manual prune command:

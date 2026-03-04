@@ -42,6 +42,7 @@ CAPTURE_MIN_MEAN_LUMA="${REALITYVK_PM_CAPTURE_MIN_MEAN_LUMA:-0.002}"
 DUMPFB_FLIP_Y="${REALITYVK_PM_DUMPFB_FLIP_Y:-1}"
 RVK2_PRESENT_FLIP_Y="${REALITYVK_PM_RVK2_PRESENT_FLIP_Y:-1}"
 CAPTURE_SCALE_DIV="${REALITYVK_PM_CAPTURE_SCALE_DIV:-1}"
+FRAMES_OVERRIDE="${REALITYVK_PM_FRAMES_OVERRIDE:-}"
 LAUNCH_WITH_PTY="${REALITYVK_PM_LAUNCH_WITH_PTY:-1}"
 DEEP_TELEMETRY="${REALITYVK_PM_DEEP_TELEMETRY:-0}"
 TELEMETRY_ROOT="${REALITYVK_PM_TELEMETRY_ROOT:-${RUN_ROOT}/telemetry}"
@@ -198,6 +199,9 @@ rvk2_require_float "REALITYVK_PM_CAPTURE_MIN_NONBLACK_RATIO" "${CAPTURE_MIN_NONB
 rvk2_require_float "REALITYVK_PM_CAPTURE_MIN_MEAN_LUMA" "${CAPTURE_MIN_MEAN_LUMA}"
 rvk2_require_bool "REALITYVK_PM_DUMPFB_FLIP_Y" "${DUMPFB_FLIP_Y}"
 rvk2_require_bool "REALITYVK_PM_RVK2_PRESENT_FLIP_Y" "${RVK2_PRESENT_FLIP_Y}"
+if [[ -n "${FRAMES_OVERRIDE}" ]]; then
+  rvk2_require_uint_ge "REALITYVK_PM_FRAMES_OVERRIDE" "${FRAMES_OVERRIDE}" 0
+fi
 rvk2_require_bool "REALITYVK_PM_LAUNCH_WITH_PTY" "${LAUNCH_WITH_PTY}"
 rvk2_require_bool "REALITYVK_PM_DEEP_TELEMETRY" "${DEEP_TELEMETRY}"
 rvk2_require_bool "REALITYVK_PM_DEEP_TELEMETRY_REPLAY_STRICT" "${DEEP_TELEMETRY_REPLAY_STRICT}"
@@ -481,6 +485,7 @@ fi
 
 IFS=$'\t' read -r _scenario ROM_PATH FRAMES SCENARIO_ARGS <<< "${scenario_line}"
 FRAMES="${FRAMES:-0}"
+SCENARIO_FRAMES="${FRAMES}"
 SCENARIO_ARGS="${SCENARIO_ARGS:-}"
 
 if [[ -z "${ROM_PATH}" || ! -f "${ROM_PATH}" ]]; then
@@ -491,6 +496,11 @@ fi
 if ! [[ "${FRAMES}" =~ ^[0-9]+$ ]]; then
   echo "ERROR: frames value for scenario '${SCENARIO_ID}' is invalid: ${FRAMES}" >&2
   exit 2
+fi
+
+if [[ -n "${FRAMES_OVERRIDE}" ]]; then
+  FRAMES="${FRAMES_OVERRIDE}"
+  echo "INFO: frames override active: scenario_frames=${SCENARIO_FRAMES} effective_frames=${FRAMES}"
 fi
 
 mkdir -p "${CACHE_ROOT}" "${RUN_ROOT}"
@@ -1178,6 +1188,8 @@ track_knob_fingerprint() {
   local -a knob_kv=(
     "profile=${PROFILE}"
     "capture_scale_div=${CAPTURE_SCALE_DIV}"
+    "scenario_frames=${SCENARIO_FRAMES}"
+    "effective_frames=${FRAMES}"
     "dumpfb_flip_y=${DUMPFB_FLIP_Y}"
     "rvk2_present_flip_y=${RVK2_PRESENT_FLIP_Y}"
     "deep_telemetry=${DEEP_TELEMETRY}"

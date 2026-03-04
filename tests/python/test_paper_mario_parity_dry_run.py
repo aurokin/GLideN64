@@ -26,6 +26,7 @@ class PaperMarioParityDryRunTests(unittest.TestCase):
         *,
         deep_override: Optional[str] = None,
         reference_plugin_name: str = "reference.so",
+        frames_override: Optional[int] = None,
     ) -> dict:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -73,6 +74,8 @@ class PaperMarioParityDryRunTests(unittest.TestCase):
             )
             if deep_override is not None:
                 env["REALITYVK_PM_DEEP_TELEMETRY"] = deep_override
+            if frames_override is not None:
+                env["REALITYVK_PM_FRAMES_OVERRIDE"] = str(frames_override)
 
             subprocess.run([str(self.script)], env=env, check=True, cwd=self.repo_root)
             self.assertTrue(dry_out.is_file())
@@ -129,6 +132,10 @@ class PaperMarioParityDryRunTests(unittest.TestCase):
         )
         self.assertEqual(reference_require_non_black, "0")
         self.assertEqual(candidate_require_non_black, "1")
+
+    def test_frames_override_updates_effective_frames(self):
+        payload = self._run_dry("basic", frames_override=17)
+        self.assertEqual(int(payload.get("frames", -1)), 17)
 
 
 if __name__ == "__main__":
