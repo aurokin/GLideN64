@@ -23,6 +23,7 @@
 - Reference plugin: upstream `GLideN64`.
 - Candidate plugin: this repository (`RealityVK`).
 - Deterministic capture path: `paper_mario_smoke_runner.sh` + `agentctl dumpfb-preset`.
+- Current constraint: upstream `GLideN64` does not emit usable agent-mode `dumpfb-preset` frames in this workflow (reference capture is expected black); parity script auto-disables reference non-black validation for this path.
 - Press Start blink hotspot is ignored by default diff box: `238,245,482,380` (720x540 space).
 - Source of truth for decisions: deep archive metrics + telemetry bundle, not monitor screenshots alone.
 - Legacy note: older archives may contain `screenshot_*` reference captures; refresh with `REALITYVK_PM_REFRESH_REFERENCE=1` when migrating old caches.
@@ -65,6 +66,9 @@ REALITYVK_PM_PROFILE=deep \
 REALITYVK_PM_VISUAL_GATE=0 \
 ./scripts/paper_mario_parity.sh
 ```
+   - Deep profile default hygiene:
+     - candidate-plugin telemetry freshness preflight is enforced.
+     - non-archived telemetry clutter is pruned before run (`REALITYVK_PM_TELEMETRY_PRUNE_ENABLE=1`).
 3. Compare latest two deep archives:
 ```bash
 python3 scripts/rvk2_archive_compare.py \
@@ -74,3 +78,17 @@ python3 scripts/rvk2_archive_compare.py \
 4. Apply one targeted lane from `docs/status.md`.
 5. Re-run deep smoke and verify metric + `suspected_gaps` movement.
 6. Commit and push incremental checkpoints with required co-author attribution.
+
+## Telemetry Hygiene
+- Manual prune command:
+```bash
+./scripts/paper_mario_telemetry_cleanup.sh
+```
+- Disable default pre-run prune for one run:
+```bash
+REALITYVK_PM_TELEMETRY_PRUNE_ENABLE=0 ./scripts/paper_mario_parity.sh
+```
+- Dry-run prune preview:
+```bash
+REALITYVK_PM_TELEMETRY_PRUNE_DRY_RUN=1 ./scripts/paper_mario_parity.sh
+```

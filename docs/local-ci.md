@@ -26,6 +26,7 @@ Smoke/parity defaults in gate mode:
 - reference: upstream `GLideN64`
 - backend: Vulkan only
 - packet replay check: enabled (`REALITYVK_GATE_RVK2_TRACE_REPLAY=1`)
+- reference `GLideN64` dumpfb in agent-mode is expected black in this workflow; parity script bypasses reference non-black validation for that path.
 
 ## Deep Telemetry from One Smoke Run
 
@@ -68,6 +69,10 @@ REALITYVK_PM_PROFILE=basic ./scripts/paper_mario_parity.sh
 REALITYVK_PM_PROFILE=deep  ./scripts/paper_mario_parity.sh
 ```
 
+Deep profile safety defaults:
+- candidate plugin freshness preflight: `REALITYVK_PM_CANDIDATE_PLUGIN_FRESHNESS_CHECK=1`
+- telemetry root prune before run: `REALITYVK_PM_TELEMETRY_PRUNE_ENABLE=1`
+
 Dry-run plan (no emulator launch):
 
 ```bash
@@ -107,6 +112,7 @@ python3 scripts/rvk2_packet_trace_replay.py \
   --input build/local-gate/rvk2.packet.tsv \
   --forensics-file build/local-gate/rvk2.frame-forensics.tsv \
   --json-out build/local-gate/rvk2.packet.replay.json \
+  --progress-interval-seconds 15 \
   --jobs 0 --strict
 ```
 

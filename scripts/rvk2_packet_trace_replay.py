@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -6635,6 +6636,15 @@ def _parse_args() -> argparse.Namespace:
             "Disabled by default to preserve parallel throughput."
         ),
     )
+    parser.add_argument(
+        "--progress-interval-seconds",
+        type=float,
+        default=30.0,
+        help=(
+            "Progress report interval in seconds for long replay runs. "
+            "Set to 0 to disable progress logs."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -6762,6 +6772,27 @@ def main() -> int:
         jobs = os.cpu_count() or 1
     jobs = max(1, jobs)
     stateful_frames = bool(args.stateful_frames)
+    progress_interval_seconds = max(0.0, float(args.progress_interval_seconds))
+    progress_total = len(frames)
+
+    def emit_progress(completed: int, started_at: float, next_report_at: float) -> float:
+        if progress_interval_seconds <= 0.0:
+            return next_report_at
+        now = time.monotonic()
+        if completed < progress_total and now < next_report_at:
+            return next_report_at
+        elapsed = max(0.0, now - started_at)
+        throughput = (float(completed) / elapsed) if elapsed > 0.0 else 0.0
+        remaining = max(0, progress_total - completed)
+        eta_seconds = (float(remaining) / throughput) if throughput > 0.0 else 0.0
+        percent = (100.0 * float(completed) / float(progress_total)) if progress_total > 0 else 100.0
+        print(
+            "INFO: replay progress "
+            f"{completed}/{progress_total} "
+            f"({percent:.1f}%) elapsed={elapsed:.1f}s eta={eta_seconds:.1f}s rate={throughput:.2f} fps",
+            file=sys.stderr,
+        )
+        return now + progress_interval_seconds
 
     if stateful_frames:
         if jobs > 1 and len(frames) > 1:
@@ -6772,7 +6803,9 @@ def main() -> int:
         checks = []
         replay_rdp_snapshot = RDPStateSnapshot()
         replay_tmem_snapshot = TMEMSnapshot()
-        for frame in frames:
+        replay_started = time.monotonic()
+        next_progress_report = replay_started + progress_interval_seconds
+        for index, frame in enumerate(frames, start=1):
             checks.append(
                 replay_frame(
                     frame,
@@ -6781,12 +6814,23 @@ def main() -> int:
                     RenderPlanReplayState(),
                 )
             )
+            next_progress_report = emit_progress(index, replay_started, next_progress_report)
     elif jobs == 1 or len(frames) <= 1:
-        checks = [replay_frame(frame) for frame in frames]
+        checks = []
+        replay_started = time.monotonic()
+        next_progress_report = replay_started + progress_interval_seconds
+        for index, frame in enumerate(frames, start=1):
+            checks.append(replay_frame(frame))
+            next_progress_report = emit_progress(index, replay_started, next_progress_report)
     else:
         chunksize = max(1, len(frames) // (jobs * 4))
+        checks = []
+        replay_started = time.monotonic()
+        next_progress_report = replay_started + progress_interval_seconds
         with ProcessPoolExecutor(max_workers=jobs) as executor:
-            checks = list(executor.map(replay_frame, frames, chunksize=chunksize))
+            for index, check in enumerate(executor.map(replay_frame, frames, chunksize=chunksize), start=1):
+                checks.append(check)
+                next_progress_report = emit_progress(index, replay_started, next_progress_report)
 
     failed = [check for check in checks if not check.ok]
     warned = [check for check in checks if check.ok and len(check.warnings) > 0]

@@ -25,7 +25,10 @@ Co-Authored-By: Codex GPT-5 <codex@openai.com>
 - Runtime path policy: `rvk2` only.
 - Test policy: Vulkan smoke + upstream `GLideN64` comparison only.
 - Keep candidate captures deterministic: `dumpfb-preset` path.
+- Reference `GLideN64` in agent-mode `dumpfb-preset` is expected black; parity script auto-bypasses reference non-black validation for that path.
 - Keep deep telemetry centered on `paper_mario_intro`.
+- Deep profile preflight requires canonical telemetry keys in candidate plugin (`REALITYVK_RVK2_TRACE_FILE`, `REALITYVK_RVK2_PACKET_TRACE_FILE`, `REALITYVK_RVK2_FRAME_FORENSICS_FILE`); rebuild plugin if stale.
+- Deep profile prunes non-archived telemetry clutter by default (`REALITYVK_PM_TELEMETRY_PRUNE_ENABLE=1`).
 - Local-only workflow is expected for now; hardcoded local path defaults are not treated as a blocker.
 - Keep docs condensed: update canonical files, delete stale docs.
 - Do not reintroduce non-Vulkan or non-Mupen compatibility paths.
@@ -80,6 +83,10 @@ python3 scripts/rvk2_archive_compare.py \
 ```
 - Minimum comparison fields: `rmse`, `mae`, `candidate_non_black_ratio`, `candidate_mean_luma`, `missing_without_write_ratio`, telemetry bundle `suspected_gaps`.
 - Use archived evidence for conclusions; do not rely only on on-screen screenshots.
+- Manual telemetry prune command:
+```bash
+./scripts/paper_mario_telemetry_cleanup.sh
+```
 
 ## Knob History Workflow
 - History file: `build/parity-runs/paper-mario/knob-history.tsv`.

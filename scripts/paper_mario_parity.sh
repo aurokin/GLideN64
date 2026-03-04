@@ -86,6 +86,9 @@ DEEP_TELEMETRY_MISSING_REGION_MAX_ADDRESS_OVERLAP="${REALITYVK_PM_DEEP_TELEMETRY
 DEEP_TELEMETRY_ARCHIVE="${REALITYVK_PM_DEEP_TELEMETRY_ARCHIVE:-1}"
 DEEP_TELEMETRY_ARCHIVE_ROOT="${REALITYVK_PM_DEEP_TELEMETRY_ARCHIVE_ROOT:-${RUN_ROOT}/archive}"
 DEEP_TELEMETRY_ARCHIVE_INDEX="${REALITYVK_PM_DEEP_TELEMETRY_ARCHIVE_INDEX:-${DEEP_TELEMETRY_ARCHIVE_ROOT}/index.tsv}"
+CANDIDATE_PLUGIN_FRESHNESS_CHECK="${REALITYVK_PM_CANDIDATE_PLUGIN_FRESHNESS_CHECK:-1}"
+TELEMETRY_PRUNE_ENABLE="${REALITYVK_PM_TELEMETRY_PRUNE_ENABLE:-1}"
+TELEMETRY_PRUNE_DRY_RUN="${REALITYVK_PM_TELEMETRY_PRUNE_DRY_RUN:-0}"
 RVK2_ENABLE_SURFACE_HISTORY_BOOTSTRAP="${REALITYVK_PM_RVK2_ENABLE_SURFACE_HISTORY_BOOTSTRAP:-1}"
 RVK2_ENABLE_CROSS_SURFACE_BOOTSTRAP="${REALITYVK_PM_RVK2_ENABLE_CROSS_SURFACE_BOOTSTRAP:-1}"
 RVK2_DISABLE_VI_HISTORY_PRESENT="${REALITYVK_PM_RVK2_DISABLE_VI_HISTORY_PRESENT:-0}"
@@ -382,6 +385,10 @@ if [[ "${DEEP_TELEMETRY_ARCHIVE}" != "0" && "${DEEP_TELEMETRY_ARCHIVE}" != "1" ]
   exit 2
 fi
 
+rvk2_require_bool "REALITYVK_PM_CANDIDATE_PLUGIN_FRESHNESS_CHECK" "${CANDIDATE_PLUGIN_FRESHNESS_CHECK}"
+rvk2_require_bool "REALITYVK_PM_TELEMETRY_PRUNE_ENABLE" "${TELEMETRY_PRUNE_ENABLE}"
+rvk2_require_bool "REALITYVK_PM_TELEMETRY_PRUNE_DRY_RUN" "${TELEMETRY_PRUNE_DRY_RUN}"
+
 if [[ ! -f "${CANDIDATE_PLUGIN}" ]]; then
   echo "ERROR: candidate plugin not found: ${CANDIDATE_PLUGIN}" >&2
   exit 2
@@ -396,6 +403,69 @@ if [[ ! -f "${CANDIDATE_CORELIB}" ]]; then
   echo "ERROR: candidate core library not found: ${CANDIDATE_CORELIB}" >&2
   exit 2
 fi
+
+require_candidate_plugin_canonical_telemetry_keys() {
+  if [[ "${DEEP_TELEMETRY}" != "1" || "${CANDIDATE_PLUGIN_FRESHNESS_CHECK}" != "1" || "${DRY_RUN}" == "1" ]]; then
+    return 0
+  fi
+  if ! command -v strings >/dev/null 2>&1; then
+    echo "WARN: skipping candidate plugin freshness check; 'strings' is unavailable." >&2
+    return 0
+  fi
+
+  local plugin_strings=""
+  plugin_strings="$(strings "${CANDIDATE_PLUGIN}" 2>/dev/null || true)"
+  if [[ -z "${plugin_strings}" ]]; then
+    echo "WARN: skipping candidate plugin freshness check; no symbols were extracted from ${CANDIDATE_PLUGIN}." >&2
+    return 0
+  fi
+
+  local -a required_keys=(
+    "REALITYVK_RVK2_TRACE_FILE"
+    "REALITYVK_RVK2_PACKET_TRACE_FILE"
+    "REALITYVK_RVK2_FRAME_FORENSICS_FILE"
+  )
+  local -a missing_keys=()
+  local key=""
+  for key in "${required_keys[@]}"; do
+    if ! grep -Fq "${key}" <<< "${plugin_strings}"; then
+      missing_keys+=("${key}")
+    fi
+  done
+
+  if ((${#missing_keys[@]} == 0)); then
+    return 0
+  fi
+
+  echo "ERROR: candidate plugin appears stale for deep telemetry; missing canonical env keys:" >&2
+  for key in "${missing_keys[@]}"; do
+    echo "  - ${key}" >&2
+  done
+  if grep -Fq "REALITYVK2_PACKET_TRACE_FILE" <<< "${plugin_strings}"; then
+    echo "ERROR: legacy REALITYVK2_* telemetry keys detected; rebuild is required." >&2
+  fi
+  echo "ERROR: rebuild candidate plugin before deep smoke:" >&2
+  echo "  cmake -S src -B build/release-vulkan-smoke -DCMAKE_BUILD_TYPE=Release" >&2
+  echo "  cmake --build build/release-vulkan-smoke -j\$(nproc)" >&2
+  exit 2
+}
+
+prune_telemetry_root_if_enabled() {
+  if [[ "${DEEP_TELEMETRY}" != "1" || "${TELEMETRY_PRUNE_ENABLE}" != "1" || "${DRY_RUN}" == "1" ]]; then
+    return 0
+  fi
+  local cleanup_script="${ROOT_DIR}/scripts/paper_mario_telemetry_cleanup.sh"
+  if [[ ! -f "${cleanup_script}" ]]; then
+    echo "WARN: telemetry cleanup script not found; skipping prune: ${cleanup_script}" >&2
+    return 0
+  fi
+  "${cleanup_script}" \
+    --run-root "${RUN_ROOT}" \
+    --scenario-id "${SCENARIO_ID}" \
+    --dry-run "${TELEMETRY_PRUNE_DRY_RUN}"
+}
+
+require_candidate_plugin_canonical_telemetry_keys
 
 scenario_line="$(
   awk -F '\t' -v id="${SCENARIO_ID}" '
@@ -424,6 +494,7 @@ if ! [[ "${FRAMES}" =~ ^[0-9]+$ ]]; then
 fi
 
 mkdir -p "${CACHE_ROOT}" "${RUN_ROOT}"
+prune_telemetry_root_if_enabled
 
 if [[ "${DEEP_TELEMETRY}" == "1" && "${SCENARIO_ID}" != "paper_mario_intro" ]]; then
   echo "WARN: deep telemetry profile is tuned for paper_mario_intro (running ${SCENARIO_ID})." >&2

@@ -39,3 +39,6 @@
   - `mae=0.278921`
   - `candidate_non_black_ratio=0.775134`
   - `candidate_mean_luma=0.297241`
+- Tooling constraints in effect:
+  - upstream `GLideN64` reference `dumpfb-preset` is black in agent-mode flow; treat reference non-black ratio as non-actionable in this workflow.
+  - deep replay should be interpreted from stateful runs first; non-stateful replay remains low-confidence for first-divergence attribution.
