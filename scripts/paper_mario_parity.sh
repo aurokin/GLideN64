@@ -2,6 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "${ROOT_DIR}/scripts/lib/validation.sh"
+source "${ROOT_DIR}/scripts/lib/compare_view.sh"
 MANIFEST="${REALITYVK_PM_MANIFEST:-${ROOT_DIR}/tests/smoke/scenarios.tsv}"
 SCENARIO_ID="${REALITYVK_PM_SCENARIO_ID:-paper_mario_intro}"
 
@@ -31,11 +33,6 @@ CAPTURE_MIN_MEAN_LUMA="${REALITYVK_PM_CAPTURE_MIN_MEAN_LUMA:-0.002}"
 # Override with REALITYVK_PM_DUMPFB_FLIP_Y=0 when raw dump orientation is needed.
 DUMPFB_FLIP_Y="${REALITYVK_PM_DUMPFB_FLIP_Y:-1}"
 RVK2_PRESENT_FLIP_Y="${REALITYVK_PM_RVK2_PRESENT_FLIP_Y:-1}"
-REFERENCE_CAPTURE_METHOD="${REALITYVK_PM_REFERENCE_CAPTURE_METHOD:-screenshot}"
-CANDIDATE_CAPTURE_METHOD="${REALITYVK_PM_CANDIDATE_CAPTURE_METHOD:-dumpfb-preset}"
-SCREENSHOT_DIR="${REALITYVK_PM_SCREENSHOT_DIR:-${HOME}/.local/share/mupen64plus/screenshot}"
-SCREENSHOT_FLIP_Y="${REALITYVK_PM_SCREENSHOT_FLIP_Y:-auto}"
-SCREENSHOT_FLIP_Y_EFFECTIVE=""
 CAPTURE_SCALE_DIV="${REALITYVK_PM_CAPTURE_SCALE_DIV:-1}"
 LAUNCH_WITH_PTY="${REALITYVK_PM_LAUNCH_WITH_PTY:-1}"
 DEEP_TELEMETRY="${REALITYVK_PM_DEEP_TELEMETRY:-0}"
@@ -86,8 +83,6 @@ RVK2_ENABLE_CROSS_SURFACE_BOOTSTRAP="${REALITYVK_PM_RVK2_ENABLE_CROSS_SURFACE_BO
 RVK2_DISABLE_VI_HISTORY_PRESENT="${REALITYVK_PM_RVK2_DISABLE_VI_HISTORY_PRESENT:-0}"
 RVK2_PREFER_LIVE_SURFACE_OVER_HISTORY="${REALITYVK_PM_RVK2_PREFER_LIVE_SURFACE_OVER_HISTORY:-1}"
 AUTO_COMPARE_VIEW="${REALITYVK_PM_AUTO_COMPARE_VIEW:-1}"
-AUTO_COMPARE_VIEW_MODE="${REALITYVK_PM_AUTO_COMPARE_VIEW_MODE:-side_by_side}"
-AUTO_COMPARE_VIEWER="${REALITYVK_PM_AUTO_COMPARE_VIEWER:-eog}"
 AUTO_COMPARE_CLOSE_ALL_EOG="${REALITYVK_PM_AUTO_COMPARE_CLOSE_ALL_EOG:-1}"
 
 if [[ ! -f "${MANIFEST}" ]]; then
@@ -135,91 +130,18 @@ if ! [[ "${CAPTURE_RETRY_COUNT}" =~ ^[0-9]+$ ]]; then
   exit 2
 fi
 
-if ! [[ "${CAPTURE_RETRY_STEP_FRAMES}" =~ ^[0-9]+$ ]]; then
-  echo "ERROR: REALITYVK_PM_CAPTURE_RETRY_STEP_FRAMES must be an integer >= 0." >&2
-  exit 2
-fi
-
-if ! [[ "${CAPTURE_RETRY_RESUME_MS}" =~ ^[0-9]+$ ]]; then
-  echo "ERROR: REALITYVK_PM_CAPTURE_RETRY_RESUME_MS must be an integer >= 0." >&2
-  exit 2
-fi
-
-if ! [[ "${CAPTURE_MIN_NONBLACK_RATIO}" =~ ^[0-9]*\.?[0-9]+$ ]]; then
-  echo "ERROR: REALITYVK_PM_CAPTURE_MIN_NONBLACK_RATIO must be numeric." >&2
-  exit 2
-fi
-
-if ! [[ "${CAPTURE_MIN_MEAN_LUMA}" =~ ^[0-9]*\.?[0-9]+$ ]]; then
-  echo "ERROR: REALITYVK_PM_CAPTURE_MIN_MEAN_LUMA must be numeric." >&2
-  exit 2
-fi
-
-if [[ "${DUMPFB_FLIP_Y}" != "0" && "${DUMPFB_FLIP_Y}" != "1" ]]; then
-  echo "ERROR: REALITYVK_PM_DUMPFB_FLIP_Y must be 0 or 1." >&2
-  exit 2
-fi
-
-if [[ "${RVK2_PRESENT_FLIP_Y}" != "0" && "${RVK2_PRESENT_FLIP_Y}" != "1" ]]; then
-  echo "ERROR: REALITYVK_PM_RVK2_PRESENT_FLIP_Y must be 0 or 1." >&2
-  exit 2
-fi
-
-if [[ "${SCREENSHOT_FLIP_Y}" != "0" && "${SCREENSHOT_FLIP_Y}" != "1" && "${SCREENSHOT_FLIP_Y}" != "auto" ]]; then
-  echo "ERROR: REALITYVK_PM_SCREENSHOT_FLIP_Y must be 0, 1, or auto." >&2
-  exit 2
-fi
-
-if [[ "${SCREENSHOT_FLIP_Y}" == "auto" ]]; then
-  # Match screenshot orientation to dumpfb by default.
-  if [[ "${DUMPFB_FLIP_Y}" == "1" ]]; then
-    SCREENSHOT_FLIP_Y_EFFECTIVE="0"
-  else
-    SCREENSHOT_FLIP_Y_EFFECTIVE="1"
-  fi
-else
-  SCREENSHOT_FLIP_Y_EFFECTIVE="${SCREENSHOT_FLIP_Y}"
-fi
-
-if [[ "${REFERENCE_CAPTURE_METHOD}" != "dumpfb-preset" && "${REFERENCE_CAPTURE_METHOD}" != "screenshot" ]]; then
-  echo "ERROR: REALITYVK_PM_REFERENCE_CAPTURE_METHOD must be 'dumpfb-preset' or 'screenshot'." >&2
-  exit 2
-fi
-
-if [[ "${CANDIDATE_CAPTURE_METHOD}" != "dumpfb-preset" && "${CANDIDATE_CAPTURE_METHOD}" != "screenshot" ]]; then
-  echo "ERROR: REALITYVK_PM_CANDIDATE_CAPTURE_METHOD must be 'dumpfb-preset' or 'screenshot'." >&2
-  exit 2
-fi
-
-if [[ "${LAUNCH_WITH_PTY}" != "0" && "${LAUNCH_WITH_PTY}" != "1" ]]; then
-  echo "ERROR: REALITYVK_PM_LAUNCH_WITH_PTY must be 0 or 1." >&2
-  exit 2
-fi
-
-if [[ "${DEEP_TELEMETRY}" != "0" && "${DEEP_TELEMETRY}" != "1" ]]; then
-  echo "ERROR: REALITYVK_PM_DEEP_TELEMETRY must be 0 or 1." >&2
-  exit 2
-fi
-
-if [[ "${DEEP_TELEMETRY_REPLAY_STRICT}" != "0" && "${DEEP_TELEMETRY_REPLAY_STRICT}" != "1" ]]; then
-  echo "ERROR: REALITYVK_PM_DEEP_TELEMETRY_REPLAY_STRICT must be 0 or 1." >&2
-  exit 2
-fi
-
-if [[ "${DEEP_TELEMETRY_REPLAY_STATEFUL}" != "0" && "${DEEP_TELEMETRY_REPLAY_STATEFUL}" != "1" ]]; then
-  echo "ERROR: REALITYVK_PM_DEEP_TELEMETRY_REPLAY_STATEFUL must be 0 or 1." >&2
-  exit 2
-fi
-
-if [[ "${DEEP_TELEMETRY_TRACE_LOG_SUMMARY}" != "0" && "${DEEP_TELEMETRY_TRACE_LOG_SUMMARY}" != "1" ]]; then
-  echo "ERROR: REALITYVK_PM_DEEP_TELEMETRY_TRACE_LOG_SUMMARY must be 0 or 1." >&2
-  exit 2
-fi
-
-if ! [[ "${DEEP_TELEMETRY_REPLAY_JOBS}" =~ ^[0-9]+$ ]]; then
-  echo "ERROR: REALITYVK_PM_DEEP_TELEMETRY_REPLAY_JOBS must be an integer >= 0." >&2
-  exit 2
-fi
+rvk2_require_uint_ge "REALITYVK_PM_CAPTURE_RETRY_STEP_FRAMES" "${CAPTURE_RETRY_STEP_FRAMES}" 0
+rvk2_require_uint_ge "REALITYVK_PM_CAPTURE_RETRY_RESUME_MS" "${CAPTURE_RETRY_RESUME_MS}" 0
+rvk2_require_float "REALITYVK_PM_CAPTURE_MIN_NONBLACK_RATIO" "${CAPTURE_MIN_NONBLACK_RATIO}"
+rvk2_require_float "REALITYVK_PM_CAPTURE_MIN_MEAN_LUMA" "${CAPTURE_MIN_MEAN_LUMA}"
+rvk2_require_bool "REALITYVK_PM_DUMPFB_FLIP_Y" "${DUMPFB_FLIP_Y}"
+rvk2_require_bool "REALITYVK_PM_RVK2_PRESENT_FLIP_Y" "${RVK2_PRESENT_FLIP_Y}"
+rvk2_require_bool "REALITYVK_PM_LAUNCH_WITH_PTY" "${LAUNCH_WITH_PTY}"
+rvk2_require_bool "REALITYVK_PM_DEEP_TELEMETRY" "${DEEP_TELEMETRY}"
+rvk2_require_bool "REALITYVK_PM_DEEP_TELEMETRY_REPLAY_STRICT" "${DEEP_TELEMETRY_REPLAY_STRICT}"
+rvk2_require_bool "REALITYVK_PM_DEEP_TELEMETRY_REPLAY_STATEFUL" "${DEEP_TELEMETRY_REPLAY_STATEFUL}"
+rvk2_require_bool "REALITYVK_PM_DEEP_TELEMETRY_TRACE_LOG_SUMMARY" "${DEEP_TELEMETRY_TRACE_LOG_SUMMARY}"
+rvk2_require_uint_ge "REALITYVK_PM_DEEP_TELEMETRY_REPLAY_JOBS" "${DEEP_TELEMETRY_REPLAY_JOBS}" 0
 
 if ! [[ "${DEEP_TELEMETRY_FBO_TRACE_LIMIT}" =~ ^[0-9]+$ ]] || [[ "${DEEP_TELEMETRY_FBO_TRACE_LIMIT}" == "0" ]]; then
   echo "ERROR: REALITYVK_PM_DEEP_TELEMETRY_FBO_TRACE_LIMIT must be an integer >= 1." >&2
@@ -296,30 +218,10 @@ if [[ "${RVK2_ENABLE_CROSS_SURFACE_BOOTSTRAP}" != "0" && "${RVK2_ENABLE_CROSS_SU
   exit 2
 fi
 
-if [[ "${RVK2_DISABLE_VI_HISTORY_PRESENT}" != "0" && "${RVK2_DISABLE_VI_HISTORY_PRESENT}" != "1" ]]; then
-  echo "ERROR: REALITYVK_PM_RVK2_DISABLE_VI_HISTORY_PRESENT must be 0 or 1." >&2
-  exit 2
-fi
-
-if [[ "${RVK2_PREFER_LIVE_SURFACE_OVER_HISTORY}" != "0" && "${RVK2_PREFER_LIVE_SURFACE_OVER_HISTORY}" != "1" ]]; then
-  echo "ERROR: REALITYVK_PM_RVK2_PREFER_LIVE_SURFACE_OVER_HISTORY must be 0 or 1." >&2
-  exit 2
-fi
-
-if [[ "${AUTO_COMPARE_VIEW}" != "0" && "${AUTO_COMPARE_VIEW}" != "1" ]]; then
-  echo "ERROR: REALITYVK_PM_AUTO_COMPARE_VIEW must be 0 or 1." >&2
-  exit 2
-fi
-
-if [[ "${AUTO_COMPARE_VIEW_MODE}" != "side_by_side" ]]; then
-  echo "ERROR: REALITYVK_PM_AUTO_COMPARE_VIEW_MODE must be 'side_by_side'." >&2
-  exit 2
-fi
-
-if [[ "${AUTO_COMPARE_CLOSE_ALL_EOG}" != "0" && "${AUTO_COMPARE_CLOSE_ALL_EOG}" != "1" ]]; then
-  echo "ERROR: REALITYVK_PM_AUTO_COMPARE_CLOSE_ALL_EOG must be 0 or 1." >&2
-  exit 2
-fi
+rvk2_require_bool "REALITYVK_PM_RVK2_DISABLE_VI_HISTORY_PRESENT" "${RVK2_DISABLE_VI_HISTORY_PRESENT}"
+rvk2_require_bool "REALITYVK_PM_RVK2_PREFER_LIVE_SURFACE_OVER_HISTORY" "${RVK2_PREFER_LIVE_SURFACE_OVER_HISTORY}"
+rvk2_require_bool "REALITYVK_PM_AUTO_COMPARE_VIEW" "${AUTO_COMPARE_VIEW}"
+rvk2_require_bool "REALITYVK_PM_AUTO_COMPARE_CLOSE_ALL_EOG" "${AUTO_COMPARE_CLOSE_ALL_EOG}"
 
 if ! [[ "${DEEP_TELEMETRY_DIFF_THRESHOLD}" =~ ^[0-9]+$ ]] || (( DEEP_TELEMETRY_DIFF_THRESHOLD > 255 )); then
   echo "ERROR: REALITYVK_PM_DEEP_TELEMETRY_DIFF_THRESHOLD must be an integer in [0,255]." >&2
@@ -468,16 +370,6 @@ if [[ "${DEEP_TELEMETRY}" == "1" && "${SCENARIO_ID}" != "paper_mario_intro" ]]; 
   echo "WARN: deep telemetry profile is tuned for paper_mario_intro (running ${SCENARIO_ID})." >&2
 fi
 
-capture_method_tag() {
-  local method="$1"
-  if [[ "${method}" == "screenshot" ]]; then
-    echo "screenshot_scale${CAPTURE_SCALE_DIV}_flip${SCREENSHOT_FLIP_Y_EFFECTIVE}"
-    return
-  fi
-  echo "dumpfb_flip${DUMPFB_FLIP_Y}"
-}
-
-REFERENCE_CAPTURE_METHOD_TAG=""
 REFERENCE_CAPTURE=""
 CANDIDATE_CAPTURE="${RUN_ROOT}/${SCENARIO_ID}.candidate.ppm"
 DIFF_OUT="${RUN_ROOT}/${SCENARIO_ID}.diff.png"
@@ -486,7 +378,6 @@ CAPTURE_CONTEXT_OUT="${RUN_ROOT}/${SCENARIO_ID}.capture-context.json"
 REFERENCE_PNG="${RUN_ROOT}/${SCENARIO_ID}.reference.png"
 CANDIDATE_PNG="${RUN_ROOT}/${SCENARIO_ID}.candidate.png"
 
-CANDIDATE_CAPTURE_METHOD_TAG=""
 VISUAL_COMPARE_EXIT_CODE="0"
 DEEP_REPLAY_EXIT_CODE="-1"
 DEEP_FORENSICS_SUMMARY_EXIT_CODE="-1"
@@ -593,15 +484,13 @@ if [[ "${DEEP_TELEMETRY}" == "1" ]]; then
     "${TELEMETRY_BUNDLE_OUT}"
 fi
 
-REFERENCE_CAPTURE_METHOD_TAG="$(capture_method_tag "${REFERENCE_CAPTURE_METHOD}")"
-REFERENCE_CAPTURE="${CACHE_ROOT}/${SCENARIO_ID}.${REFERENCE_CAPTURE_METHOD_TAG}.reference.ppm"
-CANDIDATE_CAPTURE_METHOD_TAG="$(capture_method_tag "${CANDIDATE_CAPTURE_METHOD}")"
+CAPTURE_METHOD_TAG="dumpfb_scale${CAPTURE_SCALE_DIV}_flip${DUMPFB_FLIP_Y}"
+REFERENCE_CAPTURE="${CACHE_ROOT}/${SCENARIO_ID}.${CAPTURE_METHOD_TAG}.reference.ppm"
 
 capture_plugin() {
   local label="$1"
   local plugin_path="$2"
   local out_path="$3"
-  local capture_method="$4"
   local corelib_path="${CANDIDATE_CORELIB}"
   local require_no_depth_fail="0"
   local require_depth_stats="0"
@@ -646,9 +535,6 @@ capture_plugin() {
     "REALITYVK_SMOKE_CAPTURE_RETRY_RESUME_MS=${CAPTURE_RETRY_RESUME_MS}"
     "REALITYVK_SMOKE_CAPTURE_MIN_NONBLACK_RATIO=${CAPTURE_MIN_NONBLACK_RATIO}"
     "REALITYVK_SMOKE_CAPTURE_MIN_MEAN_LUMA=${CAPTURE_MIN_MEAN_LUMA}"
-    "REALITYVK_SMOKE_CAPTURE_METHOD=${capture_method}"
-    "REALITYVK_SMOKE_SCREENSHOT_DIR=${SCREENSHOT_DIR}"
-    "REALITYVK_SMOKE_SCREENSHOT_FLIP_Y=${SCREENSHOT_FLIP_Y_EFFECTIVE}"
     "REALITYVK_SMOKE_DUMPFB_FLIP_Y=${DUMPFB_FLIP_Y}"
     "REALITYVK_RVK2_PRESENT_FLIP_Y=${rvk2_present_flip_y}"
     "REALITYVK_SMOKE_LAUNCH_WITH_PTY=${LAUNCH_WITH_PTY}"
@@ -745,71 +631,6 @@ if non_black_ratio >= min_nonblack_ratio and mean_luma >= min_mean_luma:
     raise SystemExit(0)
 raise SystemExit(1)
 PY
-}
-
-build_auto_compare_side_by_side() {
-  local reference_source="$1"
-  local candidate_source="$2"
-  local out_path="$3"
-
-  if command -v magick >/dev/null 2>&1; then
-    magick "${reference_source}" "${candidate_source}" +append "${out_path}"
-    return 0
-  fi
-  if command -v convert >/dev/null 2>&1; then
-    convert "${reference_source}" "${candidate_source}" +append "${out_path}"
-    return 0
-  fi
-
-  echo "WARN: auto compare requested but ImageMagick is unavailable (magick/convert not found)." >&2
-  return 1
-}
-
-close_auto_compare_viewer() {
-  if [[ -f "${COMPARE_VIEWER_PID_FILE}" ]]; then
-    old_pid="$(cat "${COMPARE_VIEWER_PID_FILE}" 2>/dev/null || true)"
-    if [[ -n "${old_pid}" ]] && kill -0 "${old_pid}" >/dev/null 2>&1; then
-      kill "${old_pid}" >/dev/null 2>&1 || true
-      sleep 0.15
-    fi
-    rm -f "${COMPARE_VIEWER_PID_FILE}"
-  fi
-
-  if [[ "${AUTO_COMPARE_CLOSE_ALL_EOG}" == "1" ]]; then
-    pkill -x eog >/dev/null 2>&1 || true
-  fi
-}
-
-open_auto_compare_viewer() {
-  local image_path="$1"
-
-  if [[ "${AUTO_COMPARE_VIEWER}" != "eog" ]]; then
-    echo "WARN: REALITYVK_PM_AUTO_COMPARE_VIEWER supports only 'eog' currently (got '${AUTO_COMPARE_VIEWER}')." >&2
-    return 0
-  fi
-
-  if [[ -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]]; then
-    echo "WARN: auto compare viewer skipped (DISPLAY/WAYLAND_DISPLAY not set)." >&2
-    return 0
-  fi
-
-  if ! command -v eog >/dev/null 2>&1; then
-    echo "WARN: auto compare viewer requested but eog is unavailable." >&2
-    return 0
-  fi
-
-  setsid eog --new-instance "${image_path}" >/dev/null 2>&1 < /dev/null &
-  new_pid="$!"
-  disown || true
-  sleep 0.2
-  if kill -0 "${new_pid}" >/dev/null 2>&1; then
-    echo "${new_pid}" > "${COMPARE_VIEWER_PID_FILE}"
-    return 0
-  fi
-
-  echo "WARN: eog exited before image view stabilized: ${image_path}" >&2
-  rm -f "${COMPARE_VIEWER_PID_FILE}"
-  return 0
 }
 
 copy_artifact_if_file() {
@@ -1144,8 +965,8 @@ if [[ "${REFRESH_REFERENCE}" == "1" || ! -s "${REFERENCE_CAPTURE}" ]]; then
   echo "==> [compare] capturing reference (${SCENARIO_ID})"
   echo "    plugin: ${REFERENCE_PLUGIN}"
   echo "    core:   ${REFERENCE_CORELIB}"
-  echo "    capture:${REFERENCE_CAPTURE_METHOD_TAG} (${REFERENCE_CAPTURE_METHOD})"
-  capture_plugin "reference" "${REFERENCE_PLUGIN}" "${REFERENCE_CAPTURE}" "${REFERENCE_CAPTURE_METHOD}"
+  echo "    capture:${CAPTURE_METHOD_TAG} (dumpfb-preset)"
+  capture_plugin "reference" "${REFERENCE_PLUGIN}" "${REFERENCE_CAPTURE}"
 else
   echo "==> [compare] using cached reference capture: ${REFERENCE_CAPTURE}"
   if [[ "${REQUIRE_NON_BLACK_CAPTURE}" == "1" && "${VALIDATE_CACHED_REFERENCE_CAPTURE}" == "1" ]]; then
@@ -1155,7 +976,7 @@ else
         exit 2
       fi
       echo "WARN: cached reference capture appears mostly black; recapturing reference." >&2
-      capture_plugin "reference" "${REFERENCE_PLUGIN}" "${REFERENCE_CAPTURE}" "${REFERENCE_CAPTURE_METHOD}"
+      capture_plugin "reference" "${REFERENCE_PLUGIN}" "${REFERENCE_CAPTURE}"
     fi
   fi
 fi
@@ -1163,18 +984,18 @@ fi
 echo "==> [compare] capturing candidate (${SCENARIO_ID})"
 echo "    plugin: ${CANDIDATE_PLUGIN}"
 echo "    core:   ${CANDIDATE_CORELIB}"
-echo "    capture:${CANDIDATE_CAPTURE_METHOD_TAG} (${CANDIDATE_CAPTURE_METHOD})"
-capture_plugin "candidate" "${CANDIDATE_PLUGIN}" "${CANDIDATE_CAPTURE}" "${CANDIDATE_CAPTURE_METHOD}"
+echo "    capture:${CAPTURE_METHOD_TAG} (dumpfb-preset)"
+capture_plugin "candidate" "${CANDIDATE_PLUGIN}" "${CANDIDATE_CAPTURE}"
 
 python3 - "${CAPTURE_CONTEXT_OUT}" \
   "${SCENARIO_ID}" \
   "${REFERENCE_PLUGIN}" \
   "${REFERENCE_CORELIB}" \
-  "${REFERENCE_CAPTURE_METHOD_TAG}" \
+  "${CAPTURE_METHOD_TAG}" \
   "${REFERENCE_CAPTURE}" \
   "${CANDIDATE_PLUGIN}" \
   "${CANDIDATE_CORELIB}" \
-  "${CANDIDATE_CAPTURE_METHOD_TAG}" \
+  "${CAPTURE_METHOD_TAG}" \
   "${CANDIDATE_CAPTURE}" <<'PY'
 import json
 import sys
@@ -1309,10 +1130,10 @@ print(f"candidate png: {cand_png}")
 PY
 
 if [[ "${AUTO_COMPARE_VIEW}" == "1" ]]; then
-  if build_auto_compare_side_by_side "${REFERENCE_PNG}" "${CANDIDATE_PNG}" "${COMPARE_SIDE_BY_SIDE_OUT}"; then
+  if rvk2_build_side_by_side_image "${REFERENCE_PNG}" "${CANDIDATE_PNG}" "${COMPARE_SIDE_BY_SIDE_OUT}"; then
     echo "auto compare image: ${COMPARE_SIDE_BY_SIDE_OUT}"
-    close_auto_compare_viewer
-    open_auto_compare_viewer "${COMPARE_SIDE_BY_SIDE_OUT}"
+    rvk2_close_eog_view "${COMPARE_VIEWER_PID_FILE}" "${AUTO_COMPARE_CLOSE_ALL_EOG}"
+    rvk2_open_eog_view "${COMPARE_SIDE_BY_SIDE_OUT}" "${COMPARE_VIEWER_PID_FILE}"
   fi
 fi
 

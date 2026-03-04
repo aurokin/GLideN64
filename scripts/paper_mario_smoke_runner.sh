@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+source "${ROOT_DIR}/scripts/lib/validation.sh"
 
 BACKEND="Vulkan"
 ROM_PATH=""
@@ -38,10 +39,6 @@ CAPTURE_MIN_NONBLACK_RATIO="${REALITYVK_SMOKE_CAPTURE_MIN_NONBLACK_RATIO:-0.001}
 CAPTURE_MIN_MEAN_LUMA="${REALITYVK_SMOKE_CAPTURE_MIN_MEAN_LUMA:-0.002}"
 CAPTURE_DEBUG="${REALITYVK_SMOKE_CAPTURE_DEBUG:-0}"
 DUMPFB_FLIP_Y="${REALITYVK_SMOKE_DUMPFB_FLIP_Y:-0}"
-CAPTURE_METHOD="${REALITYVK_SMOKE_CAPTURE_METHOD:-dumpfb-preset}"
-SCREENSHOT_DIR="${REALITYVK_SMOKE_SCREENSHOT_DIR:-${HOME}/.local/share/mupen64plus/screenshot}"
-SCREENSHOT_FLIP_Y="${REALITYVK_SMOKE_SCREENSHOT_FLIP_Y:-auto}"
-SCREENSHOT_FLIP_Y_EFFECTIVE=""
 
 usage() {
   cat <<EOF_USAGE
@@ -53,6 +50,7 @@ Options:
   --preset <name>      Framebuffer preset for agent dump (default: full).
   --scale-div <n>      Downscale factor for capture (default: 1).
   --socket <path>      Agent socket path (default: ${SOCKET_PATH}).
+  Capture path is deterministic and always uses agentctl dumpfb-preset.
 EOF_USAGE
 }
 
@@ -117,25 +115,10 @@ if [[ -z "${OUT_PATH}" ]]; then
   exit 2
 fi
 
-if ! [[ "${FRAMES}" =~ ^[0-9]+$ ]]; then
-  echo "ERROR: --frames must be an integer >= 0." >&2
-  exit 2
-fi
-
-if ! [[ "${STEP_CHUNK}" =~ ^[0-9]+$ ]] || [[ "${STEP_CHUNK}" == "0" ]]; then
-  echo "ERROR: REALITYVK_SMOKE_STEP_CHUNK must be an integer >= 1." >&2
-  exit 2
-fi
-
-if ! [[ "${SETTLE_FRAMES_AFTER_LOAD}" =~ ^[0-9]+$ ]]; then
-  echo "ERROR: REALITYVK_SMOKE_SETTLE_FRAMES_AFTER_LOAD must be an integer >= 0." >&2
-  exit 2
-fi
-
-if ! [[ "${SCALE_DIV}" =~ ^[0-9]+$ ]] || [[ "${SCALE_DIV}" == "0" ]]; then
-  echo "ERROR: --scale-div must be an integer >= 1." >&2
-  exit 2
-fi
+rvk2_require_uint_ge "--frames" "${FRAMES}" 0
+rvk2_require_uint_ge "REALITYVK_SMOKE_STEP_CHUNK" "${STEP_CHUNK}" 1
+rvk2_require_uint_ge "REALITYVK_SMOKE_SETTLE_FRAMES_AFTER_LOAD" "${SETTLE_FRAMES_AFTER_LOAD}" 0
+rvk2_require_uint_ge "--scale-div" "${SCALE_DIV}" 1
 
 if [[ ! -f "${ROM_PATH}" ]]; then
   echo "ERROR: ROM not found: ${ROM_PATH}" >&2
@@ -147,15 +130,8 @@ if [[ -n "${STATE_PATH}" && ! -f "${STATE_PATH}" ]]; then
   exit 2
 fi
 
-if [[ ! -x "${LAUNCH_SCRIPT}" ]]; then
-  echo "ERROR: launch script not executable: ${LAUNCH_SCRIPT}" >&2
-  exit 2
-fi
-
-if [[ ! -f "${AGENTCTL}" ]]; then
-  echo "ERROR: agentctl not found: ${AGENTCTL}" >&2
-  exit 2
-fi
+rvk2_require_executable "launch script" "${LAUNCH_SCRIPT}"
+rvk2_require_file "agentctl" "${AGENTCTL}"
 
 backend_plugin="${REALITYVK_SMOKE_PLUGIN_VULKAN:-${REALITYVK_SMOKE_PLUGIN:-${DEFAULT_PLUGIN}}}"
 if [[ ! -f "${backend_plugin}" ]]; then
@@ -165,91 +141,18 @@ fi
 backend_plugin_name="$(basename "${backend_plugin}")"
 PLUGIN_DEST="${PLUGIN_DIR}/${backend_plugin_name}"
 
-if [[ "${REQUIRE_READBACK_MARKER}" != "0" && "${REQUIRE_READBACK_MARKER}" != "1" ]]; then
-  echo "ERROR: REALITYVK_SMOKE_REQUIRE_READBACK_MARKER must be 0 or 1." >&2
-  exit 2
-fi
-
-if [[ "${REQUIRE_NO_DEPTH_BLIT_FAIL}" != "0" && "${REQUIRE_NO_DEPTH_BLIT_FAIL}" != "1" ]]; then
-  echo "ERROR: REALITYVK_SMOKE_REQUIRE_NO_DEPTH_BLIT_FAIL must be 0 or 1." >&2
-  exit 2
-fi
-
-if [[ "${REQUIRE_DEPTH_BLIT_STATS}" != "0" && "${REQUIRE_DEPTH_BLIT_STATS}" != "1" ]]; then
-  echo "ERROR: REALITYVK_SMOKE_REQUIRE_DEPTH_BLIT_STATS must be 0 or 1." >&2
-  exit 2
-fi
-
-if [[ "${REQUIRE_NON_BLACK_CAPTURE}" != "0" && "${REQUIRE_NON_BLACK_CAPTURE}" != "1" ]]; then
-  echo "ERROR: REALITYVK_SMOKE_REQUIRE_NON_BLACK_CAPTURE must be 0 or 1." >&2
-  exit 2
-fi
-
-if [[ "${CAPTURE_DEBUG}" != "0" && "${CAPTURE_DEBUG}" != "1" ]]; then
-  echo "ERROR: REALITYVK_SMOKE_CAPTURE_DEBUG must be 0 or 1." >&2
-  exit 2
-fi
-
-if [[ "${DUMPFB_FLIP_Y}" != "0" && "${DUMPFB_FLIP_Y}" != "1" ]]; then
-  echo "ERROR: REALITYVK_SMOKE_DUMPFB_FLIP_Y must be 0 or 1." >&2
-  exit 2
-fi
-
-if [[ "${SCREENSHOT_FLIP_Y}" != "0" && "${SCREENSHOT_FLIP_Y}" != "1" && "${SCREENSHOT_FLIP_Y}" != "auto" ]]; then
-  echo "ERROR: REALITYVK_SMOKE_SCREENSHOT_FLIP_Y must be 0, 1, or auto." >&2
-  exit 2
-fi
-
-if [[ "${SCREENSHOT_FLIP_Y}" == "auto" ]]; then
-  # Align screenshot orientation with dumpfb output by default.
-  if [[ "${DUMPFB_FLIP_Y}" == "1" ]]; then
-    SCREENSHOT_FLIP_Y_EFFECTIVE="0"
-  else
-    SCREENSHOT_FLIP_Y_EFFECTIVE="1"
-  fi
-else
-  SCREENSHOT_FLIP_Y_EFFECTIVE="${SCREENSHOT_FLIP_Y}"
-fi
-
-if [[ "${CAPTURE_METHOD}" != "dumpfb-preset" && "${CAPTURE_METHOD}" != "screenshot" ]]; then
-  echo "ERROR: REALITYVK_SMOKE_CAPTURE_METHOD must be 'dumpfb-preset' or 'screenshot'." >&2
-  exit 2
-fi
-
-if [[ "${CAPTURE_METHOD}" == "screenshot" && "${PRESET}" != "full" ]]; then
-  echo "ERROR: screenshot capture supports only --preset full." >&2
-  exit 2
-fi
-
-if [[ "${LAUNCH_WITH_PTY}" != "0" && "${LAUNCH_WITH_PTY}" != "1" ]]; then
-  echo "ERROR: REALITYVK_SMOKE_LAUNCH_WITH_PTY must be 0 or 1." >&2
-  exit 2
-fi
-
-if ! [[ "${CAPTURE_RETRY_COUNT}" =~ ^[0-9]+$ ]]; then
-  echo "ERROR: REALITYVK_SMOKE_CAPTURE_RETRY_COUNT must be an integer >= 0." >&2
-  exit 2
-fi
-
-if ! [[ "${CAPTURE_RETRY_STEP_FRAMES}" =~ ^[0-9]+$ ]]; then
-  echo "ERROR: REALITYVK_SMOKE_CAPTURE_RETRY_STEP_FRAMES must be an integer >= 0." >&2
-  exit 2
-fi
-
-if ! [[ "${CAPTURE_RETRY_RESUME_MS}" =~ ^[0-9]+$ ]]; then
-  echo "ERROR: REALITYVK_SMOKE_CAPTURE_RETRY_RESUME_MS must be an integer >= 0." >&2
-  exit 2
-fi
-
-if ! [[ "${CAPTURE_MIN_NONBLACK_RATIO}" =~ ^[0-9]*\.?[0-9]+$ ]]; then
-  echo "ERROR: REALITYVK_SMOKE_CAPTURE_MIN_NONBLACK_RATIO must be numeric." >&2
-  exit 2
-fi
-
-if ! [[ "${CAPTURE_MIN_MEAN_LUMA}" =~ ^[0-9]*\.?[0-9]+$ ]]; then
-  echo "ERROR: REALITYVK_SMOKE_CAPTURE_MIN_MEAN_LUMA must be numeric." >&2
-  exit 2
-fi
+rvk2_require_bool "REALITYVK_SMOKE_REQUIRE_READBACK_MARKER" "${REQUIRE_READBACK_MARKER}"
+rvk2_require_bool "REALITYVK_SMOKE_REQUIRE_NO_DEPTH_BLIT_FAIL" "${REQUIRE_NO_DEPTH_BLIT_FAIL}"
+rvk2_require_bool "REALITYVK_SMOKE_REQUIRE_DEPTH_BLIT_STATS" "${REQUIRE_DEPTH_BLIT_STATS}"
+rvk2_require_bool "REALITYVK_SMOKE_REQUIRE_NON_BLACK_CAPTURE" "${REQUIRE_NON_BLACK_CAPTURE}"
+rvk2_require_bool "REALITYVK_SMOKE_CAPTURE_DEBUG" "${CAPTURE_DEBUG}"
+rvk2_require_bool "REALITYVK_SMOKE_DUMPFB_FLIP_Y" "${DUMPFB_FLIP_Y}"
+rvk2_require_bool "REALITYVK_SMOKE_LAUNCH_WITH_PTY" "${LAUNCH_WITH_PTY}"
+rvk2_require_uint_ge "REALITYVK_SMOKE_CAPTURE_RETRY_COUNT" "${CAPTURE_RETRY_COUNT}" 0
+rvk2_require_uint_ge "REALITYVK_SMOKE_CAPTURE_RETRY_STEP_FRAMES" "${CAPTURE_RETRY_STEP_FRAMES}" 0
+rvk2_require_uint_ge "REALITYVK_SMOKE_CAPTURE_RETRY_RESUME_MS" "${CAPTURE_RETRY_RESUME_MS}" 0
+rvk2_require_float "REALITYVK_SMOKE_CAPTURE_MIN_NONBLACK_RATIO" "${CAPTURE_MIN_NONBLACK_RATIO}"
+rvk2_require_float "REALITYVK_SMOKE_CAPTURE_MIN_MEAN_LUMA" "${CAPTURE_MIN_MEAN_LUMA}"
 
 mkdir -p "${PLUGIN_DIR}"
 cp "${backend_plugin}" "${PLUGIN_DEST}"
@@ -415,62 +318,6 @@ raise SystemExit(1)
 PY
 }
 
-capture_via_screenshot() {
-  local out_path="$1"
-  local scale_div="$2"
-  local flip_y="$3"
-  local screenshot_dir="$4"
-
-  local before_ns
-  before_ns="$(python3 - <<'PY'
-import time
-print(time.time_ns())
-PY
-)"
-
-  run_agentctl screenshot >/dev/null
-
-  python3 - "${screenshot_dir}" "${before_ns}" "${scale_div}" "${flip_y}" "${out_path}" <<'PY'
-import sys
-from pathlib import Path
-
-from PIL import Image
-
-shot_dir = Path(sys.argv[1])
-before_ns = int(sys.argv[2])
-scale_div = max(1, int(sys.argv[3]))
-flip_y = sys.argv[4] == "1"
-out_path = Path(sys.argv[5])
-
-if not shot_dir.is_dir():
-    raise SystemExit(2)
-
-pngs = [p for p in shot_dir.glob("*.png") if p.is_file()]
-if not pngs:
-    raise SystemExit(3)
-
-recent = [p for p in pngs if p.stat().st_mtime_ns >= before_ns]
-if recent:
-    source = max(recent, key=lambda p: p.stat().st_mtime_ns)
-else:
-    source = max(pngs, key=lambda p: p.stat().st_mtime_ns)
-
-img = Image.open(source).convert("RGB")
-if scale_div > 1:
-    width, height = img.size
-    new_w = max(1, width // scale_div)
-    new_h = max(1, height // scale_div)
-    resampling = getattr(Image, "Resampling", None)
-    nearest = resampling.NEAREST if resampling is not None else Image.NEAREST
-    img = img.resize((new_w, new_h), resample=nearest)
-if flip_y:
-    img = img.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
-
-out_path.parent.mkdir(parents=True, exist_ok=True)
-img.save(out_path, format="PPM")
-PY
-}
-
 mupen_pid=""
 launch_log=""
 needs_depth_blit_log_checks=0
@@ -579,18 +426,11 @@ step_frames "${FRAMES}"
 capture_ok=0
 capture_attempt=0
 while (( capture_attempt <= CAPTURE_RETRY_COUNT )); do
-  if [[ "${CAPTURE_METHOD}" == "screenshot" ]]; then
-    capture_via_screenshot "${OUT_PATH}" "${SCALE_DIV}" "${SCREENSHOT_FLIP_Y_EFFECTIVE}" "${SCREENSHOT_DIR}" || {
-      echo "ERROR: screenshot capture failed: ${OUT_PATH}" >&2
-      exit 1
-    }
-  else
-    dumpfb_args=(dumpfb-preset "${OUT_PATH}" "${PRESET}" --scale-div "${SCALE_DIV}")
-    if [[ "${DUMPFB_FLIP_Y}" == "1" ]]; then
-      dumpfb_args+=(--flip-y)
-    fi
-    run_agentctl "${dumpfb_args[@]}" >/dev/null
+  dumpfb_args=(dumpfb-preset "${OUT_PATH}" "${PRESET}" --scale-div "${SCALE_DIV}")
+  if [[ "${DUMPFB_FLIP_Y}" == "1" ]]; then
+    dumpfb_args+=(--flip-y)
   fi
+  run_agentctl "${dumpfb_args[@]}" >/dev/null
 
   if [[ ! -s "${OUT_PATH}" ]]; then
     echo "ERROR: capture output was not produced: ${OUT_PATH}" >&2
