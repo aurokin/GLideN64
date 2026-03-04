@@ -64,6 +64,19 @@ struct DebugTextureSampleLogEntry
 	u8 tmemLoadKind = 0U;
 	u8 tmemFetchVariant = kDebugTexFetchVariantNone;
 	u8 reserved0 = 0U;
+	u8 tmemLoadTile = 0U;
+	u16 tmemLoadULS = 0U;
+	u16 tmemLoadULT = 0U;
+	u16 tmemLoadLRS = 0U;
+	u16 tmemLoadLRT = 0U;
+	u16 tmemLoadDXT = 0U;
+	u16 tmemLoadSpanTexels = 0U;
+	u16 tmemLoadQwords = 0U;
+	u16 tmemLoadEstimatedWordsPerLine = 0U;
+	u16 tlutLookupAddress = 0U;
+	u16 tlutRawEntry = 0U;
+	u16 tlutDecodedEntry = 0U;
+	u8 tlutApplied = 0U;
 	u16 tile = 0U;
 	u16 tileLine = 0U;
 	u16 tileTmem = 0U;
@@ -862,6 +875,35 @@ void appendOverwriteLog(
 					_entry.rdramProbeWordAddress,
 					_prefix,
 					_entry.rdramProbeRaw);
+			std::fprintf(
+				file,
+				"\t%s_tmem_load_tile=%u\t%s_tmem_load_uls=%u\t%s_tmem_load_ult=%u\t%s_tmem_load_lrs=%u\t%s_tmem_load_lrt=%u\t%s_tmem_load_dxt=%u\t%s_tmem_load_span_texels=%u\t%s_tmem_load_qwords=%u\t%s_tmem_load_est_words_per_line=%u\t%s_tlut_applied=%u\t%s_tlut_addr=%u\t%s_tlut_raw=0x%04X\t%s_tlut_decoded=0x%04X",
+				_prefix,
+				static_cast<unsigned>(_entry.tmemLoadTile),
+				_prefix,
+				static_cast<unsigned>(_entry.tmemLoadULS),
+				_prefix,
+				static_cast<unsigned>(_entry.tmemLoadULT),
+				_prefix,
+				static_cast<unsigned>(_entry.tmemLoadLRS),
+				_prefix,
+				static_cast<unsigned>(_entry.tmemLoadLRT),
+				_prefix,
+				static_cast<unsigned>(_entry.tmemLoadDXT),
+				_prefix,
+				static_cast<unsigned>(_entry.tmemLoadSpanTexels),
+				_prefix,
+				static_cast<unsigned>(_entry.tmemLoadQwords),
+				_prefix,
+				static_cast<unsigned>(_entry.tmemLoadEstimatedWordsPerLine),
+				_prefix,
+				static_cast<unsigned>(_entry.tlutApplied),
+				_prefix,
+				static_cast<unsigned>(_entry.tlutLookupAddress),
+				_prefix,
+				static_cast<unsigned>(_entry.tlutRawEntry),
+				_prefix,
+				static_cast<unsigned>(_entry.tlutDecodedEntry));
 		};
 		appendSampleSlot("tex0", gDebugTextureSampleLogSlots[rvk2::kExecutorTextureSampleSlotTexel0]);
 		appendSampleSlot("tex1", gDebugTextureSampleLogSlots[rvk2::kExecutorTextureSampleSlotTexel1]);
@@ -1638,7 +1680,8 @@ inline void applyTextureCoordinateModes(
 inline u32 applyTextureLUTModeColor(
 	const rvk2::RenderWorkPacket & _work,
 	u64 _seed,
-	u32 _rgba)
+	u32 _rgba,
+	DebugTextureSampleLogEntry * _debug = nullptr)
 {
 	(void)_seed;
 	if (debugDisableTextureLUTApply())
@@ -1655,10 +1698,17 @@ inline u32 applyTextureLUTModeColor(
 			+ ((static_cast<u32>(index) << 2U) + debugTLUTLookupOffset()))
 		& 0x7FFU;
 	const u16 tlut = tmem16[tlutAddr];
+	if (_debug != nullptr) {
+		_debug->tlutApplied = 1U;
+		_debug->tlutLookupAddress = static_cast<u16>(tlutAddr);
+		_debug->tlutRawEntry = tlut;
+	}
 	if (lutMode == 3U) {
 		// IA16 TLUT entries follow A:I byte order.
 		const u8 a = static_cast<u8>((tlut >> 8U) & 0xFFU);
 		const u8 i = static_cast<u8>(tlut & 0xFFU);
+		if (_debug != nullptr)
+			_debug->tlutDecodedEntry = tlut;
 		return (static_cast<u32>(i) << 24U)
 			| (static_cast<u32>(i) << 16U)
 			| (static_cast<u32>(i) << 8U)
@@ -1669,6 +1719,8 @@ inline u32 applyTextureLUTModeColor(
 	u16 tlutRgba = static_cast<u16>((tlut << 8U) | (tlut >> 8U));
 	if (debugDisableTLUTRGBA16Swap())
 		tlutRgba = tlut;
+	if (_debug != nullptr)
+		_debug->tlutDecodedEntry = tlutRgba;
 	const auto expand5 = [](u16 _v) -> u8 {
 		return static_cast<u8>((static_cast<u32>(_v) * 255U + 15U) / 31U);
 	};
@@ -2100,6 +2152,34 @@ inline u32 bitsPerTexelFromSize(u8 _size)
 	default:
 		return 32U;
 	}
+}
+
+inline u16 estimateLoadBlockWordsPerLine(u16 _dxt)
+{
+	if (_dxt == 0U)
+		return 0U;
+	return static_cast<u16>((2048U + static_cast<u32>(_dxt) - 1U) / static_cast<u32>(_dxt));
+}
+
+inline u16 computeLoadSpanTexels(const rvk2::RenderWorkPacket & _work)
+{
+	const u32 lrs = static_cast<u32>(_work.tmemLoadLRS);
+	const u32 uls = static_cast<u32>(_work.tmemLoadULS);
+	return static_cast<u16>(((lrs - uls + 1U) & 0x0FFFU));
+}
+
+inline u16 computeLoadQwordsEstimate(const rvk2::RenderWorkPacket & _work)
+{
+	if (_work.tmemLoadKind != static_cast<u8>(rvk2::TmemLoadKind::kBlock))
+		return 0U;
+	const u16 spanTexels = computeLoadSpanTexels(_work);
+	if (spanTexels == 0U)
+		return 0U;
+	const u8 loadSize = _work.textureImageSize & 0x3U;
+	u32 bytes = (static_cast<u32>(spanTexels) << loadSize) >> 1U;
+	if ((bytes & 7U) != 0U)
+		bytes = (bytes & ~7U) + 8U;
+	return static_cast<u16>((bytes >> 3U) & 0xFFFFU);
 }
 
 inline u32 xor13ForT(u16 _t)
@@ -2786,6 +2866,16 @@ inline u32 samplePseudoTexelColor(
 		sampleDetail->tilePalette = _work.tilePalette;
 		sampleDetail->textureImageWidth = _work.textureImageWidth;
 		sampleDetail->tmemLoadKind = _work.tmemLoadKind;
+		sampleDetail->tmemLoadTile = _work.tmemLoadTile;
+		sampleDetail->tmemLoadULS = _work.tmemLoadULS;
+		sampleDetail->tmemLoadULT = _work.tmemLoadULT;
+		sampleDetail->tmemLoadLRS = _work.tmemLoadLRS;
+		sampleDetail->tmemLoadLRT = _work.tmemLoadLRT;
+		sampleDetail->tmemLoadDXT = _work.tmemLoadDXT;
+		sampleDetail->tmemLoadSpanTexels = computeLoadSpanTexels(_work);
+		sampleDetail->tmemLoadQwords = computeLoadQwordsEstimate(_work);
+		sampleDetail->tmemLoadEstimatedWordsPerLine =
+			estimateLoadBlockWordsPerLine(_work.tmemLoadDXT);
 	}
 
 	const auto commitSampleDetail = [&](
@@ -2854,7 +2944,17 @@ inline u32 samplePseudoTexelColor(
 		&& _work.phase == static_cast<u8>(rvk2::RenderPhase::kCopy)
 		&& effectiveTextureFormat(_work) == 2U
 		&& effectiveTextureSize(_work) == 1U;
-	const bool forceRdramPrimary = debugForceTextureRdramPrimary() || copyCI8RdramProbe;
+	// Bring-up heuristic: CI+TLUT content in paper_mario_intro frequently resolves
+	// through RDRAM while TMEM samples collapse to a single palette index. Prefer
+	// RDRAM on CI4/CI8+LUT until TMEM/LoadTile parity is restored.
+	const bool ciLutRdramPrimary =
+		decodeTextureLUTMode(_work) != 0U
+		&& effectiveTextureFormat(_work) == 2U
+		&& effectiveTextureSize(_work) <= 1U;
+	const bool forceRdramPrimary =
+		debugForceTextureRdramPrimary()
+		|| copyCI8RdramProbe
+		|| ciLutRdramPrimary;
 	const bool fallbackRdramIfTmemBlack =
 		debugTexelFallbackRdramIfTmemBlack() && !forceRdramPrimary;
 
@@ -2866,7 +2966,7 @@ inline u32 samplePseudoTexelColor(
 		if (_needsLUT) {
 			if (gActiveExecutorSummary != nullptr)
 				++gActiveExecutorSummary->textureLUTSampleCount;
-			color = applyTextureLUTModeColor(_work, seed, color);
+			color = applyTextureLUTModeColor(_work, seed, color, sampleDetail);
 		}
 		if (debugForceAllTexelAlphaOpaque())
 			color = (color & 0xFFFFFF00U) | 0x000000FFU;
@@ -3051,7 +3151,7 @@ inline u32 samplePseudoTexelColor(
 	if (lutModeEnabled) {
 		if (gActiveExecutorSummary != nullptr)
 			++gActiveExecutorSummary->textureLUTSampleCount;
-		rgba = applyTextureLUTModeColor(_work, seed, rgba);
+		rgba = applyTextureLUTModeColor(_work, seed, rgba, sampleDetail);
 	}
 	if (debugForceAllTexelAlphaOpaque())
 		rgba = (rgba & 0xFFFFFF00U) | 0x000000FFU;
