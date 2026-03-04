@@ -297,7 +297,6 @@ if [[ "${WITH_SMOKE}" == "1" ]]; then
     rm -f "${RVK2_TRACE_FILE}" "${RVK2_TRACE_REPORT_FILE}"
     if [[ "${SMOKE_DEEP_TELEMETRY}" != "1" ]]; then
       smoke_env+=(
-        REALITYVK2_CAPTURE_RDP_TRACE=1
         REALITYVK_RVK2_PACKET_TRACE_FILE="${RVK2_TRACE_FILE}"
       )
     fi
