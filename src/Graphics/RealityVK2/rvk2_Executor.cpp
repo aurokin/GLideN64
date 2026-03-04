@@ -114,6 +114,8 @@ inline bool parseBooleanToken(const std::string & _token, bool & _out)
 	return false;
 }
 
+inline bool parseUnsignedToken(const std::string & _token, u64 & _out);
+
 enum class DebugStageViewMode : u8
 {
 	kFinal = 0U,
@@ -701,6 +703,95 @@ bool debugOverwriteLogIncludeBlackWrites()
 	return enabled;
 }
 
+struct DebugOverwriteLogFilterConfig
+{
+	bool hasWorkOrdinalMin = false;
+	u64 workOrdinalMin = 0ULL;
+	bool hasWorkOrdinalMax = false;
+	u64 workOrdinalMax = 0ULL;
+	bool hasPacketMin = false;
+	u64 packetMin = 0ULL;
+	bool hasPacketMax = false;
+	u64 packetMax = 0ULL;
+	std::vector<u64> packetIds;
+};
+
+void parseOverwriteLogPacketIdList(const char * _raw, std::vector<u64> & _outPacketIds)
+{
+	if (_raw == nullptr || _raw[0] == '\0')
+		return;
+
+	const std::string value(_raw);
+	size_t begin = 0U;
+	while (begin <= value.size()) {
+		const size_t comma = value.find(',', begin);
+		const std::string token = trimAsciiWhitespace(
+			comma == std::string::npos
+				? value.substr(begin)
+				: value.substr(begin, comma - begin));
+		if (!token.empty()) {
+			u64 parsed = 0ULL;
+			if (parseUnsignedToken(token, parsed))
+				_outPacketIds.push_back(parsed);
+		}
+		if (comma == std::string::npos)
+			break;
+		begin = comma + 1U;
+	}
+}
+
+const DebugOverwriteLogFilterConfig & debugOverwriteLogFilterConfig()
+{
+	static const DebugOverwriteLogFilterConfig config = []() -> DebugOverwriteLogFilterConfig {
+		DebugOverwriteLogFilterConfig parsed{};
+		u64 value = 0ULL;
+		if (parseEnvUnsigned(std::getenv("REALITYVK_RVK2_DEBUG_OVERWRITE_LOG_WORK_MIN"), value)) {
+			parsed.hasWorkOrdinalMin = true;
+			parsed.workOrdinalMin = value;
+		}
+		if (parseEnvUnsigned(std::getenv("REALITYVK_RVK2_DEBUG_OVERWRITE_LOG_WORK_MAX"), value)) {
+			parsed.hasWorkOrdinalMax = true;
+			parsed.workOrdinalMax = value;
+		}
+		if (parseEnvUnsigned(std::getenv("REALITYVK_RVK2_DEBUG_OVERWRITE_LOG_PACKET_MIN"), value)) {
+			parsed.hasPacketMin = true;
+			parsed.packetMin = value;
+		}
+		if (parseEnvUnsigned(std::getenv("REALITYVK_RVK2_DEBUG_OVERWRITE_LOG_PACKET_MAX"), value)) {
+			parsed.hasPacketMax = true;
+			parsed.packetMax = value;
+		}
+		parseOverwriteLogPacketIdList(
+			std::getenv("REALITYVK_RVK2_DEBUG_OVERWRITE_LOG_PACKET_IDS"),
+			parsed.packetIds);
+		if (!parsed.packetIds.empty()) {
+			std::sort(parsed.packetIds.begin(), parsed.packetIds.end());
+			parsed.packetIds.erase(
+				std::unique(parsed.packetIds.begin(), parsed.packetIds.end()),
+				parsed.packetIds.end());
+		}
+		return parsed;
+	}();
+	return config;
+}
+
+bool debugOverwriteLogPassesFilters(u64 _workOrdinal, u64 _sourcePacketId)
+{
+	const DebugOverwriteLogFilterConfig & config = debugOverwriteLogFilterConfig();
+	if (config.hasWorkOrdinalMin && (_workOrdinal < config.workOrdinalMin))
+		return false;
+	if (config.hasWorkOrdinalMax && (_workOrdinal > config.workOrdinalMax))
+		return false;
+	if (config.hasPacketMin && (_sourcePacketId < config.packetMin))
+		return false;
+	if (config.hasPacketMax && (_sourcePacketId > config.packetMax))
+		return false;
+	if (!config.packetIds.empty()
+		&& !std::binary_search(config.packetIds.begin(), config.packetIds.end(), _sourcePacketId))
+		return false;
+	return true;
+}
+
 void appendOverwriteLog(
 	u64 _workOrdinal,
 	u64 _sourcePacketId,
@@ -726,6 +817,8 @@ void appendOverwriteLog(
 	static u32 emitted = 0U;
 	const u32 limit = debugOverwriteLogLimit();
 	if (limit != 0U && emitted >= limit)
+		return;
+	if (!debugOverwriteLogPassesFilters(_workOrdinal, _sourcePacketId))
 		return;
 
 	std::FILE * file = std::fopen(logPath, "ab");
