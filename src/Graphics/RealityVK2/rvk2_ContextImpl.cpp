@@ -255,9 +255,7 @@ void appendFrameForensicsRecord(
 	const rvk2::ExecutorOutput & _output,
 	const ForensicsIngressSnapshot & _ingress)
 {
-	const char * path = rvk2::envStringOrNullWithFallback(
-		"REALITYVK_RVK2_FRAME_FORENSICS_FILE",
-		"REALITYVK2_FRAME_FORENSICS_FILE");
+	const char * path = rvk2::envStringOrNull("REALITYVK_RVK2_FRAME_FORENSICS_FILE");
 	if (path == nullptr)
 		return;
 

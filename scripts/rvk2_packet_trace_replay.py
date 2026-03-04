@@ -6578,7 +6578,7 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Replay and validate RVK2 packet trace dumps "
-            "(REALITYVK_RVK2_PACKET_TRACE_FILE / legacy REALITYVK2_PACKET_TRACE_FILE format)."
+            "(REALITYVK_RVK2_PACKET_TRACE_FILE format)."
         )
     )
     parser.add_argument("--input", required=True, help="Path to packet trace file.")

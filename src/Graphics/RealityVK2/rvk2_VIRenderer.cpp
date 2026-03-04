@@ -482,10 +482,7 @@ VIRendererConfig loadVIRendererConfigFromEnv()
 	VIRendererConfig config{};
 	u8 aspectX = config.aspectX;
 	u8 aspectY = config.aspectY;
-	if (parseAspect(
-		rvk2::envStringOrNullWithFallback("REALITYVK_RVK2_VI_ASPECT", "REALITYVK2_VI_ASPECT"),
-		aspectX,
-		aspectY)) {
+	if (parseAspect(rvk2::envStringOrNull("REALITYVK_RVK2_VI_ASPECT"), aspectX, aspectY)) {
 		config.aspectX = aspectX;
 		config.aspectY = aspectY;
 	}

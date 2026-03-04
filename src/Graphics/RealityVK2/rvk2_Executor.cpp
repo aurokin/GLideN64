@@ -435,34 +435,23 @@ void collectActiveDebugToggles(std::vector<std::string> & _out)
 			"REALITYVK_RVK2_DEBUG_VI_PIXEL_ADVANCE_EFFECTIVE",
 			(enableVIPixelAdvance && !disableVIPixelAdvance) ? "1" : "0");
 	}
-	if (const char * viAspect = rvk2::envStringOrNullWithFallback(
-		"REALITYVK_RVK2_VI_ASPECT",
-		"REALITYVK2_VI_ASPECT")) {
+	if (const char * viAspect = rvk2::envStringOrNull("REALITYVK_RVK2_VI_ASPECT")) {
 		appendDebugEntry(_out, "REALITYVK_RVK2_VI_ASPECT", viAspect);
 	}
 
-	if (const char * tracePath = rvk2::envStringOrNullWithFallback(
-		"REALITYVK_RVK2_TRACE_FILE",
-		"REALITYVK2_TRACE_FILE")) {
+	if (const char * tracePath = rvk2::envStringOrNull("REALITYVK_RVK2_TRACE_FILE")) {
 		appendDebugEntry(_out, "REALITYVK_RVK2_TRACE_FILE", tracePath);
 	}
-	if (const char * packetTracePath = rvk2::envStringOrNullWithFallback(
-		"REALITYVK_RVK2_PACKET_TRACE_FILE",
-		"REALITYVK2_PACKET_TRACE_FILE")) {
+	if (const char * packetTracePath = rvk2::envStringOrNull("REALITYVK_RVK2_PACKET_TRACE_FILE")) {
 		appendDebugEntry(_out, "REALITYVK_RVK2_PACKET_TRACE_FILE", packetTracePath);
 	}
-	if (const char * forensicsPath = rvk2::envStringOrNullWithFallback(
-		"REALITYVK_RVK2_FRAME_FORENSICS_FILE",
-		"REALITYVK2_FRAME_FORENSICS_FILE")) {
+	if (const char * forensicsPath = rvk2::envStringOrNull("REALITYVK_RVK2_FRAME_FORENSICS_FILE")) {
 		appendDebugEntry(_out, "REALITYVK_RVK2_FRAME_FORENSICS_FILE", forensicsPath);
 	}
 	appendBoolDebugEntry(
 		_out,
 		"REALITYVK_RVK2_TRACE_LOG_SUMMARY",
-		rvk2::envFlagEnabledWithFallback(
-			"REALITYVK_RVK2_TRACE_LOG_SUMMARY",
-			"REALITYVK2_TRACE_LOG_SUMMARY",
-			false),
+		rvk2::envFlagEnabled("REALITYVK_RVK2_TRACE_LOG_SUMMARY", false),
 		false);
 
 	appendBoolDebugEntry(

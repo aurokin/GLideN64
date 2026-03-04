@@ -68,31 +68,6 @@ inline const char * envStringOrNull(const char * _key)
 	return raw;
 }
 
-inline const char * envStringOrNullWithFallback(
-	const char * _primaryKey,
-	const char * _fallbackKey)
-{
-	const char * raw = envStringOrNull(_primaryKey);
-	if (raw != nullptr)
-		return raw;
-	if (_fallbackKey == nullptr)
-		return nullptr;
-	return envStringOrNull(_fallbackKey);
-}
-
-inline bool envFlagEnabledWithFallback(
-	const char * _primaryKey,
-	const char * _fallbackKey,
-	bool _defaultValue)
-{
-	const char * raw = envStringOrNullWithFallback(_primaryKey, _fallbackKey);
-	if (raw == nullptr)
-		return _defaultValue;
-
-	bool parsed = _defaultValue;
-	return parseEnvBoolValue(raw, parsed) ? parsed : _defaultValue;
-}
-
 inline bool parseEnvUnsignedValue(const char * _value, uint64_t & _out)
 {
 	if (_value == nullptr || _value[0] == '\0')
@@ -109,15 +84,6 @@ inline bool parseEnvUnsignedValue(const char * _value, uint64_t & _out)
 inline bool envUnsigned(const char * _key, uint64_t & _out)
 {
 	return parseEnvUnsignedValue(std::getenv(_key), _out);
-}
-
-inline bool envUnsignedWithFallback(
-	const char * _primaryKey,
-	const char * _fallbackKey,
-	uint64_t & _out)
-{
-	const char * raw = envStringOrNullWithFallback(_primaryKey, _fallbackKey);
-	return parseEnvUnsignedValue(raw, _out);
 }
 
 inline uint32_t envU32Clamped(

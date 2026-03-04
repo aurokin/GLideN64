@@ -101,83 +101,32 @@ void testEnvHelpers()
 	u32Var.set("4");
 	expectEq(rvk2::envU32Clamped("REALITYVK_RVK2_TEST_ENV_U32", 7U, 9U, 10), 4U, "env u32 parse mismatch");
 
-	ScopedEnvVar primaryPath("REALITYVK_RVK2_TEST_ENV_PATH_PRIMARY");
-	ScopedEnvVar fallbackPath("REALITYVK2_TEST_ENV_PATH_FALLBACK");
-	primaryPath.clear();
-	fallbackPath.clear();
+	ScopedEnvVar pathVar("REALITYVK_RVK2_TEST_ENV_PATH");
+	pathVar.clear();
 	expectTrue(
-		rvk2::envStringOrNullWithFallback(
-			"REALITYVK_RVK2_TEST_ENV_PATH_PRIMARY",
-			"REALITYVK2_TEST_ENV_PATH_FALLBACK")
-			== nullptr,
-		"env string fallback should be null when unset");
-	fallbackPath.set("/tmp/fallback-trace.tsv");
+		rvk2::envStringOrNull("REALITYVK_RVK2_TEST_ENV_PATH") == nullptr,
+		"env string should be null when unset");
+	pathVar.set("/tmp/trace.tsv");
 	expectTrue(
-		std::string(rvk2::envStringOrNullWithFallback(
-			"REALITYVK_RVK2_TEST_ENV_PATH_PRIMARY",
-			"REALITYVK2_TEST_ENV_PATH_FALLBACK"))
-			== "/tmp/fallback-trace.tsv",
-		"env string fallback should use legacy key");
-	primaryPath.set("/tmp/primary-trace.tsv");
-	expectTrue(
-		std::string(rvk2::envStringOrNullWithFallback(
-			"REALITYVK_RVK2_TEST_ENV_PATH_PRIMARY",
-			"REALITYVK2_TEST_ENV_PATH_FALLBACK"))
-			== "/tmp/primary-trace.tsv",
-		"env string fallback should prefer primary key");
+		std::string(rvk2::envStringOrNull("REALITYVK_RVK2_TEST_ENV_PATH")) == "/tmp/trace.tsv",
+		"env string parse mismatch");
 
-	ScopedEnvVar primaryBool("REALITYVK_RVK2_TEST_ENV_BOOL_PRIMARY");
-	ScopedEnvVar fallbackBool("REALITYVK2_TEST_ENV_BOOL_FALLBACK");
-	primaryBool.clear();
-	fallbackBool.clear();
-	expectTrue(
-		!rvk2::envFlagEnabledWithFallback(
-			"REALITYVK_RVK2_TEST_ENV_BOOL_PRIMARY",
-			"REALITYVK2_TEST_ENV_BOOL_FALLBACK",
-			false),
-		"env bool fallback default mismatch");
-	fallbackBool.set("on");
-	expectTrue(
-		rvk2::envFlagEnabledWithFallback(
-			"REALITYVK_RVK2_TEST_ENV_BOOL_PRIMARY",
-			"REALITYVK2_TEST_ENV_BOOL_FALLBACK",
-			false),
-		"env bool fallback should read legacy key");
-	primaryBool.set("0");
-	expectTrue(
-		!rvk2::envFlagEnabledWithFallback(
-			"REALITYVK_RVK2_TEST_ENV_BOOL_PRIMARY",
-			"REALITYVK2_TEST_ENV_BOOL_FALLBACK",
-			true),
-		"env bool fallback should prefer primary key");
-
-	ScopedEnvVar primaryUnsigned("REALITYVK_RVK2_TEST_ENV_U64_PRIMARY");
-	ScopedEnvVar fallbackUnsigned("REALITYVK2_TEST_ENV_U64_FALLBACK");
-	primaryUnsigned.clear();
-	fallbackUnsigned.clear();
+	ScopedEnvVar unsignedVar("REALITYVK_RVK2_TEST_ENV_U64");
+	unsignedVar.clear();
 	uint64_t parsed = 0ULL;
 	expectTrue(
-		!rvk2::envUnsignedWithFallback(
-			"REALITYVK_RVK2_TEST_ENV_U64_PRIMARY",
-			"REALITYVK2_TEST_ENV_U64_FALLBACK",
-			parsed),
-		"env unsigned fallback should fail when unset");
-	fallbackUnsigned.set("42");
+		!rvk2::envUnsigned("REALITYVK_RVK2_TEST_ENV_U64", parsed),
+		"env unsigned should fail when unset");
+	unsignedVar.set("42");
 	expectTrue(
-		rvk2::envUnsignedWithFallback(
-			"REALITYVK_RVK2_TEST_ENV_U64_PRIMARY",
-			"REALITYVK2_TEST_ENV_U64_FALLBACK",
-			parsed)
+		rvk2::envUnsigned("REALITYVK_RVK2_TEST_ENV_U64", parsed)
 			&& parsed == 42ULL,
-		"env unsigned fallback should read legacy key");
-	primaryUnsigned.set("99");
+		"env unsigned parse mismatch");
+	unsignedVar.set("99");
 	expectTrue(
-		rvk2::envUnsignedWithFallback(
-			"REALITYVK_RVK2_TEST_ENV_U64_PRIMARY",
-			"REALITYVK2_TEST_ENV_U64_FALLBACK",
-			parsed)
+		rvk2::envUnsigned("REALITYVK_RVK2_TEST_ENV_U64", parsed)
 			&& parsed == 99ULL,
-		"env unsigned fallback should prefer primary key");
+		"env unsigned update mismatch");
 }
 
 void testOpcodeDecodeIdentity()
