@@ -569,6 +569,21 @@ bool debugDisableTLUTRGBA16Swap()
 	return enabled;
 }
 
+u32 debugTLUTLookupOffset()
+{
+	static const u32 offset = []() -> u32 {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TLUT_LOOKUP_OFFSET");
+		if (raw == nullptr || raw[0] == '\0')
+			return 0U;
+		char * end = nullptr;
+		const unsigned long value = std::strtoul(raw, &end, 10);
+		if (end == raw)
+			return 0U;
+		return static_cast<u32>(std::min<unsigned long>(value, 3UL));
+	}();
+	return offset;
+}
+
 bool debugDisableCopyModeDSDXDiv4()
 {
 	static const bool enabled = []() -> bool {
@@ -773,6 +788,18 @@ bool debugHistoryMergeCopyNonBlack()
 {
 	static const bool enabled = []() -> bool {
 		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_HISTORY_MERGE_COPY_NONBLACK");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugAllowDepthAliasHistoryCarry()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_ALLOW_DEPTH_ALIAS_HISTORY_CARRY");
 		if (raw == nullptr || raw[0] == '\0')
 			return false;
 		bool parsed = false;
@@ -1314,6 +1341,18 @@ bool debugForceTexel1UsesTile0()
 {
 	static const bool enabled = []() -> bool {
 		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_FORCE_TEXEL1_TILE0");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugCopyPhaseUseTexel1()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_COPY_USE_TEXEL1");
 		if (raw == nullptr || raw[0] == '\0')
 			return false;
 		bool parsed = false;
@@ -2127,7 +2166,12 @@ inline u32 applyTextureLUTModeColor(
 
 	// CI decode stores index in RGB lanes.
 	const u8 index = static_cast<u8>((_rgba >> 24U) & 0xFFU);
-	const u16 tlut = static_cast<u16>(activeTMEMWords()[(0x100U + static_cast<u32>(index)) & 0x1FFU] & 0xFFFFULL);
+	const u16 * tmem16 = reinterpret_cast<const u16 *>(activeTMEMWords());
+	const u32 tlutAddr =
+		(0x400U
+			+ ((static_cast<u32>(index) << 2U) + debugTLUTLookupOffset()))
+		& 0x7FFU;
+	const u16 tlut = tmem16[tlutAddr];
 	if (lutMode == 3U) {
 		// IA16 TLUT entries follow A:I byte order.
 		const u8 a = static_cast<u8>((tlut >> 8U) & 0xFFU);
@@ -5472,7 +5516,10 @@ inline u32 runSyntheticPhasePipeline(
 	const u8 phase = _work.phase;
 	if (phase == static_cast<u8>(rvk2::RenderPhase::kCopy)) {
 		coverageDestination = 7U;
-		finalColor = _work.textured ? _texel0Color : _baseColor;
+		if (_work.textured && debugCopyPhaseUseTexel1())
+			finalColor = _texel1Color;
+		else
+			finalColor = _work.textured ? _texel0Color : _baseColor;
 		combinerColor = finalColor;
 		blenderColor = finalColor;
 		cycle1CombinedColor = finalColor;
@@ -6679,6 +6726,7 @@ ExecutorOutput Executor::executeWithOutput(
 	std::unordered_map<u32, SurfaceAddressRoleStats> surfaceAddressRoles;
 	const bool allowSurfaceHistoryBootstrap = debugEnableSurfaceHistoryBootstrap();
 	const bool allowCrossSurfaceBootstrap = debugEnableCrossSurfaceBootstrap();
+	const bool allowDepthAliasedHistoryCarry = debugAllowDepthAliasHistoryCarry();
 	for (const RenderWorkPacket & work : _workPackets) {
 		if (work.opKind != static_cast<u8>(RasterOpKind::kFillRect)
 			&& work.opKind != static_cast<u8>(RasterOpKind::kTexRect)
@@ -6857,7 +6905,8 @@ ExecutorOutput Executor::executeWithOutput(
 						[&](const ExecutorCachedSurface & _cached, bool _copyAll) {
 							if (!_cached.valid
 								|| _cached.address == work.colorImageAddress
-								|| isDepthOnlyColorAddress(_cached.address)
+								|| (isDepthOnlyColorAddress(_cached.address)
+									&& !allowDepthAliasedHistoryCarry)
 								|| _cached.format != work.colorImageFormat
 								|| _cached.size != work.colorImageSize
 								|| _cached.width != surface.width
@@ -6908,8 +6957,10 @@ ExecutorOutput Executor::executeWithOutput(
 						const ExecutorCachedSurface & cached = historyEntry.second;
 						if (!cached.valid || cached.address == work.colorImageAddress)
 							continue;
-						if (isDepthOnlyColorAddress(cached.address))
+						if (isDepthOnlyColorAddress(cached.address)
+							&& !allowDepthAliasedHistoryCarry) {
 							continue;
+						}
 						if (m_lastSelectedSurface.valid
 							&& cached.address == m_lastSelectedSurface.address) {
 							continue;
@@ -7340,7 +7391,8 @@ ExecutorOutput Executor::executeWithOutput(
 					|| _candidate.width != selectedSurface.width
 					|| _candidate.height < selectedSurface.height
 					|| _candidate.pixels.size() < pixelCount
-					|| isDepthOnlyColorAddress(_candidate.address)) {
+					|| (isDepthOnlyColorAddress(_candidate.address)
+						&& !allowDepthAliasedHistoryCarry)) {
 					return 0ULL;
 				}
 				u64 score = 0ULL;
@@ -7353,47 +7405,76 @@ ExecutorOutput Executor::executeWithOutput(
 				return score;
 			};
 
-			const ExecutorCachedSurface * bestSource = nullptr;
-			u64 bestScore = 0ULL;
-			const u64 lastSelectedScore = scoreCandidate(m_lastSelectedSurface);
-			if (lastSelectedScore > bestScore) {
-				bestSource = &m_lastSelectedSurface;
-				bestScore = lastSelectedScore;
-			}
-			for (const auto & historyEntry : m_surfaceHistory) {
-				const ExecutorCachedSurface & cached = historyEntry.second;
-				const u64 score = scoreCandidate(cached);
-				if (score > bestScore) {
-					bestSource = &cached;
-					bestScore = score;
+			std::vector<std::pair<const ExecutorCachedSurface *, u64>> candidateScores;
+			candidateScores.reserve(m_surfaceHistory.size() + 1U);
+			const auto addScoredCandidate = [&](const ExecutorCachedSurface & _candidate) {
+				const u64 score = scoreCandidate(_candidate);
+				if (score == 0ULL)
+					return;
+				for (const auto & existing : candidateScores) {
+					if (existing.first != nullptr
+						&& existing.first->address == _candidate.address) {
+						return;
+					}
 				}
-			}
+				candidateScores.emplace_back(&_candidate, score);
+			};
+			addScoredCandidate(m_lastSelectedSurface);
+			for (const auto & historyEntry : m_surfaceHistory)
+				addScoredCandidate(historyEntry.second);
+			std::sort(
+				candidateScores.begin(),
+				candidateScores.end(),
+				[](const std::pair<const ExecutorCachedSurface *, u64> & _a,
+					const std::pair<const ExecutorCachedSurface *, u64> & _b) {
+					if (_a.first == nullptr || _b.first == nullptr)
+						return _a.first != nullptr;
+					if (_a.second != _b.second)
+						return _a.second > _b.second;
+					if (_a.first->lastTouched != _b.first->lastTouched)
+						return _a.first->lastTouched > _b.first->lastTouched;
+					return _a.first->address < _b.first->address;
+				});
 
-			if (bestSource != nullptr && bestScore > 0ULL) {
-				const bool sourceHasCoverage = bestSource->coverage.size() >= pixelCount;
-				const bool sourceHasHiddenCoverage = bestSource->hiddenCoverage.size() >= pixelCount;
-				u64 copiedPixels = 0ULL;
+			u64 copiedPixels = 0ULL;
+			u32 copiedSourceAddress = 0U;
+			bool copiedFromMultipleSources = false;
+			for (const auto & scoredCandidate : candidateScores) {
+				const ExecutorCachedSurface * source = scoredCandidate.first;
+				if (source == nullptr)
+					continue;
+				const bool sourceHasCoverage = source->coverage.size() >= pixelCount;
+				const bool sourceHasHiddenCoverage = source->hiddenCoverage.size() >= pixelCount;
+				u64 copiedFromCandidate = 0ULL;
 				for (size_t i = 0U; i < pixelCount; ++i) {
 					if (selectedSurface.writeMask[i] != 0U)
 						continue;
-					const u32 sourcePixel = bestSource->pixels[i];
+					const u32 sourcePixel = source->pixels[i];
 					if (!pixelHasVisibleColor(sourcePixel))
 						continue;
 					if (selectedSurface.pixels[i] != sourcePixel) {
 						selectedSurface.pixels[i] = sourcePixel;
-						++copiedPixels;
+						++copiedFromCandidate;
 					}
 					if (sourceHasCoverage && selectedSurface.coverage.size() >= pixelCount)
-						selectedSurface.coverage[i] = static_cast<u8>(bestSource->coverage[i] & 0x7U);
+						selectedSurface.coverage[i] = static_cast<u8>(source->coverage[i] & 0x7U);
 					if (sourceHasHiddenCoverage && selectedSurface.hiddenCoverage.size() >= pixelCount) {
 						selectedSurface.hiddenCoverage[i] =
-							static_cast<u8>(bestSource->hiddenCoverage[i] & 0x1U);
+							static_cast<u8>(source->hiddenCoverage[i] & 0x1U);
 					}
 				}
-				if (copiedPixels > 0ULL) {
-					summary.selectedPresentSurfaceUntouchedCarryCount = copiedPixels;
-					summary.selectedPresentSurfaceUntouchedCarrySourceAddress = bestSource->address;
-				}
+				if (copiedFromCandidate == 0ULL)
+					continue;
+				copiedPixels += copiedFromCandidate;
+				if (copiedSourceAddress == 0U)
+					copiedSourceAddress = source->address;
+				else if (copiedSourceAddress != source->address)
+					copiedFromMultipleSources = true;
+			}
+			if (copiedPixels > 0ULL) {
+				summary.selectedPresentSurfaceUntouchedCarryCount = copiedPixels;
+				summary.selectedPresentSurfaceUntouchedCarrySourceAddress =
+					copiedFromMultipleSources ? 0xFFFFFFFFU : copiedSourceAddress;
 			}
 		}
 	}
@@ -7459,7 +7540,8 @@ ExecutorOutput Executor::executeWithOutput(
 			const auto canMergeHistoryCandidate = [&](const ExecutorCachedSurface & _candidate) {
 				if (!_candidate.valid
 					|| _candidate.address == cached.address
-					|| isDepthOnlyColorAddress(_candidate.address)
+					|| (isDepthOnlyColorAddress(_candidate.address)
+						&& !allowDepthAliasedHistoryCarry)
 					|| _candidate.format != cached.format
 					|| _candidate.size != cached.size
 					|| _candidate.width != cached.width
@@ -7665,7 +7747,7 @@ ExecutorOutput Executor::executeWithOutput(
 
 	for (const auto & entry : surfaces) {
 		const u32 address = entry.first;
-		if (isDepthOnlyColorAddress(address)) {
+		if (isDepthOnlyColorAddress(address) && !allowDepthAliasedHistoryCarry) {
 			m_surfaceHistory.erase(address);
 			if (m_lastSelectedSurface.valid && m_lastSelectedSurface.address == address)
 				m_lastSelectedSurface.valid = false;
