@@ -43,6 +43,36 @@ bool shouldPresentShadowPath()
 	return envFlagEnabled("REALITYVK_RVK2_SHADOW_PRESENT", false);
 }
 
+bool debugDisableVIHistoryPresentRequested()
+{
+	return envFlagEnabled("REALITYVK_RVK2_DEBUG_DISABLE_VI_HISTORY_PRESENT", false);
+}
+
+bool debugPreferLiveSurfaceOverHistoryRequested()
+{
+	return envFlagEnabled("REALITYVK_RVK2_DEBUG_PREFER_LIVE_SURFACE_OVER_HISTORY", false);
+}
+
+bool debugEnableSurfaceHistoryBootstrapRequested()
+{
+	return envFlagEnabled("REALITYVK_RVK2_DEBUG_ENABLE_SURFACE_HISTORY_BOOTSTRAP", false);
+}
+
+bool debugEnableCrossSurfaceBootstrapRequested()
+{
+	return envFlagEnabled("REALITYVK_RVK2_DEBUG_ENABLE_CROSS_SURFACE_BOOTSTRAP", false);
+}
+
+bool debugCrossSurfaceBootstrapCopyAllRequested()
+{
+	return envFlagEnabled("REALITYVK_RVK2_DEBUG_CROSS_SURFACE_BOOTSTRAP_COPY_ALL", false);
+}
+
+bool debugDisableSameFramePresentAccumRequested()
+{
+	return envFlagEnabled("REALITYVK_RVK2_DEBUG_DISABLE_SAME_FRAME_PRESENT_ACCUM", false);
+}
+
 struct ForensicsIngressSnapshot {
 	u64 frameId = 0ULL;
 	u64 stateCallCount = 0ULL;
@@ -70,6 +100,12 @@ struct ForensicsIngressSnapshot {
 	f32 lineMaxY = 0.0f;
 	bool shadowDrawForwarding = false;
 	bool shadowPresent = false;
+	u64 sameFramePresentPass = 0ULL;
+	u64 sameFramePresentRetainedNonBlackOverBlackCount = 0ULL;
+	u64 sameFramePresentPromotedBlackToNonBlackCount = 0ULL;
+	u64 sameFramePresentReplacedNonBlackCount = 0ULL;
+	u64 sameFramePresentOutputNonBlackCount = 0ULL;
+	bool sameFramePresentMerged = false;
 };
 
 inline void expandBounds(
@@ -108,6 +144,11 @@ void buildFullscreenRect(RectVertex (&_vertices)[4], bool _flipY)
 u32 readRegValue(const u32 * _reg)
 {
 	return _reg != nullptr ? *_reg : 0U;
+}
+
+inline bool pixelHasVisibleColor(u32 _pixel)
+{
+	return ((_pixel >> 8U) & 0x00FFFFFFU) != 0U;
 }
 
 rvk2::ExecutorConfig buildExecutorConfigFromVIRegisters()
@@ -317,11 +358,37 @@ void appendFrameForensicsRecord(
 		static_cast<unsigned long long>(summary.viOutputNonBlackCount));
 	std::fprintf(
 		file,
-		"\tselected_surface_live_writes=%llu\tselected_surface_live_works=%llu\tselected_surface_from_history=%u\tselected_surface_history_age=%llu",
+		"\tselected_surface_live_writes=%llu\tselected_surface_live_works=%llu\tselected_surface_from_history=%u\tselected_surface_history_age=%llu\tselected_surface_overwrite_black=%llu\tselected_surface_overwrite_black_texrect=%llu\tselected_surface_overwrite_black_triangle=%llu\tselected_surface_triangle_preserve_non_black=%llu\tselected_surface_texrect_nonblack=%llu\tselected_surface_triangle_nonblack=%llu\tselected_surface_untouched_carry=%llu\tselected_surface_untouched_carry_src=0x%08X\tdbg_disable_vi_history_present=%u\tdbg_prefer_live_surface_over_history=%u\tdbg_enable_surface_history_bootstrap=%u\tdbg_enable_cross_surface_bootstrap=%u\tdbg_cross_surface_bootstrap_copy_all=%u\tdbg_disable_same_frame_present_accum=%u\tboot_same_attempt=%llu\tboot_same_success=%llu\tboot_same_pixels=%llu\tboot_fallback_success=%llu\tboot_fallback_pixels=%llu\tboot_cross_candidates=%llu\tboot_cross_pixels=%llu\tboot_cross_copy_all_pixels=%llu\toverwrite_black_total=%llu\toverwrite_black_texrect=%llu\toverwrite_black_triangle=%llu\toverwrite_black_triangle_preserved=%llu",
 		static_cast<unsigned long long>(summary.selectedPresentSurfaceLiveWriteCount),
 		static_cast<unsigned long long>(summary.selectedPresentSurfaceLiveWorkCount),
 		static_cast<u32>(summary.selectedPresentSurfaceFromHistory),
-		static_cast<unsigned long long>(summary.selectedPresentSurfaceHistoryAge));
+		static_cast<unsigned long long>(summary.selectedPresentSurfaceHistoryAge),
+		static_cast<unsigned long long>(summary.selectedPresentSurfaceOverwriteBlackCount),
+		static_cast<unsigned long long>(summary.selectedPresentSurfaceOverwriteBlackTexRectCount),
+		static_cast<unsigned long long>(summary.selectedPresentSurfaceOverwriteBlackTriangleCount),
+		static_cast<unsigned long long>(summary.selectedPresentSurfaceTrianglePreserveNonBlackCount),
+		static_cast<unsigned long long>(summary.selectedPresentSurfaceTexRectNonBlackWriteCount),
+		static_cast<unsigned long long>(summary.selectedPresentSurfaceTriangleNonBlackWriteCount),
+		static_cast<unsigned long long>(summary.selectedPresentSurfaceUntouchedCarryCount),
+		summary.selectedPresentSurfaceUntouchedCarrySourceAddress,
+		static_cast<u32>(debugDisableVIHistoryPresentRequested()),
+		static_cast<u32>(debugPreferLiveSurfaceOverHistoryRequested()),
+		static_cast<u32>(debugEnableSurfaceHistoryBootstrapRequested()),
+		static_cast<u32>(debugEnableCrossSurfaceBootstrapRequested()),
+		static_cast<u32>(debugCrossSurfaceBootstrapCopyAllRequested()),
+		static_cast<u32>(debugDisableSameFramePresentAccumRequested()),
+		static_cast<unsigned long long>(summary.surfaceBootstrapSameAddressAttemptCount),
+		static_cast<unsigned long long>(summary.surfaceBootstrapSameAddressSuccessCount),
+		static_cast<unsigned long long>(summary.surfaceBootstrapSameAddressCopiedPixels),
+		static_cast<unsigned long long>(summary.surfaceBootstrapFallbackRestoreSuccessCount),
+		static_cast<unsigned long long>(summary.surfaceBootstrapFallbackRestoreCopiedPixels),
+		static_cast<unsigned long long>(summary.surfaceBootstrapCrossMergeCandidateCount),
+		static_cast<unsigned long long>(summary.surfaceBootstrapCrossMergeCopiedPixels),
+		static_cast<unsigned long long>(summary.surfaceBootstrapCrossMergeCopyAllPixels),
+		static_cast<unsigned long long>(summary.writeOverwriteToBlackCount),
+		static_cast<unsigned long long>(summary.writeTexRectOverwriteToBlackCount),
+		static_cast<unsigned long long>(summary.writeTriangleOverwriteToBlackCount),
+		static_cast<unsigned long long>(summary.writeTrianglePreserveNonBlackCount));
 	for (u32 i = 0U; i < summary.textureFilterModeSampleCount.size(); ++i) {
 		std::fprintf(
 			file,
@@ -454,7 +521,7 @@ void appendFrameForensicsRecord(
 		- static_cast<long long>(_ingress.rectCallCount);
 	std::fprintf(
 		file,
-		"\ting_frame=%llu\ting_state_calls=%llu\ting_tri_calls=%llu\ting_tri_verts=%llu\ting_rect_calls=%llu\ting_rect_texrect_calls=%llu\ting_rect_verts=%llu\ting_line_calls=%llu\ting_line_verts=%llu\ting_shadow_draw=%u\ting_shadow_present=%u\ting_gap_tri_work=%lld\ting_gap_texrect_work=%lld\ting_tri_bounds_valid=%u\ting_tri_min_x=%.3f\ting_tri_min_y=%.3f\ting_tri_max_x=%.3f\ting_tri_max_y=%.3f\ting_rect_bounds_valid=%u\ting_rect_min_x=%.3f\ting_rect_min_y=%.3f\ting_rect_max_x=%.3f\ting_rect_max_y=%.3f\ting_line_bounds_valid=%u\ting_line_min_x=%.3f\ting_line_min_y=%.3f\ting_line_max_x=%.3f\ting_line_max_y=%.3f",
+		"\ting_frame=%llu\ting_state_calls=%llu\ting_tri_calls=%llu\ting_tri_verts=%llu\ting_rect_calls=%llu\ting_rect_texrect_calls=%llu\ting_rect_verts=%llu\ting_line_calls=%llu\ting_line_verts=%llu\ting_shadow_draw=%u\ting_shadow_present=%u\ting_same_frame_pass=%llu\ting_same_frame_merged=%u\ting_same_frame_keep_nonblack=%llu\ting_same_frame_promote_nonblack=%llu\ting_same_frame_replace_nonblack=%llu\ting_same_frame_out_nonblack=%llu\ting_gap_tri_work=%lld\ting_gap_texrect_work=%lld\ting_tri_bounds_valid=%u\ting_tri_min_x=%.3f\ting_tri_min_y=%.3f\ting_tri_max_x=%.3f\ting_tri_max_y=%.3f\ting_rect_bounds_valid=%u\ting_rect_min_x=%.3f\ting_rect_min_y=%.3f\ting_rect_max_x=%.3f\ting_rect_max_y=%.3f\ting_line_bounds_valid=%u\ting_line_min_x=%.3f\ting_line_min_y=%.3f\ting_line_max_x=%.3f\ting_line_max_y=%.3f",
 		static_cast<unsigned long long>(_ingress.frameId),
 		static_cast<unsigned long long>(_ingress.stateCallCount),
 		static_cast<unsigned long long>(_ingress.triangleCallCount),
@@ -466,6 +533,12 @@ void appendFrameForensicsRecord(
 		static_cast<unsigned long long>(_ingress.lineVertexCount),
 		static_cast<unsigned int>(_ingress.shadowDrawForwarding),
 		static_cast<unsigned int>(_ingress.shadowPresent),
+		static_cast<unsigned long long>(_ingress.sameFramePresentPass),
+		static_cast<unsigned int>(_ingress.sameFramePresentMerged),
+		static_cast<unsigned long long>(_ingress.sameFramePresentRetainedNonBlackOverBlackCount),
+		static_cast<unsigned long long>(_ingress.sameFramePresentPromotedBlackToNonBlackCount),
+		static_cast<unsigned long long>(_ingress.sameFramePresentReplacedNonBlackCount),
+		static_cast<unsigned long long>(_ingress.sameFramePresentOutputNonBlackCount),
 		triWorkGap,
 		texrectWorkGap,
 		static_cast<unsigned int>(_ingress.triangleBoundsValid),
@@ -547,6 +620,7 @@ void ContextImpl::destroy()
 	m_presentTextureWidth = 0U;
 	m_presentTextureHeight = 0U;
 	m_presentUploadBytes.clear();
+	m_sameFramePresent = SameFramePresentAccumulator{};
 	vulkan::ContextImpl::destroy();
 }
 
@@ -844,8 +918,12 @@ void ContextImpl::renderPresentedFrame(const ExecutorOutput & _output)
 bool ContextImpl::present()
 {
 	syncIngressFrame();
+	const u64 frameId = m_ingressCounters.frameId;
+	if (!m_sameFramePresent.active || m_sameFramePresent.frameId != frameId)
+		m_sameFramePresent = SameFramePresentAccumulator{};
+
 	ForensicsIngressSnapshot ingress{};
-	ingress.frameId = m_ingressCounters.frameId;
+	ingress.frameId = frameId;
 	ingress.stateCallCount = m_ingressCounters.stateCallCount;
 	ingress.triangleCallCount = m_ingressCounters.triangleCallCount;
 	ingress.triangleVertexCount = m_ingressCounters.triangleVertexCount;
@@ -884,12 +962,83 @@ bool ContextImpl::present()
 
 	const ExecutorConfig config = buildExecutorConfigFromVIRegisters();
 	m_executor.updateConfig(config);
-	const ExecutorOutput output =
+	ExecutorOutput output =
 		m_executor.executeWithOutput(
 			runtime().renderPlan(),
 			runtime().submissionPlan(),
 			&runtime().tmemSnapshots(),
 			&runtime().renderWorkTMEMSnapshotIndices());
+
+	const bool allowSameFramePresentAccum = !debugDisableSameFramePresentAccumRequested();
+	if (allowSameFramePresentAccum
+		&& output.presentFrame.width != 0U
+		&& output.presentFrame.height != 0U
+		&& !output.presentFrame.pixels.empty()) {
+		const size_t requiredPixelCount =
+			static_cast<size_t>(output.presentFrame.width)
+			* static_cast<size_t>(output.presentFrame.height);
+		if (output.presentFrame.pixels.size() >= requiredPixelCount) {
+			const bool sameFrameCompatible =
+				m_sameFramePresent.active
+				&& m_sameFramePresent.frameId == frameId
+				&& m_sameFramePresent.width == output.presentFrame.width
+				&& m_sameFramePresent.height == output.presentFrame.height
+				&& m_sameFramePresent.pixels.size() >= requiredPixelCount;
+			if (!sameFrameCompatible || m_sameFramePresent.passCount == 0ULL) {
+				m_sameFramePresent = SameFramePresentAccumulator{};
+				m_sameFramePresent.active = true;
+				m_sameFramePresent.frameId = frameId;
+				m_sameFramePresent.passCount = 1ULL;
+				m_sameFramePresent.width = output.presentFrame.width;
+				m_sameFramePresent.height = output.presentFrame.height;
+				m_sameFramePresent.pixels.assign(
+					output.presentFrame.pixels.begin(),
+					output.presentFrame.pixels.begin() + requiredPixelCount);
+				u64 nonBlackCount = 0ULL;
+				for (size_t i = 0; i < requiredPixelCount; ++i) {
+					if (pixelHasVisibleColor(m_sameFramePresent.pixels[i]))
+						++nonBlackCount;
+				}
+				m_sameFramePresent.nonBlackCount = nonBlackCount;
+			} else {
+				++m_sameFramePresent.passCount;
+				u64 retainedNonBlackOverBlackCount = 0ULL;
+				u64 promotedBlackToNonBlackCount = 0ULL;
+				u64 replacedNonBlackCount = 0ULL;
+				u64 mergedNonBlackCount = 0ULL;
+				for (size_t i = 0; i < requiredPixelCount; ++i) {
+					const u32 previousPixel = m_sameFramePresent.pixels[i];
+					const u32 candidatePixel = output.presentFrame.pixels[i];
+					const bool previousNonBlack = pixelHasVisibleColor(previousPixel);
+					const bool candidateNonBlack = pixelHasVisibleColor(candidatePixel);
+					u32 mergedPixel = candidatePixel;
+					if (previousNonBlack && !candidateNonBlack) {
+						mergedPixel = previousPixel;
+						++retainedNonBlackOverBlackCount;
+					} else if (!previousNonBlack && candidateNonBlack) {
+						++promotedBlackToNonBlackCount;
+					} else if (previousNonBlack && candidateNonBlack && previousPixel != candidatePixel) {
+						++replacedNonBlackCount;
+					}
+					output.presentFrame.pixels[i] = mergedPixel;
+					m_sameFramePresent.pixels[i] = mergedPixel;
+					if (pixelHasVisibleColor(mergedPixel))
+						++mergedNonBlackCount;
+				}
+				m_sameFramePresent.retainedNonBlackOverBlackCount += retainedNonBlackOverBlackCount;
+				m_sameFramePresent.promotedBlackToNonBlackCount += promotedBlackToNonBlackCount;
+				m_sameFramePresent.replacedNonBlackCount += replacedNonBlackCount;
+				m_sameFramePresent.nonBlackCount = mergedNonBlackCount;
+				ingress.sameFramePresentMerged = true;
+			}
+			ingress.sameFramePresentPass = m_sameFramePresent.passCount;
+			ingress.sameFramePresentRetainedNonBlackOverBlackCount = m_sameFramePresent.retainedNonBlackOverBlackCount;
+			ingress.sameFramePresentPromotedBlackToNonBlackCount = m_sameFramePresent.promotedBlackToNonBlackCount;
+			ingress.sameFramePresentReplacedNonBlackCount = m_sameFramePresent.replacedNonBlackCount;
+			ingress.sameFramePresentOutputNonBlackCount = m_sameFramePresent.nonBlackCount;
+		}
+	}
+
 	if (config.textureReplacementLogSummary && output.summary.textureReplacementEnabled) {
 		LOG(
 			LOG_WARNING,

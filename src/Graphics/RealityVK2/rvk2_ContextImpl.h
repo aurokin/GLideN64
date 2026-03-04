@@ -66,6 +66,19 @@ private:
 		f32 lineMaxY = 0.0f;
 	};
 
+	struct SameFramePresentAccumulator {
+		bool active = false;
+		u64 frameId = 0ULL;
+		u64 passCount = 0ULL;
+		u64 retainedNonBlackOverBlackCount = 0ULL;
+		u64 promotedBlackToNonBlackCount = 0ULL;
+		u64 replacedNonBlackCount = 0ULL;
+		u64 nonBlackCount = 0ULL;
+		u32 width = 0U;
+		u32 height = 0U;
+		std::vector<u32> pixels;
+	};
+
 	void syncIngressFrame();
 	void resetIngressCounters(u64 _frameId);
 	bool shadowDrawForwardingEnabled() const;
@@ -82,6 +95,7 @@ private:
 	u32 m_presentTextureHeight = 0U;
 	std::vector<u8> m_presentUploadBytes;
 	FrontendIngressCounters m_ingressCounters{};
+	SameFramePresentAccumulator m_sameFramePresent{};
 	Executor m_executor;
 };
 

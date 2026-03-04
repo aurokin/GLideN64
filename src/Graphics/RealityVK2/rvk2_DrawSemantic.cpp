@@ -231,10 +231,17 @@ DrawSemanticPacket buildDrawSemanticPacket(
 
 	if (semantic.drawType == 2U || semantic.drawType == 3U) {
 		// Rectangle edges are encoded in 10.2 fixed-point pixel units.
-		semantic.rectULX = static_cast<u16>(bitRange(_packet.w1, 12, 12) >> 2U);
-		semantic.rectULY = static_cast<u16>(bitRange(_packet.w1, 0, 12) >> 2U);
-		semantic.rectLRX = static_cast<u16>(bitRange(_packet.w0, 12, 12) >> 2U);
-		semantic.rectLRY = static_cast<u16>(bitRange(_packet.w0, 0, 12) >> 2U);
+		// In copy/fill modes the lower Y edge is adjusted with yl|=3 before rasterization.
+		const u32 xh = bitRange(_packet.w1, 12, 12);
+		const u32 yh = bitRange(_packet.w1, 0, 12);
+		const u32 xl = bitRange(_packet.w0, 12, 12);
+		u32 yl = bitRange(_packet.w0, 0, 12);
+		if (_rdpState.cycleType == 2U || _rdpState.cycleType == 3U)
+			yl |= 0x3U;
+		semantic.rectULX = static_cast<u16>(xh >> 2U);
+		semantic.rectULY = static_cast<u16>(yh >> 2U);
+		semantic.rectLRX = static_cast<u16>(xl >> 2U);
+		semantic.rectLRY = static_cast<u16>(yl >> 2U);
 	}
 
 	if (semantic.drawType == 2U) {

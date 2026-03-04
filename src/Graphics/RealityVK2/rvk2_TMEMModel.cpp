@@ -1,5 +1,8 @@
 #include "rvk2_TMEMModel.h"
 
+#include <cctype>
+#include <cstdlib>
+
 namespace {
 
 constexpr u8 kCmdLoadTLUT = 0x30U;
@@ -23,6 +26,20 @@ inline bool decodeTileIndex(u32 _w1, u8 & _tileIndex)
 		return false;
 	_tileIndex = static_cast<u8>(tile);
 	return true;
+}
+
+bool normalizeTileMasks()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_SETTILE_MASK_NORMALIZE");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		const char first = static_cast<char>(std::tolower(static_cast<unsigned char>(raw[0])));
+		if (first == '0' || first == 'f' || first == 'n')
+			return false;
+		return true;
+	}();
+	return enabled;
 }
 
 } // namespace
@@ -102,6 +119,18 @@ void TMEMModel::applySetTile(const CommandPacket & _packet)
 	tile.masks = static_cast<u8>(bitRange(_packet.w1, 4, 4));
 	tile.shiftt = static_cast<u8>(bitRange(_packet.w1, 10, 4));
 	tile.shifts = static_cast<u8>(bitRange(_packet.w1, 0, 4));
+	if (normalizeTileMasks()) {
+		// Match legacy RDP tile normalization used by reference implementations:
+		// masks above 10 clamp to 10, and mask 0 implies clamp mode.
+		if (tile.masks > 10U)
+			tile.masks = 10U;
+		else if (tile.masks == 0U)
+			tile.cms = static_cast<u8>(tile.cms | 0x2U);
+		if (tile.maskt > 10U)
+			tile.maskt = 10U;
+		else if (tile.maskt == 0U)
+			tile.cmt = static_cast<u8>(tile.cmt | 0x2U);
+	}
 	m_snapshot.changedMask |= tmem_state_changed::kTileDescriptor;
 }
 

@@ -232,6 +232,25 @@ def _count_mask_and_segment(
     return total
 
 
+def _count_mask_overlap_in_bounds(
+    mask: bytearray,
+    bounds: Tuple[float, float, float, float],
+    width: int,
+    height: int,
+) -> int:
+    rect = _normalize_int_bounds(bounds, width, height)
+    if rect is None:
+        return 0
+    x0, y0, x1, y1 = rect
+    total = 0
+    for y in range(y0, y1 + 1):
+        row = y * width
+        for x in range(x0, x1 + 1):
+            if mask[row + x] != 0:
+                total += 1
+    return total
+
+
 def _build_missing_image_mask(
     summary: Dict[str, Any],
     image_width: int,
@@ -365,11 +384,13 @@ def _map_image_mask_to_source_mask(
 
 def _op_kind_name(op_kind: int) -> str:
     if op_kind == 0:
-        return "fill"
+        return "unknown"
     if op_kind == 1:
         return "triangle"
     if op_kind == 2:
         return "texrect"
+    if op_kind == 3:
+        return "fill"
     return f"op{op_kind}"
 
 
@@ -937,6 +958,86 @@ def main() -> int:
             history_window_op_cover_pixels[op_name] = history_window_op_pixels
             history_window_op_cover_ratios[op_name] = _ratio(history_window_op_pixels, missing_source_pixels)
 
+        prior_missing_phase_work_hits: Counter[str] = Counter()
+        prior_missing_phase_pixel_hits: Counter[str] = Counter()
+        prior_missing_state_work_counters: Dict[str, Counter[str]] = defaultdict(Counter)
+        prior_missing_state_pixel_counters: Dict[str, Counter[str]] = defaultdict(Counter)
+        prior_missing_packet_work_hits: Counter[int] = Counter()
+        prior_missing_packet_pixel_hits: Counter[int] = Counter()
+        prior_missing_packet_meta: Dict[int, Dict[str, Any]] = {}
+        if total_pixels > 0 and missing_without_write_pixels > 0:
+            for frame, is_selected in history_frame_pairs:
+                if is_selected:
+                    continue
+                for work in frame.render_work:
+                    write_bounds = _compute_effective_write_bounds(work, source_width, source_height)
+                    if write_bounds is None:
+                        continue
+                    overlap_pixels = _count_mask_overlap_in_bounds(
+                        missing_without_write_mask,
+                        write_bounds,
+                        source_width,
+                        source_height,
+                    )
+                    if overlap_pixels <= 0:
+                        continue
+                    op_name = _op_kind_name(int(work.op_kind))
+                    phase_name = _phase_name(int(work.phase))
+                    phase_key = f"{op_name}:{phase_name}"
+                    prior_missing_phase_work_hits[phase_key] += 1
+                    prior_missing_phase_pixel_hits[phase_key] += overlap_pixels
+
+                    packet_id = int(work.source_packet_id)
+                    prior_missing_packet_work_hits[packet_id] += 1
+                    prior_missing_packet_pixel_hits[packet_id] += overlap_pixels
+                    if packet_id not in prior_missing_packet_meta:
+                        prior_missing_packet_meta[packet_id] = {
+                            "source_packet_id": packet_id,
+                            "frame_id": int(frame.frame_id),
+                            "op_kind": op_name,
+                            "phase": phase_name,
+                            "color_image_address": int(work.color_image_address),
+                            "color_image_address_hex": f"0x{int(work.color_image_address):08X}",
+                            "combine_mux": f"0x{int(work.combine_mux):016X}",
+                            "other_modes": f"0x{int(work.other_modes):016X}",
+                            "blend_params": f"0x{int(work.blend_params):08X}",
+                            "tile_format": int(work.tile_format),
+                            "tile_size": int(work.tile_size),
+                            "tile_line": int(work.tile_line),
+                            "tile_tmem": int(work.tile_tmem),
+                            "texture_image_width": int(work.texture_image_width),
+                            "texture_image_address": f"0x{int(work.texture_image_address):08X}",
+                        }
+
+                    state_fields: Tuple[Tuple[str, str], ...] = (
+                        ("combine_mux", f"0x{int(work.combine_mux):016X}"),
+                        ("blend_params", f"0x{int(work.blend_params):08X}"),
+                        ("other_modes", f"0x{int(work.other_modes):016X}"),
+                        ("tile_line", str(int(work.tile_line))),
+                        ("tile_tmem", str(int(work.tile_tmem))),
+                        ("texture_image_width", str(int(work.texture_image_width))),
+                        ("texture_image_address", f"0x{int(work.texture_image_address):08X}"),
+                    )
+                    for field_name, value in state_fields:
+                        counter_key = f"{op_name}:{field_name}"
+                        prior_missing_state_work_counters[counter_key][value] += 1
+                        prior_missing_state_pixel_counters[counter_key][value] += overlap_pixels
+
+        prior_missing_packet_rows: List[Dict[str, Any]] = []
+        for packet_id, pixel_hits in prior_missing_packet_pixel_hits.items():
+            meta = prior_missing_packet_meta.get(packet_id, {"source_packet_id": int(packet_id)})
+            row = dict(meta)
+            row["work_hits"] = int(prior_missing_packet_work_hits.get(packet_id, 0))
+            row["pixel_hits"] = int(pixel_hits)
+            row["pixel_hit_ratio"] = _ratio(int(pixel_hits), missing_without_write_pixels)
+            prior_missing_packet_rows.append(row)
+        prior_missing_packet_rows.sort(
+            key=lambda row: (
+                -int(row.get("pixel_hits", 0) or 0),
+                int(row.get("source_packet_id", 0) or 0),
+            )
+        )
+
         max_address_overlap = max(0, int(args.max_address_overlap))
         present_surface_address = int(forensics_last.get("present_surface", 0) or 0)
 
@@ -1118,6 +1219,21 @@ def main() -> int:
             "missing_cover_ratio_by_prior_op": prior_op_cover_ratios,
             "missing_cover_pixels_by_history_window_op": history_window_op_cover_pixels,
             "missing_cover_ratio_by_history_window_op": history_window_op_cover_ratios,
+            "missing_without_write_prior_phase_work_hits": dict(
+                prior_missing_phase_work_hits.most_common()
+            ),
+            "missing_without_write_prior_phase_pixel_hits": dict(
+                prior_missing_phase_pixel_hits.most_common()
+            ),
+            "missing_without_write_prior_state_work_hits": {
+                key: dict(counter.most_common(64))
+                for key, counter in sorted(prior_missing_state_work_counters.items())
+            },
+            "missing_without_write_prior_state_pixel_hits": {
+                key: dict(counter.most_common(64))
+                for key, counter in sorted(prior_missing_state_pixel_counters.items())
+            },
+            "missing_without_write_prior_packet_hits": prior_missing_packet_rows[:64],
             "history": {
                 "frames_analyzed": len(history_frames),
                 "prior_frames_analyzed": len(history_prior_frame_ids),

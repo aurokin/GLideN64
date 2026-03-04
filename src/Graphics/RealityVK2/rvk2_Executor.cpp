@@ -196,6 +196,18 @@ bool debugDisableTriangleWrites()
 	return enabled;
 }
 
+bool debugPreserveTriangleNonBlackOverwrites()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TRIANGLE_PRESERVE_NON_BLACK");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
 bool debugDisableTexRectWrites()
 {
 	static const bool enabled = []() -> bool {
@@ -296,6 +308,18 @@ bool debugDisableBlenderDither()
 {
 	static const bool enabled = []() -> bool {
 		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_DISABLE_BLENDER_DITHER");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugDisableFillWrites()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_DISABLE_FILL_WRITES");
 		if (raw == nullptr || raw[0] == '\0')
 			return false;
 		bool parsed = false;
@@ -424,6 +448,18 @@ bool debugTmem32PackHighToLowRGBA()
 	return enabled;
 }
 
+bool debugTmem32UseLoadKindAwareXor()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TMEM32_LOADKIND_XOR");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
 bool debugDisableVIHistoryPresentSelection()
 {
 	static const bool enabled = []() -> bool {
@@ -464,6 +500,30 @@ bool debugEnableCrossSurfaceBootstrap()
 {
 	static const bool enabled = []() -> bool {
 		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_ENABLE_CROSS_SURFACE_BOOTSTRAP");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugCrossSurfaceBootstrapCopyAllFromLastSurface()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_CROSS_SURFACE_BOOTSTRAP_COPY_ALL");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugEnableUntouchedPresentCarry()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_ENABLE_UNTOUCHED_PRESENT_CARRY");
 		if (raw == nullptr || raw[0] == '\0')
 			return false;
 		bool parsed = false;
@@ -524,6 +584,30 @@ bool debugForceAllTexelAlphaOpaque()
 {
 	static const bool enabled = []() -> bool {
 		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_FORCE_ALL_TEXEL_ALPHA_OPAQUE");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugTmem32CompareAlternates()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TMEM32_COMPARE");
+		if (raw == nullptr || raw[0] == '\0')
+			return false;
+		bool parsed = false;
+		return parseBooleanToken(raw, parsed) ? parsed : false;
+	}();
+	return enabled;
+}
+
+bool debugInvertTriangleLMajor()
+{
+	static const bool enabled = []() -> bool {
+		const char * raw = std::getenv("REALITYVK_RVK2_DEBUG_TRIANGLE_INVERT_LMAJOR");
 		if (raw == nullptr || raw[0] == '\0')
 			return false;
 		bool parsed = false;
@@ -1693,9 +1777,115 @@ inline u32 decodeAuthoritativeTMEM32Color(
 	// Authoritative 32b TMEM path follows legacy loader addressing:
 	// split GR/AB words, odd/even row XOR, and line32 stride derived from tile span.
 	const s32 lineStride = computeLegacySplit32LineStride(_work);
+	u32 rowXor = xorForTmem32T(_t);
+	if (debugTmem32UseLoadKindAwareXor()) {
+		if (_work.tmemLoadKind == static_cast<u8>(rvk2::TmemLoadKind::kTile))
+			rowXor = 0U;
+		else if (_work.tmemLoadKind == static_cast<u8>(rvk2::TmemLoadKind::kBlock))
+			rowXor = xorForTmem32T(_t);
+		else
+			rowXor = xor13ForT(_t);
+	}
 	return packSplit32ToRGBA(
-		readTmem32SplitPacked(_work, _s, _t, lineStride, xorForTmem32T(_t)),
+		readTmem32SplitPacked(_work, _s, _t, lineStride, rowXor),
 		highToLowRGBA);
+}
+
+inline u32 decodeTMEM32SplitVariantColor(
+	const rvk2::RenderWorkPacket & _work,
+	u16 _s,
+	u16 _t,
+	u32 _xor,
+	bool _highToLowRGBA)
+{
+	const s32 lineStride = computeLegacySplit32LineStride(_work);
+	return packSplit32ToRGBA(
+		readTmem32SplitPacked(_work, _s, _t, lineStride, _xor),
+		_highToLowRGBA);
+}
+
+inline u32 decodeTMEM32DirectVariantColor(
+	const rvk2::RenderWorkPacket & _work,
+	u16 _s,
+	u16 _t,
+	u16 _rowXor,
+	bool _highToLowRGBA)
+{
+	const u32 * tmem32 = reinterpret_cast<const u32 *>(activeTMEMWords());
+	const u16 tmemOffset = static_cast<u16>(
+		(_work.tileTmem + static_cast<u16>(_work.tileLine * _t)) & 0x1FFU);
+	const u32 packed = tmem32[
+		((static_cast<u32>(tmemOffset) << 1U)
+			+ (static_cast<u32>(_s) ^ static_cast<u32>(_rowXor)))
+		& 0x3FFU];
+	return packSplit32ToRGBA(packed, _highToLowRGBA);
+}
+
+inline void recordTMEM32AlternateComparisons(
+	const rvk2::RenderWorkPacket & _work,
+	s32 _sRaw,
+	s32 _tRaw,
+	u32 _authoritativeRGBA)
+{
+	if (gActiveExecutorSummary == nullptr || !debugTmem32CompareAlternates())
+		return;
+
+	rvk2::ExecutorSummary & summary = *gActiveExecutorSummary;
+	++summary.textureTmem32CompareCount;
+
+	const bool highToLowRGBA = debugTmem32PackHighToLowRGBA();
+	const u16 s = static_cast<u16>(_sRaw & 0xFFFF);
+	const u16 t = static_cast<u16>(_tRaw & 0xFFFF);
+	const u16 sAbs = static_cast<u16>(std::min<s64>(absS64(static_cast<s64>(_sRaw)), 0xFFFF));
+	const u16 tAbs = static_cast<u16>(std::min<s64>(absS64(static_cast<s64>(_tRaw)), 0xFFFF));
+
+	bool anyMismatch = false;
+	const auto checkVariant = [&](u32 _altColor, u64 & _counter) {
+		if (_altColor == _authoritativeRGBA)
+			return;
+		++_counter;
+		anyMismatch = true;
+	};
+
+	checkVariant(
+		decodeTMEM32SplitVariantColor(_work, s, t, 0U, highToLowRGBA),
+		summary.textureTmem32AltNoXorMismatchCount);
+	checkVariant(
+		decodeTMEM32SplitVariantColor(_work, sAbs, tAbs, xorForTmem32T(tAbs), highToLowRGBA),
+		summary.textureTmem32AltAbsCoordMismatchCount);
+	checkVariant(
+		decodeTMEM32DirectVariantColor(_work, s, t, static_cast<u16>((t & 1U) << 1U), highToLowRGBA),
+		summary.textureTmem32AltDirectMismatchCount);
+	checkVariant(
+		decodeTMEM32DirectVariantColor(_work, s, t, static_cast<u16>((t & 1U) << 1U), !highToLowRGBA),
+		summary.textureTmem32AltDirectSwappedMismatchCount);
+	const u32 tileLineXor = (_work.tileLine & 1U) != 0U
+		? ((t & 1U) != 0U ? 1U : 3U)
+		: xorForTmem32T(t);
+	checkVariant(
+		decodeTMEM32SplitVariantColor(_work, s, t, tileLineXor, highToLowRGBA),
+		summary.textureTmem32AltTileLineXorMismatchCount);
+	const u16 tileLineEvenOddXor = (_work.tileLine & 1U) != 0U
+		? static_cast<u16>(t & 1U)
+		: static_cast<u16>((t & 1U) << 1U);
+	checkVariant(
+		decodeTMEM32DirectVariantColor(_work, s, t, tileLineEvenOddXor, highToLowRGBA),
+		summary.textureTmem32AltTileLineEvenOddMismatchCount);
+	checkVariant(
+		decodeTMEM32DirectVariantColor(_work, s, t, static_cast<u16>(t & 1U), highToLowRGBA),
+		summary.textureTmem32AltDirectEvenOddMismatchCount);
+	const u32 loadKindAwareXor =
+		_work.tmemLoadKind == static_cast<u8>(rvk2::TmemLoadKind::kBlock)
+			? xorForTmem32T(t)
+			: ((_work.tmemLoadKind == static_cast<u8>(rvk2::TmemLoadKind::kTile))
+				? 0U
+				: xor13ForT(t));
+	checkVariant(
+		decodeTMEM32SplitVariantColor(_work, s, t, loadKindAwareXor, highToLowRGBA),
+		summary.textureTmem32AltLoadKindAwareMismatchCount);
+
+	if (anyMismatch)
+		++summary.textureTmem32CompareMismatchCount;
 }
 
 inline void applyTileDescriptorToWork(
@@ -1890,6 +2080,7 @@ inline bool sampleCITextureFromTMEM(
 			return false;
 		}
 		_outRgba = decodeAuthoritativeTMEM32Color(_work, s, t);
+		recordTMEM32AlternateComparisons(_work, texelS, texelT, _outRgba);
 		return true;
 	}
 
@@ -2202,11 +2393,17 @@ inline u32 pseudoTexel(
 	u32 * _sourceBits = nullptr,
 	u8 _sampleSlot = rvk2::kExecutorTextureSampleSlotTexel0)
 {
+	// In RDP copy mode the rectangle dsdx stream is specified at 4x horizontal scale.
+	// Normalize to the per-pixel domain before deriving texel coordinates.
+	s32 texDSDX = static_cast<s32>(_work.texDSDX);
+	if (_work.phase == static_cast<u8>(rvk2::RenderPhase::kCopy))
+		texDSDX /= 4;
+
 	const s32 dx = static_cast<s32>(_x) - static_cast<s32>(_work.rectULX);
 	const s32 dy = static_cast<s32>(_y) - static_cast<s32>(_work.rectULY);
 	const s32 sRaw = _work.texRectFlip
-		? static_cast<s32>(_work.texS) + ((dy * static_cast<s32>(_work.texDSDX)) >> 5)
-		: static_cast<s32>(_work.texS) + ((dx * static_cast<s32>(_work.texDSDX)) >> 5);
+		? static_cast<s32>(_work.texS) + ((dy * texDSDX) >> 5)
+		: static_cast<s32>(_work.texS) + ((dx * texDSDX) >> 5);
 	const s32 tRaw = _work.texRectFlip
 		? static_cast<s32>(_work.texT) + ((dx * static_cast<s32>(_work.texDTDY)) >> 5)
 		: static_cast<s32>(_work.texT) + ((dy * static_cast<s32>(_work.texDTDY)) >> 5);
@@ -2294,6 +2491,7 @@ struct ColorSurface {
 	std::vector<u32> pixels;
 	std::vector<u8> coverage;
 	std::vector<u8> hiddenCoverage;
+	std::vector<u8> writeMask;
 };
 
 struct DepthSurface {
@@ -2623,6 +2821,9 @@ void ensureSurfaceSize(
 	std::vector<u8> resizedHiddenCoverage(
 		static_cast<size_t>(targetWidth) * static_cast<size_t>(targetHeight),
 		0U);
+	std::vector<u8> resizedWriteMask(
+		static_cast<size_t>(targetWidth) * static_cast<size_t>(targetHeight),
+		0U);
 	for (u16 y = 0U; y < _surface.height; ++y) {
 		for (u16 x = 0U; x < _surface.width; ++x) {
 			resized[pixelIndex(targetWidth, x, y)] = _surface.pixels[pixelIndex(_surface.width, x, y)];
@@ -2632,6 +2833,9 @@ void ensureSurfaceSize(
 			if (!_surface.hiddenCoverage.empty())
 				resizedHiddenCoverage[pixelIndex(targetWidth, x, y)] =
 					_surface.hiddenCoverage[pixelIndex(_surface.width, x, y)];
+			if (!_surface.writeMask.empty())
+				resizedWriteMask[pixelIndex(targetWidth, x, y)] =
+					_surface.writeMask[pixelIndex(_surface.width, x, y)];
 		}
 	}
 	_surface.width = targetWidth;
@@ -2639,6 +2843,7 @@ void ensureSurfaceSize(
 	_surface.pixels.swap(resized);
 	_surface.coverage.swap(resizedCoverage);
 	_surface.hiddenCoverage.swap(resizedHiddenCoverage);
+	_surface.writeMask.swap(resizedWriteMask);
 }
 
 void ensureDepthSurfaceSize(
@@ -2733,21 +2938,20 @@ inline bool passesScissorFieldFilter(const rvk2::RenderWorkPacket & _work, u32 _
 	return (_y & 0x1U) == oddField;
 }
 
-inline double edgeFunction(
-	double _ax,
-	double _ay,
-	double _bx,
-	double _by,
-	double _px,
-	double _py)
-{
-	return (_px - _ax) * (_by - _ay) - (_py - _ay) * (_bx - _ax);
-}
-
 inline s32 signExtend14(u16 _value)
 {
 	const u32 raw = static_cast<u32>(_value) & 0x3FFFU;
 	return static_cast<s32>((raw ^ 0x2000U) - 0x2000U);
+}
+
+inline s64 evalTriangleEdgeXFixed16AtYSubpixel(
+	s32 _xBase,
+	s32 _dxdy,
+	s32 _yBaseSubpixel,
+	s32 _ySubpixel)
+{
+	return static_cast<s64>(_xBase)
+		+ static_cast<s64>(_dxdy) * static_cast<s64>(_ySubpixel - _yBaseSubpixel);
 }
 
 inline u32 pseudoTriangleColor(
@@ -4131,6 +4335,10 @@ void writeRect(
 	const rvk2::ExecutorConfig & _config,
 	rvk2::ExecutorSummary & _summary)
 {
+	if (_work.opKind == static_cast<u8>(rvk2::RasterOpKind::kFillRect)
+		&& debugDisableFillWrites()) {
+		return;
+	}
 	if (_work.opKind == static_cast<u8>(rvk2::RasterOpKind::kTexRect)
 		&& debugDisableTexRectWrites()) {
 		return;
@@ -4368,11 +4576,21 @@ void writeRect(
 				blenderColor,
 				finalColor);
 			const u64 writeLuma = static_cast<u64>(lumaFromRGBA(writeColor));
-			_surface.pixels[colorIdx] = encodeSurfaceColor(writeColor, _work.colorImageSize);
-			if (!_surface.coverage.empty())
-				_surface.coverage[colorIdx] = static_cast<u8>(resolvedCoverage & 0x7U);
-			if (!_surface.hiddenCoverage.empty())
-				_surface.hiddenCoverage[colorIdx] = resolvedHiddenCoverage ? 1U : 0U;
+			const u32 encodedWriteColor = encodeSurfaceColor(writeColor, _work.colorImageSize);
+			const u32 previousEncodedColor = _surface.pixels[colorIdx];
+			if ((previousEncodedColor & 0x00FFFFFFU) != 0U
+				&& (encodedWriteColor & 0x00FFFFFFU) == 0U) {
+				++_summary.writeOverwriteToBlackCount;
+				if (_work.opKind == static_cast<u8>(rvk2::RasterOpKind::kTexRect))
+					++_summary.writeTexRectOverwriteToBlackCount;
+			}
+				_surface.pixels[colorIdx] = encodedWriteColor;
+				if (!_surface.writeMask.empty())
+					_surface.writeMask[colorIdx] = 1U;
+				if (!_surface.coverage.empty())
+					_surface.coverage[colorIdx] = static_cast<u8>(resolvedCoverage & 0x7U);
+				if (!_surface.hiddenCoverage.empty())
+					_surface.hiddenCoverage[colorIdx] = resolvedHiddenCoverage ? 1U : 0U;
 			_summary.outputLumaSum += writeLuma;
 			if (_work.opKind == static_cast<u8>(rvk2::RasterOpKind::kTexRect)) {
 				_summary.writeTexRectLumaSum += writeLuma;
@@ -4413,24 +4631,7 @@ void writeTriangle(
 	const s32 yhSigned = signExtend14(_work.triangleYH);
 	const s32 ymSigned = signExtend14(_work.triangleYM);
 	const s32 ylSigned = signExtend14(_work.triangleYL);
-	const double yh = static_cast<double>(yhSigned) * 0.25;
-	const double ym = static_cast<double>(ymSigned) * 0.25;
-	const double yl = static_cast<double>(ylSigned) * 0.25;
-	const double xh = static_cast<double>(_work.triangleXH) / 65536.0;
-	const double xl = static_cast<double>(_work.triangleXL) / 65536.0;
-	const double xLongAtYL =
-		(static_cast<double>(_work.triangleXH)
-			+ static_cast<double>(_work.triangleDxHDY) * static_cast<double>(ylSigned - yhSigned))
-		/ 65536.0;
-
-	const double ax = xh;
-	const double ay = yh;
-	const double bx = xl;
-	const double by = ym;
-	const double cx = xLongAtYL;
-	const double cy = yl;
-	const double area = edgeFunction(ax, ay, bx, by, cx, cy);
-	if (area == 0.0) {
+	if (ylSigned <= yhSigned) {
 		++_summary.triangleDegenerateRejectCount;
 		return;
 	}
@@ -4446,16 +4647,36 @@ void writeTriangle(
 		bool prevMemoryHiddenCoverageForCycle2 = false;
 		bool hasPrevCycle1CombinedColor = false;
 		u32 prevCycle1CombinedColor = 0U;
-		const double py = static_cast<double>(y) + 0.5;
+		const s32 ySubpixelSample = static_cast<s32>((y << 2U) + 2U);
+		if (ySubpixelSample < yhSigned || ySubpixelSample >= ylSigned)
+			continue;
+		const bool upperShortEdge = ySubpixelSample < ymSigned;
+		const s64 xLong = evalTriangleEdgeXFixed16AtYSubpixel(
+			_work.triangleXH,
+			_work.triangleDxHDY,
+			yhSigned,
+			ySubpixelSample);
+		const s64 xShort = upperShortEdge
+			? evalTriangleEdgeXFixed16AtYSubpixel(
+				_work.triangleXM,
+				_work.triangleDxMDY,
+				yhSigned,
+				ySubpixelSample)
+			: evalTriangleEdgeXFixed16AtYSubpixel(
+				_work.triangleXL,
+				_work.triangleDxLDY,
+				ymSigned,
+				ySubpixelSample);
+		const bool lMajor = debugInvertTriangleLMajor() ? !_work.triangleLMajor : _work.triangleLMajor;
+		s64 xLeft = lMajor ? xLong : xShort;
+		s64 xRight = lMajor ? xShort : xLong;
+		if (xLeft > xRight)
+			std::swap(xLeft, xRight);
+		if (xLeft == xRight)
+			continue;
 		for (u32 x = bounds.x0; x <= bounds.x1; ++x) {
-			const double px = static_cast<double>(x) + 0.5;
-			const double e0 = edgeFunction(ax, ay, bx, by, px, py);
-			const double e1 = edgeFunction(bx, by, cx, cy, px, py);
-			const double e2 = edgeFunction(cx, cy, ax, ay, px, py);
-			const bool inside = area > 0.0
-				? (e0 >= 0.0 && e1 >= 0.0 && e2 >= 0.0)
-				: (e0 <= 0.0 && e1 <= 0.0 && e2 <= 0.0);
-			if (!inside)
+			const s64 xSubpixelSample = (static_cast<s64>(x) << 16U) + 0x8000LL;
+			if (xSubpixelSample < xLeft || xSubpixelSample > xRight)
 				continue;
 			++_summary.triangleSampleCandidateCount;
 
@@ -4678,18 +4899,37 @@ void writeTriangle(
 				combinerColor,
 				blenderColor,
 				finalColor);
-			const u64 writeLuma = static_cast<u64>(lumaFromRGBA(writeColor));
-			_surface.pixels[colorIdx] = encodeSurfaceColor(writeColor, _work.colorImageSize);
-			if (!_surface.coverage.empty())
-				_surface.coverage[colorIdx] = static_cast<u8>(resolvedCoverage & 0x7U);
-			if (!_surface.hiddenCoverage.empty())
-				_surface.hiddenCoverage[colorIdx] = resolvedHiddenCoverage ? 1U : 0U;
-			_summary.outputLumaSum += writeLuma;
-			_summary.writeTriangleLumaSum += writeLuma;
-			if ((writeColor & 0x00FFFFFFU) != 0U)
-				++_summary.writeTriangleNonBlackCount;
-			++_summary.colorWriteCount;
-		}
+				const u64 writeLuma = static_cast<u64>(lumaFromRGBA(writeColor));
+				u32 encodedWriteColor = encodeSurfaceColor(writeColor, _work.colorImageSize);
+				const u32 previousEncodedColor = _surface.pixels[colorIdx];
+				const bool overwriteToBlack =
+					(previousEncodedColor & 0x00FFFFFFU) != 0U
+					&& (encodedWriteColor & 0x00FFFFFFU) == 0U;
+				const bool preserveNonBlackOverwrite =
+					overwriteToBlack && debugPreserveTriangleNonBlackOverwrites();
+				if (overwriteToBlack) {
+					++_summary.writeOverwriteToBlackCount;
+					++_summary.writeTriangleOverwriteToBlackCount;
+				}
+				if (preserveNonBlackOverwrite) {
+					encodedWriteColor = previousEncodedColor;
+					++_summary.writeTrianglePreserveNonBlackCount;
+				}
+				_surface.pixels[colorIdx] = encodedWriteColor;
+				if (!_surface.writeMask.empty())
+					_surface.writeMask[colorIdx] = 1U;
+				if (!preserveNonBlackOverwrite && !_surface.coverage.empty())
+					_surface.coverage[colorIdx] = static_cast<u8>(resolvedCoverage & 0x7U);
+				if (!preserveNonBlackOverwrite && !_surface.hiddenCoverage.empty())
+					_surface.hiddenCoverage[colorIdx] = resolvedHiddenCoverage ? 1U : 0U;
+				const u32 effectiveWriteColor = preserveNonBlackOverwrite ? previousEncodedColor : writeColor;
+				const u64 effectiveWriteLuma = preserveNonBlackOverwrite ? static_cast<u64>(lumaFromRGBA(previousEncodedColor)) : writeLuma;
+				_summary.outputLumaSum += effectiveWriteLuma;
+				_summary.writeTriangleLumaSum += effectiveWriteLuma;
+				if ((effectiveWriteColor & 0x00FFFFFFU) != 0U)
+					++_summary.writeTriangleNonBlackCount;
+				++_summary.colorWriteCount;
+			}
 	}
 }
 } // namespace
@@ -4933,8 +5173,45 @@ ExecutorOutput Executor::executeWithOutput(
 	std::unordered_map<u32, DepthSurface> depthSurfaces;
 	std::unordered_map<u32, u64> surfaceColorWrites;
 	std::unordered_map<u32, u64> surfaceWorkCounts;
+	std::unordered_map<u32, u64> surfaceOverwriteBlackCounts;
+	std::unordered_map<u32, u64> surfaceOverwriteBlackTexRectCounts;
+	std::unordered_map<u32, u64> surfaceOverwriteBlackTriangleCounts;
+	std::unordered_map<u32, u64> surfaceTrianglePreserveNonBlackCounts;
+	std::unordered_map<u32, u64> surfaceTexRectNonBlackWriteCounts;
+	std::unordered_map<u32, u64> surfaceTriangleNonBlackWriteCounts;
+	struct SurfaceAddressRoleStats {
+		u64 workCount = 0ULL;
+		u64 depthAliasedWorkCount = 0ULL;
+		u64 nonDepthAliasedWorkCount = 0ULL;
+	};
+	std::unordered_map<u32, SurfaceAddressRoleStats> surfaceAddressRoles;
 	const bool allowSurfaceHistoryBootstrap = debugEnableSurfaceHistoryBootstrap();
 	const bool allowCrossSurfaceBootstrap = debugEnableCrossSurfaceBootstrap();
+	for (const RenderWorkPacket & work : _workPackets) {
+		if (work.opKind != static_cast<u8>(RasterOpKind::kFillRect)
+			&& work.opKind != static_cast<u8>(RasterOpKind::kTexRect)
+			&& work.opKind != static_cast<u8>(RasterOpKind::kTriangle)) {
+			continue;
+		}
+		SurfaceAddressRoleStats & role = surfaceAddressRoles[work.colorImageAddress];
+		++role.workCount;
+		if (work.depthImageAddress != 0U
+			&& work.depthImageAddress == work.colorImageAddress) {
+			++role.depthAliasedWorkCount;
+		}
+		else {
+			++role.nonDepthAliasedWorkCount;
+		}
+	}
+	const auto isDepthOnlyColorAddress = [&](u32 _address) {
+		const auto itRole = surfaceAddressRoles.find(_address);
+		if (itRole == surfaceAddressRoles.end())
+			return false;
+		const SurfaceAddressRoleStats & role = itRole->second;
+		return role.workCount > 0ULL
+			&& role.depthAliasedWorkCount > 0ULL
+			&& role.nonDepthAliasedWorkCount == 0ULL;
+	};
 	u32 lastSurfaceAddress = 0U;
 	bool hasColorImageAddress = false;
 	u32 prevColorImageAddress = 0U;
@@ -5000,7 +5277,8 @@ ExecutorOutput Executor::executeWithOutput(
 					const u16 desiredWidth = std::max<u16>(
 						1U,
 						std::min<u16>(work.colorImageWidth, m_config.maxSurfaceWidth));
-					const auto restoreSurfaceFromCache = [&](const ExecutorCachedSurface & _cached) -> bool {
+					const auto restoreSurfaceFromCache =
+						[&](const ExecutorCachedSurface & _cached, u64 * _copiedNonBlackPixels = nullptr) -> bool {
 						if (!_cached.valid
 							|| _cached.format != work.colorImageFormat
 							|| _cached.size != work.colorImageSize
@@ -5025,26 +5303,49 @@ ExecutorOutput Executor::executeWithOutput(
 						}
 						else
 							surface.coverage.assign(restoredPixelCount, 0U);
-						if (_cached.hiddenCoverage.size() >= restoredPixelCount) {
-							surface.hiddenCoverage.assign(
-								_cached.hiddenCoverage.begin(),
-								_cached.hiddenCoverage.begin() + restoredPixelCount);
+							if (_cached.hiddenCoverage.size() >= restoredPixelCount) {
+								surface.hiddenCoverage.assign(
+									_cached.hiddenCoverage.begin(),
+									_cached.hiddenCoverage.begin() + restoredPixelCount);
+							}
+							else
+								surface.hiddenCoverage.assign(restoredPixelCount, 0U);
+							surface.writeMask.assign(restoredPixelCount, 0U);
+							if (_copiedNonBlackPixels != nullptr) {
+								u64 copied = 0ULL;
+								for (size_t i = 0U; i < restoredPixelCount; ++i) {
+								if ((surface.pixels[i] & 0x00FFFFFFU) != 0U)
+									++copied;
+							}
+							*_copiedNonBlackPixels = copied;
 						}
-						else
-							surface.hiddenCoverage.assign(restoredPixelCount, 0U);
 						return true;
 					};
 
 					bool restoredFromHistory = false;
 					if (allowSurfaceHistoryBootstrap) {
+						++summary.surfaceBootstrapSameAddressAttemptCount;
 						const auto historyIt = m_surfaceHistory.find(work.colorImageAddress);
-						if (historyIt != m_surfaceHistory.end())
-							restoredFromHistory = restoreSurfaceFromCache(historyIt->second);
+						if (historyIt != m_surfaceHistory.end()) {
+							u64 copied = 0ULL;
+							restoredFromHistory =
+								restoreSurfaceFromCache(historyIt->second, &copied);
+							if (restoredFromHistory) {
+								++summary.surfaceBootstrapSameAddressSuccessCount;
+								summary.surfaceBootstrapSameAddressCopiedPixels += copied;
+							}
+						}
 					}
 					if (!restoredFromHistory
 						&& allowSurfaceHistoryBootstrap
 						&& allowCrossSurfaceBootstrap) {
-						restoredFromHistory = restoreSurfaceFromCache(m_lastSelectedSurface);
+						u64 copied = 0ULL;
+						restoredFromHistory =
+							restoreSurfaceFromCache(m_lastSelectedSurface, &copied);
+						if (restoredFromHistory) {
+							++summary.surfaceBootstrapFallbackRestoreSuccessCount;
+							summary.surfaceBootstrapFallbackRestoreCopiedPixels += copied;
+						}
 					}
 					if (!restoredFromHistory)
 						surface.width = desiredWidth;
@@ -5057,44 +5358,65 @@ ExecutorOutput Executor::executeWithOutput(
 					surface.coverage.resize(static_cast<size_t>(surface.width) * static_cast<size_t>(surface.height), 0U);
 				if (surface.hiddenCoverage.empty())
 					surface.hiddenCoverage.resize(static_cast<size_t>(surface.width) * static_cast<size_t>(surface.height), 0U);
-				if (allowSurfaceHistoryBootstrap && allowCrossSurfaceBootstrap) {
-					const auto mergeSurfaceFromCache =
-						[&](const ExecutorCachedSurface & _cached) {
+				if (surface.writeMask.empty())
+					surface.writeMask.resize(static_cast<size_t>(surface.width) * static_cast<size_t>(surface.height), 0U);
+					if (allowSurfaceHistoryBootstrap && allowCrossSurfaceBootstrap) {
+						const auto mergeSurfaceFromCache =
+						[&](const ExecutorCachedSurface & _cached, bool _copyAll) {
 							if (!_cached.valid
 								|| _cached.address == work.colorImageAddress
+								|| isDepthOnlyColorAddress(_cached.address)
 								|| _cached.format != work.colorImageFormat
 								|| _cached.size != work.colorImageSize
 								|| _cached.width != surface.width
 								|| _cached.height < surface.height) {
 								return;
 							}
+							++summary.surfaceBootstrapCrossMergeCandidateCount;
 							const size_t pixelCount =
 								static_cast<size_t>(surface.width) * static_cast<size_t>(surface.height);
 							if (_cached.pixels.size() < pixelCount)
 								return;
 							const bool hasPrevCoverage = _cached.coverage.size() >= pixelCount;
 							const bool hasPrevHidden = _cached.hiddenCoverage.size() >= pixelCount;
+							u64 copiedPixels = 0ULL;
 							for (size_t i = 0U; i < pixelCount; ++i) {
-								if ((surface.pixels[i] & 0x00FFFFFFU) != 0U)
-									continue;
 								const u32 previousPixel = _cached.pixels[i];
-								if ((previousPixel & 0x00FFFFFFU) == 0U)
-									continue;
-								surface.pixels[i] = previousPixel;
-								if (hasPrevCoverage && surface.coverage[i] == 0U)
-									surface.coverage[i] = static_cast<u8>(_cached.coverage[i] & 0x7U);
-								if (hasPrevHidden && surface.hiddenCoverage[i] == 0U)
-									surface.hiddenCoverage[i] = static_cast<u8>(_cached.hiddenCoverage[i] & 0x1U);
+								if (!_copyAll) {
+									if ((surface.pixels[i] & 0x00FFFFFFU) != 0U)
+										continue;
+									if ((previousPixel & 0x00FFFFFFU) == 0U)
+										continue;
+								}
+								if (surface.pixels[i] != previousPixel) {
+									surface.pixels[i] = previousPixel;
+									++copiedPixels;
+								}
+								if (hasPrevCoverage) {
+									if (_copyAll || surface.coverage[i] == 0U)
+										surface.coverage[i] = static_cast<u8>(_cached.coverage[i] & 0x7U);
+								}
+								if (hasPrevHidden) {
+									if (_copyAll || surface.hiddenCoverage[i] == 0U)
+										surface.hiddenCoverage[i] = static_cast<u8>(_cached.hiddenCoverage[i] & 0x1U);
+								}
 							}
+							summary.surfaceBootstrapCrossMergeCopiedPixels += copiedPixels;
+							if (_copyAll)
+								summary.surfaceBootstrapCrossMergeCopyAllPixels += copiedPixels;
 						};
 
-					mergeSurfaceFromCache(m_lastSelectedSurface);
+					mergeSurfaceFromCache(
+						m_lastSelectedSurface,
+						debugCrossSurfaceBootstrapCopyAllFromLastSurface());
 
 					std::vector<const ExecutorCachedSurface *> historyCandidates;
 					historyCandidates.reserve(m_surfaceHistory.size());
 					for (const auto & historyEntry : m_surfaceHistory) {
 						const ExecutorCachedSurface & cached = historyEntry.second;
 						if (!cached.valid || cached.address == work.colorImageAddress)
+							continue;
+						if (isDepthOnlyColorAddress(cached.address))
 							continue;
 						if (m_lastSelectedSurface.valid
 							&& cached.address == m_lastSelectedSurface.address) {
@@ -5115,13 +5437,19 @@ ExecutorOutput Executor::executeWithOutput(
 					for (const ExecutorCachedSurface * cached : historyCandidates) {
 						if (cached == nullptr)
 							continue;
-						mergeSurfaceFromCache(*cached);
+						mergeSurfaceFromCache(*cached, false);
 					}
 				}
 
-			const u64 writesBefore = summary.colorWriteCount;
-			if (work.opKind == static_cast<u8>(RasterOpKind::kTriangle)) {
-				DepthSurface * depthSurface = nullptr;
+				const u64 writesBefore = summary.colorWriteCount;
+				const u64 overwriteBlackBefore = summary.writeOverwriteToBlackCount;
+				const u64 overwriteBlackTexRectBefore = summary.writeTexRectOverwriteToBlackCount;
+				const u64 overwriteBlackTriangleBefore = summary.writeTriangleOverwriteToBlackCount;
+				const u64 trianglePreserveNonBlackBefore = summary.writeTrianglePreserveNonBlackCount;
+				const u64 texRectNonBlackBefore = summary.writeTexRectNonBlackCount;
+				const u64 triangleNonBlackBefore = summary.writeTriangleNonBlackCount;
+				if (work.opKind == static_cast<u8>(RasterOpKind::kTriangle)) {
+					DepthSurface * depthSurface = nullptr;
 				if (phaseUsesDepth(work.phase) && work.depthTest && work.triangleZBufferEnable) {
 					const u32 depthAddress = work.depthImageAddress != 0U
 						? work.depthImageAddress
@@ -5142,12 +5470,35 @@ ExecutorOutput Executor::executeWithOutput(
 			}
 			else
 				writeRect(surface, work, m_config, summary);
-			const u64 writesAfter = summary.colorWriteCount;
-			if (writesAfter > writesBefore)
-				surfaceColorWrites[work.colorImageAddress] += (writesAfter - writesBefore);
-			lastSurfaceAddress = work.colorImageAddress;
+				const u64 writesAfter = summary.colorWriteCount;
+				if (writesAfter > writesBefore)
+					surfaceColorWrites[work.colorImageAddress] += (writesAfter - writesBefore);
+				const u64 overwriteBlackDelta = summary.writeOverwriteToBlackCount - overwriteBlackBefore;
+				if (overwriteBlackDelta > 0ULL)
+					surfaceOverwriteBlackCounts[work.colorImageAddress] += overwriteBlackDelta;
+				const u64 overwriteBlackTexRectDelta =
+					summary.writeTexRectOverwriteToBlackCount - overwriteBlackTexRectBefore;
+				if (overwriteBlackTexRectDelta > 0ULL)
+					surfaceOverwriteBlackTexRectCounts[work.colorImageAddress] += overwriteBlackTexRectDelta;
+				const u64 overwriteBlackTriangleDelta =
+					summary.writeTriangleOverwriteToBlackCount - overwriteBlackTriangleBefore;
+				if (overwriteBlackTriangleDelta > 0ULL)
+					surfaceOverwriteBlackTriangleCounts[work.colorImageAddress] += overwriteBlackTriangleDelta;
+				const u64 trianglePreserveNonBlackDelta =
+					summary.writeTrianglePreserveNonBlackCount - trianglePreserveNonBlackBefore;
+				if (trianglePreserveNonBlackDelta > 0ULL)
+					surfaceTrianglePreserveNonBlackCounts[work.colorImageAddress] += trianglePreserveNonBlackDelta;
+				const u64 texRectNonBlackDelta =
+					summary.writeTexRectNonBlackCount - texRectNonBlackBefore;
+				if (texRectNonBlackDelta > 0ULL)
+					surfaceTexRectNonBlackWriteCounts[work.colorImageAddress] += texRectNonBlackDelta;
+				const u64 triangleNonBlackDelta =
+					summary.writeTriangleNonBlackCount - triangleNonBlackBefore;
+				if (triangleNonBlackDelta > 0ULL)
+					surfaceTriangleNonBlackWriteCounts[work.colorImageAddress] += triangleNonBlackDelta;
+				lastSurfaceAddress = work.colorImageAddress;
+			}
 		}
-	}
 
 	summary.surfaceCount = static_cast<u64>(surfaces.size());
 	struct SurfaceRank
@@ -5395,6 +5746,100 @@ ExecutorOutput Executor::executeWithOutput(
 	if (summary.selectedPresentSurfaceWorkCount == 0ULL
 		&& historyIt != m_surfaceHistory.end())
 		summary.selectedPresentSurfaceWorkCount = historyIt->second.workCount;
+	const auto selectedOverwriteBlackIt = surfaceOverwriteBlackCounts.find(presentSurfaceAddress);
+	if (selectedOverwriteBlackIt != surfaceOverwriteBlackCounts.end())
+		summary.selectedPresentSurfaceOverwriteBlackCount = selectedOverwriteBlackIt->second;
+	const auto selectedOverwriteBlackTexRectIt = surfaceOverwriteBlackTexRectCounts.find(presentSurfaceAddress);
+	if (selectedOverwriteBlackTexRectIt != surfaceOverwriteBlackTexRectCounts.end())
+		summary.selectedPresentSurfaceOverwriteBlackTexRectCount = selectedOverwriteBlackTexRectIt->second;
+	const auto selectedOverwriteBlackTriangleIt = surfaceOverwriteBlackTriangleCounts.find(presentSurfaceAddress);
+	if (selectedOverwriteBlackTriangleIt != surfaceOverwriteBlackTriangleCounts.end())
+		summary.selectedPresentSurfaceOverwriteBlackTriangleCount = selectedOverwriteBlackTriangleIt->second;
+	const auto selectedTrianglePreserveNonBlackIt = surfaceTrianglePreserveNonBlackCounts.find(presentSurfaceAddress);
+	if (selectedTrianglePreserveNonBlackIt != surfaceTrianglePreserveNonBlackCounts.end()) {
+		summary.selectedPresentSurfaceTrianglePreserveNonBlackCount =
+			selectedTrianglePreserveNonBlackIt->second;
+	}
+	const auto selectedTexRectNonBlackIt = surfaceTexRectNonBlackWriteCounts.find(presentSurfaceAddress);
+	if (selectedTexRectNonBlackIt != surfaceTexRectNonBlackWriteCounts.end())
+		summary.selectedPresentSurfaceTexRectNonBlackWriteCount = selectedTexRectNonBlackIt->second;
+	const auto selectedTriangleNonBlackIt = surfaceTriangleNonBlackWriteCounts.find(presentSurfaceAddress);
+	if (selectedTriangleNonBlackIt != surfaceTriangleNonBlackWriteCounts.end()) {
+		summary.selectedPresentSurfaceTriangleNonBlackWriteCount =
+			selectedTriangleNonBlackIt->second;
+	}
+	if (it != surfaces.end()
+		&& debugEnableUntouchedPresentCarry()
+		&& summary.selectedPresentSurfaceLiveWriteCount > 0ULL
+		&& !m_surfaceHistory.empty()) {
+		ColorSurface & selectedSurface = it->second;
+		const size_t pixelCount =
+			static_cast<size_t>(selectedSurface.width) * static_cast<size_t>(selectedSurface.height);
+		if (selectedSurface.pixels.size() >= pixelCount && selectedSurface.writeMask.size() >= pixelCount) {
+			const auto scoreCandidate = [&](const ExecutorCachedSurface & _candidate) -> u64 {
+				if (!_candidate.valid
+					|| _candidate.format != selectedSurface.format
+					|| _candidate.size != selectedSurface.size
+					|| _candidate.width != selectedSurface.width
+					|| _candidate.height < selectedSurface.height
+					|| _candidate.pixels.size() < pixelCount
+					|| isDepthOnlyColorAddress(_candidate.address)) {
+					return 0ULL;
+				}
+				u64 score = 0ULL;
+				for (size_t i = 0U; i < pixelCount; ++i) {
+					if (selectedSurface.writeMask[i] != 0U)
+						continue;
+					if ((_candidate.pixels[i] & 0x00FFFFFFU) != 0U)
+						++score;
+				}
+				return score;
+			};
+
+			const ExecutorCachedSurface * bestSource = nullptr;
+			u64 bestScore = 0ULL;
+			const u64 lastSelectedScore = scoreCandidate(m_lastSelectedSurface);
+			if (lastSelectedScore > bestScore) {
+				bestSource = &m_lastSelectedSurface;
+				bestScore = lastSelectedScore;
+			}
+			for (const auto & historyEntry : m_surfaceHistory) {
+				const ExecutorCachedSurface & cached = historyEntry.second;
+				const u64 score = scoreCandidate(cached);
+				if (score > bestScore) {
+					bestSource = &cached;
+					bestScore = score;
+				}
+			}
+
+			if (bestSource != nullptr && bestScore > 0ULL) {
+				const bool sourceHasCoverage = bestSource->coverage.size() >= pixelCount;
+				const bool sourceHasHiddenCoverage = bestSource->hiddenCoverage.size() >= pixelCount;
+				u64 copiedPixels = 0ULL;
+				for (size_t i = 0U; i < pixelCount; ++i) {
+					if (selectedSurface.writeMask[i] != 0U)
+						continue;
+					const u32 sourcePixel = bestSource->pixels[i];
+					if ((sourcePixel & 0x00FFFFFFU) == 0U)
+						continue;
+					if (selectedSurface.pixels[i] != sourcePixel) {
+						selectedSurface.pixels[i] = sourcePixel;
+						++copiedPixels;
+					}
+					if (sourceHasCoverage && selectedSurface.coverage.size() >= pixelCount)
+						selectedSurface.coverage[i] = static_cast<u8>(bestSource->coverage[i] & 0x7U);
+					if (sourceHasHiddenCoverage && selectedSurface.hiddenCoverage.size() >= pixelCount) {
+						selectedSurface.hiddenCoverage[i] =
+							static_cast<u8>(bestSource->hiddenCoverage[i] & 0x1U);
+					}
+				}
+				if (copiedPixels > 0ULL) {
+					summary.selectedPresentSurfaceUntouchedCarryCount = copiedPixels;
+					summary.selectedPresentSurfaceUntouchedCarrySourceAddress = bestSource->address;
+				}
+			}
+		}
+	}
 
 	if (it != surfaces.end()) {
 		summary.selectedPresentSurfaceFromHistory = 0U;
@@ -5530,6 +5975,12 @@ ExecutorOutput Executor::executeWithOutput(
 
 	for (const auto & entry : surfaces) {
 		const u32 address = entry.first;
+		if (isDepthOnlyColorAddress(address)) {
+			m_surfaceHistory.erase(address);
+			if (m_lastSelectedSurface.valid && m_lastSelectedSurface.address == address)
+				m_lastSelectedSurface.valid = false;
+			continue;
+		}
 		const ColorSurface & surface = entry.second;
 		ExecutorCachedSurface & cached = m_surfaceHistory[address];
 		cached.valid = true;
@@ -5565,7 +6016,6 @@ ExecutorOutput Executor::executeWithOutput(
 			break;
 		m_surfaceHistory.erase(oldestAddress);
 	}
-
 	gActiveExecutorSummary = previousExecutorSummary;
 	gActiveTextureReplacementStore = previousReplacementStore;
 	gActiveExecutorTMEMWords = previousTMEMWords;

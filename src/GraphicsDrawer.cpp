@@ -134,9 +134,31 @@ inline f32 renderAndDrawTriangles(
 	const SPVertex * _vertices,
 	const u16 * _elements,
 	u32 _count,
-	bool /*_flatColors*/,
+	bool _flatColors,
+	const graphics::CombinerProgram * _combiner,
 	GraphicsDrawer::Statistics & /*_stats*/)
 {
+	if (_vertices == nullptr || _count == 0U)
+		return 0.0f;
+
+	graphics::Context::DrawTriangleParameters triParams{};
+	triParams.mode = graphics::drawmode::TRIANGLES;
+	triParams.flatColors = _flatColors;
+	triParams.combiner = _combiner;
+
+	std::vector<SPVertex> expandedVertices;
+	if (_elements != nullptr) {
+		expandedVertices.reserve(_count);
+		for (u32 i = 0U; i < _count; ++i)
+			expandedVertices.push_back(_vertices[_elements[i]]);
+		triParams.verticesCount = static_cast<u32>(expandedVertices.size());
+		triParams.vertices = expandedVertices.data();
+	}
+	else {
+		triParams.verticesCount = _count;
+		triParams.vertices = const_cast<SPVertex *>(_vertices);
+	}
+	gfxContext.drawTriangles(triParams);
 	return maxYForTriangles(_vertices, _elements, _count);
 }
 
@@ -863,7 +885,7 @@ void GraphicsDrawer::drawTriangles()
 	if (config.frameBufferEmulation.enable != 0) {
 		f32 maxY;
 		if (config.generalEmulation.enableClipping != 0) {
-			maxY = renderAndDrawTriangles(triangles.vertices.data(), triangles.elements.data(), triangles.num, m_bFlatColors, m_statistics);
+				maxY = renderAndDrawTriangles(triangles.vertices.data(), triangles.elements.data(), triangles.num, m_bFlatColors, triParams.combiner, m_statistics);
 		} else {
 			gfxContext.drawTriangles(triParams);
 			maxY = renderTriangles(triangles.vertices.data(), triangles.elements.data(), triangles.num);
@@ -877,7 +899,7 @@ void GraphicsDrawer::drawTriangles()
 		}
 	} else {
 		if (config.generalEmulation.enableClipping != 0)
-			renderAndDrawTriangles(triangles.vertices.data(), triangles.elements.data(), triangles.num, m_bFlatColors, m_statistics);
+				renderAndDrawTriangles(triangles.vertices.data(), triangles.elements.data(), triangles.num, m_bFlatColors, triParams.combiner, m_statistics);
 		else
 			gfxContext.drawTriangles(triParams);
 	}
@@ -962,7 +984,7 @@ void GraphicsDrawer::drawDMATriangles(u32 _numVtx)
 	if (config.frameBufferEmulation.enable != 0) {
 		f32 maxY;
 		if (config.generalEmulation.enableClipping != 0) {
-			maxY = renderAndDrawTriangles(m_dmaVertices.data(), nullptr, _numVtx, m_bFlatColors, m_statistics);
+				maxY = renderAndDrawTriangles(m_dmaVertices.data(), nullptr, _numVtx, m_bFlatColors, triParams.combiner, m_statistics);
 		}
 		else {
 			gfxContext.drawTriangles(triParams);
@@ -977,7 +999,7 @@ void GraphicsDrawer::drawDMATriangles(u32 _numVtx)
 		}
 	} else {
 		if (config.generalEmulation.enableClipping != 0)
-			renderAndDrawTriangles(m_dmaVertices.data(), nullptr, _numVtx, m_bFlatColors, m_statistics);
+				renderAndDrawTriangles(m_dmaVertices.data(), nullptr, _numVtx, m_bFlatColors, triParams.combiner, m_statistics);
 		else
 			gfxContext.drawTriangles(triParams);
 	}
