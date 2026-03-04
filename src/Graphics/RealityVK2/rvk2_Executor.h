@@ -45,6 +45,7 @@ struct ExecutorConfig {
 	u16 maxSurfaceHeight = 2048U;
 	u8 presentAspectX = 4U;
 	u8 presentAspectY = 3U;
+	u64 frameId = 0ULL;
 	bool textureReplacementEnable = false;
 	std::string textureReplacementCachePath{};
 	std::string textureReplacementPackPath{};
@@ -110,8 +111,14 @@ struct ExecutorSummary {
 	u64 selectedPresentSurfaceVIHistoryCarryPotentialUnwrittenDiffCount = 0ULL;
 	u64 selectedPresentSurfaceVIHistoryCarryCopiedCount = 0ULL;
 	u64 selectedPresentSurfaceVIHistoryCarryCopiedUnwrittenCount = 0ULL;
+	u64 selectedPresentSurfaceSelfHistoryCarryPotentialBlackFillCount = 0ULL;
+	u64 selectedPresentSurfaceSelfHistoryCarryPotentialNonBlackDiffCount = 0ULL;
+	u64 selectedPresentSurfaceSelfHistoryCarryPotentialUnwrittenDiffCount = 0ULL;
+	u64 selectedPresentSurfaceSelfHistoryCarryCopiedCount = 0ULL;
+	u64 selectedPresentSurfaceSelfHistoryCarryCopiedUnwrittenCount = 0ULL;
 	u32 selectedPresentSurfaceUntouchedCarrySourceAddress = 0U;
 	u32 selectedPresentSurfaceVIHistoryCarrySourceAddress = 0U;
+	u32 selectedPresentSurfaceSelfHistoryCarrySourceAddress = 0U;
 	u64 selectedPresentSurfaceHistoryAge = 0ULL;
 	u32 historySurfaceCount = 0U;
 	u32 historyVIOriginCandidateAddress = 0U;
@@ -120,6 +127,9 @@ struct ExecutorSummary {
 	u8 historyVIOriginCandidateExact = 0U;
 	u8 historyVIOriginCandidateRejectedByAge = 0U;
 	u8 selectedPresentSurfaceVIHistoryCarryApplied = 0U;
+	u8 selectedPresentSurfaceSelfHistoryCarryApplied = 0U;
+	u8 reservedHistoryDebugA = 0U;
+	u16 reservedHistoryDebugB = 0U;
 	u64 selectedPresentSurfaceHash = 1469598103934665603ULL;
 	u64 surfaceBootstrapSameAddressAttemptCount = 0ULL;
 	u64 surfaceBootstrapSameAddressSuccessCount = 0ULL;

@@ -432,9 +432,13 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
             "overwrite_quantized_to_black_count": 0,
             "black_write_quantized_to_black_count": 0,
             "texel_detail": {"available": False, "slot_summaries": {}},
+            "frame_count": 0,
             "source_packet_stage_profiles": [],
             "source_packet_stage_profile_count": 0,
             "source_packet_stage_profile_truncated_count": 0,
+            "source_packet_stage_profiles_by_frame": [],
+            "source_packet_stage_profiles_by_frame_count": 0,
+            "source_packet_stage_profiles_by_frame_truncated_count": 0,
         }
 
     records: List[Dict[str, Any]] = []
@@ -449,6 +453,7 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
     overwrite_combiner_kill_source_packet_counts: Dict[int, int] = {}
     black_write_combiner_kill_source_packet_counts: Dict[int, int] = {}
     source_packet_stage_stats: Dict[int, Dict[str, Any]] = {}
+    source_packet_stage_stats_by_frame_packet: Dict[Tuple[int, int], Dict[str, Any]] = {}
     overwrite_state_counts: Dict[str, int] = {}
     overwrite_state_rows: Dict[str, Dict[str, Any]] = {}
     black_write_state_counts: Dict[str, int] = {}
@@ -471,6 +476,7 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
     black_write_kill_after_blender_count = 0
     overwrite_quantized_to_black_count = 0
     black_write_quantized_to_black_count = 0
+    unique_frames: set[int] = set()
     texel_slot_names = ("tex0", "tex1", "tex0_next")
     texel_source_names = {
         0: "none",
@@ -522,32 +528,84 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
     }
     texel_slot_tmem_index_counts: Dict[str, Dict[str, int]] = {slot: {} for slot in texel_slot_names}
 
+    def _new_packet_stage_row(packet_id: int, frame_id: int = 0) -> Dict[str, Any]:
+        row: Dict[str, Any] = {
+            "source_packet_id": int(packet_id),
+            "record_count": 0,
+            "overwrite_count": 0,
+            "final_black_count": 0,
+            "texel_black_count": 0,
+            "combiner_black_count": 0,
+            "blender_black_count": 0,
+            "kill_at_combiner_count": 0,
+            "kill_at_blender_count": 0,
+            "kill_after_blender_count": 0,
+            "quantized_to_black_count": 0,
+            "tex0_valid_count": 0,
+            "tex0_sample_black_count": 0,
+            "tex0_final_black_count": 0,
+            "tex0_rdram_probe_valid_count": 0,
+            "tex0_rdram_probe_non_black_count": 0,
+            "tex0_rdram_probe_beats_tmem_count": 0,
+            "op_counts": {},
+            "phase_counts": {},
+        }
+        if frame_id > 0:
+            row["frame_id"] = int(frame_id)
+        return row
+
     def _packet_stage_row(packet_id: int) -> Dict[str, Any]:
         row = source_packet_stage_stats.get(packet_id)
         if row is None:
-            row = {
-                "source_packet_id": int(packet_id),
-                "record_count": 0,
-                "overwrite_count": 0,
-                "final_black_count": 0,
-                "texel_black_count": 0,
-                "combiner_black_count": 0,
-                "blender_black_count": 0,
-                "kill_at_combiner_count": 0,
-                "kill_at_blender_count": 0,
-                "kill_after_blender_count": 0,
-                "quantized_to_black_count": 0,
-                "tex0_valid_count": 0,
-                "tex0_sample_black_count": 0,
-                "tex0_final_black_count": 0,
-                "tex0_rdram_probe_valid_count": 0,
-                "tex0_rdram_probe_non_black_count": 0,
-                "tex0_rdram_probe_beats_tmem_count": 0,
-                "op_counts": {},
-                "phase_counts": {},
-            }
+            row = _new_packet_stage_row(packet_id)
             source_packet_stage_stats[packet_id] = row
         return row
+
+    def _packet_stage_row_by_frame(frame_id: int, packet_id: int) -> Dict[str, Any]:
+        key = (int(frame_id), int(packet_id))
+        row = source_packet_stage_stats_by_frame_packet.get(key)
+        if row is None:
+            row = _new_packet_stage_row(packet_id, frame_id)
+            source_packet_stage_stats_by_frame_packet[key] = row
+        return row
+
+    def _bump_packet_stage_row(
+        row: Dict[str, Any],
+        *,
+        overwrite_to_black: bool,
+        quantized_to_black: bool,
+        final_black: bool,
+        texel_black: bool,
+        combiner_black: bool,
+        blender_black: bool,
+        phase: int,
+        op_name: str,
+    ) -> None:
+        row["record_count"] = int(row.get("record_count", 0) or 0) + 1
+        if overwrite_to_black:
+            row["overwrite_count"] = int(row.get("overwrite_count", 0) or 0) + 1
+        if quantized_to_black:
+            row["quantized_to_black_count"] = int(row.get("quantized_to_black_count", 0) or 0) + 1
+        if final_black:
+            row["final_black_count"] = int(row.get("final_black_count", 0) or 0) + 1
+        if texel_black:
+            row["texel_black_count"] = int(row.get("texel_black_count", 0) or 0) + 1
+        if combiner_black:
+            row["combiner_black_count"] = int(row.get("combiner_black_count", 0) or 0) + 1
+        if blender_black:
+            row["blender_black_count"] = int(row.get("blender_black_count", 0) or 0) + 1
+        if not texel_black and combiner_black:
+            row["kill_at_combiner_count"] = int(row.get("kill_at_combiner_count", 0) or 0) + 1
+        if not combiner_black and blender_black:
+            row["kill_at_blender_count"] = int(row.get("kill_at_blender_count", 0) or 0) + 1
+        if not blender_black and final_black:
+            row["kill_after_blender_count"] = int(row.get("kill_after_blender_count", 0) or 0) + 1
+        op_counts = row.get("op_counts")
+        if isinstance(op_counts, dict):
+            _bucket_bump(op_counts, op_name)
+        phase_counts = row.get("phase_counts")
+        if isinstance(phase_counts, dict):
+            _bucket_bump(phase_counts, str(int(phase)))
 
     for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         stripped = line.strip()
@@ -567,6 +625,9 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
         if not record:
             continue
         records.append(record)
+        frame_id = int(_u64(record, "frame"))
+        if frame_id > 0:
+            unique_frames.add(frame_id)
         overwrite_to_black_field = record.get("overwrite_to_black")
         overwrite_to_black = (
             _u64(record, "overwrite_to_black") != 0
@@ -648,35 +709,32 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
             black_write_kill_after_blender_count += 1
 
         if source_packet_id > 0:
+            phase = int(_u64(record, "phase"))
             packet_stage = _packet_stage_row(source_packet_id)
-            packet_stage["record_count"] = int(packet_stage.get("record_count", 0) or 0) + 1
-            if overwrite_to_black:
-                packet_stage["overwrite_count"] = int(packet_stage.get("overwrite_count", 0) or 0) + 1
-            if quantized_to_black:
-                packet_stage["quantized_to_black_count"] = int(
-                    packet_stage.get("quantized_to_black_count", 0) or 0
-                ) + 1
-            if final_black:
-                packet_stage["final_black_count"] = int(packet_stage.get("final_black_count", 0) or 0) + 1
-            if texel_black:
-                packet_stage["texel_black_count"] = int(packet_stage.get("texel_black_count", 0) or 0) + 1
-            if combiner_black:
-                packet_stage["combiner_black_count"] = int(packet_stage.get("combiner_black_count", 0) or 0) + 1
-            if blender_black:
-                packet_stage["blender_black_count"] = int(packet_stage.get("blender_black_count", 0) or 0) + 1
-            if not texel_black and combiner_black:
-                packet_stage["kill_at_combiner_count"] = int(packet_stage.get("kill_at_combiner_count", 0) or 0) + 1
-            if not combiner_black and blender_black:
-                packet_stage["kill_at_blender_count"] = int(packet_stage.get("kill_at_blender_count", 0) or 0) + 1
-            if not blender_black and final_black:
-                packet_stage["kill_after_blender_count"] = int(packet_stage.get("kill_after_blender_count", 0) or 0) + 1
-            phase = _u64(record, "phase")
-            op_counts = packet_stage.get("op_counts")
-            if isinstance(op_counts, dict):
-                _bucket_bump(op_counts, op_name)
-            phase_counts = packet_stage.get("phase_counts")
-            if isinstance(phase_counts, dict):
-                _bucket_bump(phase_counts, str(int(phase)))
+            _bump_packet_stage_row(
+                packet_stage,
+                overwrite_to_black=overwrite_to_black,
+                quantized_to_black=quantized_to_black,
+                final_black=final_black,
+                texel_black=texel_black,
+                combiner_black=combiner_black,
+                blender_black=blender_black,
+                phase=phase,
+                op_name=op_name,
+            )
+            if frame_id > 0:
+                packet_stage_by_frame = _packet_stage_row_by_frame(frame_id, source_packet_id)
+                _bump_packet_stage_row(
+                    packet_stage_by_frame,
+                    overwrite_to_black=overwrite_to_black,
+                    quantized_to_black=quantized_to_black,
+                    final_black=final_black,
+                    texel_black=texel_black,
+                    combiner_black=combiner_black,
+                    blender_black=blender_black,
+                    phase=phase,
+                    op_name=op_name,
+                )
 
         if overwrite_to_black:
             if texel_black:
@@ -820,6 +878,34 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
                             packet_stage["tex0_rdram_probe_beats_tmem_count"] = int(
                                 packet_stage.get("tex0_rdram_probe_beats_tmem_count", 0) or 0
                             ) + 1
+                if frame_id > 0:
+                    packet_stage_by_frame = _packet_stage_row_by_frame(frame_id, source_packet_id)
+                    packet_stage_by_frame["tex0_valid_count"] = int(
+                        packet_stage_by_frame.get("tex0_valid_count", 0) or 0
+                    ) + 1
+                    if sampled_black:
+                        packet_stage_by_frame["tex0_sample_black_count"] = int(
+                            packet_stage_by_frame.get("tex0_sample_black_count", 0) or 0
+                        ) + 1
+                    if (final_slot_color & 0x00FFFFFF) == 0:
+                        packet_stage_by_frame["tex0_final_black_count"] = int(
+                            packet_stage_by_frame.get("tex0_final_black_count", 0) or 0
+                        ) + 1
+                    if int(_u64(record, "tex0_rdram_probe_valid")) != 0:
+                        packet_stage_by_frame["tex0_rdram_probe_valid_count"] = int(
+                            packet_stage_by_frame.get("tex0_rdram_probe_valid_count", 0) or 0
+                        ) + 1
+                        probe_non_black = (
+                            int(_u64(record, "tex0_rdram_probe_final_color")) & 0x00FFFFFF
+                        ) != 0
+                        if probe_non_black:
+                            packet_stage_by_frame["tex0_rdram_probe_non_black_count"] = int(
+                                packet_stage_by_frame.get("tex0_rdram_probe_non_black_count", 0) or 0
+                            ) + 1
+                            if sampled_black:
+                                packet_stage_by_frame["tex0_rdram_probe_beats_tmem_count"] = int(
+                                    packet_stage_by_frame.get("tex0_rdram_probe_beats_tmem_count", 0) or 0
+                                ) + 1
 
     record_count = len(records)
     non_overwrite_black_write_count = max(0, record_count - overwrite_record_count)
@@ -994,17 +1080,11 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
             "top_tmem_indices": top_tmem_indices,
         }
 
-    max_packet_stage_profiles = 256
-    source_packet_stage_profiles: List[Dict[str, Any]] = []
-    ordered_packet_stage_rows = sorted(
-        source_packet_stage_stats.values(),
-        key=lambda row: (
-            -int(row.get("overwrite_count", 0) or 0),
-            -int(row.get("record_count", 0) or 0),
-            int(row.get("source_packet_id", 0) or 0),
-        ),
-    )
-    for row in ordered_packet_stage_rows[:max_packet_stage_profiles]:
+    def _build_source_packet_stage_profile(
+        row: Dict[str, Any],
+        *,
+        include_frame_id: bool,
+    ) -> Dict[str, Any]:
         record_count_for_packet = int(row.get("record_count", 0) or 0)
         overwrite_count_for_packet = int(row.get("overwrite_count", 0) or 0)
         final_black_count_for_packet = int(row.get("final_black_count", 0) or 0)
@@ -1025,59 +1105,95 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
         tex0_probe_beats_tmem_count_for_packet = int(
             row.get("tex0_rdram_probe_beats_tmem_count", 0) or 0
         )
+        profile: Dict[str, Any] = {
+            "source_packet_id": int(row.get("source_packet_id", 0) or 0),
+            "record_count": record_count_for_packet,
+            "overwrite_count": overwrite_count_for_packet,
+            "overwrite_ratio_of_packet_records": _ratio(overwrite_count_for_packet, record_count_for_packet),
+            "overwrite_ratio_of_all_overwrites": _ratio(overwrite_count_for_packet, overwrite_record_count),
+            "final_black_count": final_black_count_for_packet,
+            "final_black_ratio": _ratio(final_black_count_for_packet, record_count_for_packet),
+            "texel_black_count": texel_black_count_for_packet,
+            "texel_black_ratio": _ratio(texel_black_count_for_packet, record_count_for_packet),
+            "combiner_black_count": combiner_black_count_for_packet,
+            "combiner_black_ratio": _ratio(combiner_black_count_for_packet, record_count_for_packet),
+            "blender_black_count": blender_black_count_for_packet,
+            "blender_black_ratio": _ratio(blender_black_count_for_packet, record_count_for_packet),
+            "kill_at_combiner_count": kill_at_combiner_count_for_packet,
+            "kill_at_combiner_ratio": _ratio(kill_at_combiner_count_for_packet, record_count_for_packet),
+            "kill_at_blender_count": kill_at_blender_count_for_packet,
+            "kill_at_blender_ratio": _ratio(kill_at_blender_count_for_packet, record_count_for_packet),
+            "kill_after_blender_count": kill_after_blender_count_for_packet,
+            "kill_after_blender_ratio": _ratio(kill_after_blender_count_for_packet, record_count_for_packet),
+            "quantized_to_black_count": quantized_to_black_count_for_packet,
+            "quantized_to_black_ratio": _ratio(
+                quantized_to_black_count_for_packet,
+                record_count_for_packet,
+            ),
+            "tex0_valid_count": tex0_valid_count_for_packet,
+            "tex0_sample_black_ratio": _ratio(tex0_sample_black_count_for_packet, tex0_valid_count_for_packet),
+            "tex0_final_black_ratio": _ratio(tex0_final_black_count_for_packet, tex0_valid_count_for_packet),
+            "tex0_rdram_probe_valid_count": tex0_probe_valid_count_for_packet,
+            "tex0_rdram_probe_non_black_ratio": _ratio(
+                tex0_probe_non_black_count_for_packet,
+                tex0_probe_valid_count_for_packet,
+            ),
+            "tex0_rdram_probe_beats_tmem_ratio": _ratio(
+                tex0_probe_beats_tmem_count_for_packet,
+                tex0_probe_valid_count_for_packet,
+            ),
+            "op_counts": (
+                dict(sorted((row.get("op_counts", {}) or {}).items()))
+                if isinstance(row.get("op_counts"), dict)
+                else {}
+            ),
+            "phase_counts": (
+                dict(sorted((row.get("phase_counts", {}) or {}).items()))
+                if isinstance(row.get("phase_counts"), dict)
+                else {}
+            ),
+        }
+        if include_frame_id:
+            profile["frame_id"] = int(row.get("frame_id", 0) or 0)
+        return profile
+
+    max_packet_stage_profiles = 4096
+    source_packet_stage_profiles: List[Dict[str, Any]] = []
+    ordered_packet_stage_rows = sorted(
+        source_packet_stage_stats.values(),
+        key=lambda row: (
+            -int(row.get("overwrite_count", 0) or 0),
+            -int(row.get("record_count", 0) or 0),
+            int(row.get("source_packet_id", 0) or 0),
+        ),
+    )
+    for row in ordered_packet_stage_rows[:max_packet_stage_profiles]:
         source_packet_stage_profiles.append(
-            {
-                "source_packet_id": int(row.get("source_packet_id", 0) or 0),
-                "record_count": record_count_for_packet,
-                "overwrite_count": overwrite_count_for_packet,
-                "overwrite_ratio_of_packet_records": _ratio(overwrite_count_for_packet, record_count_for_packet),
-                "overwrite_ratio_of_all_overwrites": _ratio(overwrite_count_for_packet, overwrite_record_count),
-                "final_black_count": final_black_count_for_packet,
-                "final_black_ratio": _ratio(final_black_count_for_packet, record_count_for_packet),
-                "texel_black_count": texel_black_count_for_packet,
-                "texel_black_ratio": _ratio(texel_black_count_for_packet, record_count_for_packet),
-                "combiner_black_count": combiner_black_count_for_packet,
-                "combiner_black_ratio": _ratio(combiner_black_count_for_packet, record_count_for_packet),
-                "blender_black_count": blender_black_count_for_packet,
-                "blender_black_ratio": _ratio(blender_black_count_for_packet, record_count_for_packet),
-                "kill_at_combiner_count": kill_at_combiner_count_for_packet,
-                "kill_at_combiner_ratio": _ratio(kill_at_combiner_count_for_packet, record_count_for_packet),
-                "kill_at_blender_count": kill_at_blender_count_for_packet,
-                "kill_at_blender_ratio": _ratio(kill_at_blender_count_for_packet, record_count_for_packet),
-                "kill_after_blender_count": kill_after_blender_count_for_packet,
-                "kill_after_blender_ratio": _ratio(kill_after_blender_count_for_packet, record_count_for_packet),
-                "quantized_to_black_count": quantized_to_black_count_for_packet,
-                "quantized_to_black_ratio": _ratio(
-                    quantized_to_black_count_for_packet,
-                    record_count_for_packet,
-                ),
-                "tex0_valid_count": tex0_valid_count_for_packet,
-                "tex0_sample_black_ratio": _ratio(tex0_sample_black_count_for_packet, tex0_valid_count_for_packet),
-                "tex0_final_black_ratio": _ratio(tex0_final_black_count_for_packet, tex0_valid_count_for_packet),
-                "tex0_rdram_probe_valid_count": tex0_probe_valid_count_for_packet,
-                "tex0_rdram_probe_non_black_ratio": _ratio(
-                    tex0_probe_non_black_count_for_packet,
-                    tex0_probe_valid_count_for_packet,
-                ),
-                "tex0_rdram_probe_beats_tmem_ratio": _ratio(
-                    tex0_probe_beats_tmem_count_for_packet,
-                    tex0_probe_valid_count_for_packet,
-                ),
-                "op_counts": (
-                    dict(sorted((row.get("op_counts", {}) or {}).items()))
-                    if isinstance(row.get("op_counts"), dict)
-                    else {}
-                ),
-                "phase_counts": (
-                    dict(sorted((row.get("phase_counts", {}) or {}).items()))
-                    if isinstance(row.get("phase_counts"), dict)
-                    else {}
-                ),
-            }
+            _build_source_packet_stage_profile(row, include_frame_id=False)
         )
     source_packet_stage_profile_truncated_count = max(
         0,
         len(ordered_packet_stage_rows) - len(source_packet_stage_profiles),
+    )
+
+    max_packet_stage_profiles_by_frame = 16384
+    source_packet_stage_profiles_by_frame: List[Dict[str, Any]] = []
+    ordered_packet_stage_rows_by_frame = sorted(
+        source_packet_stage_stats_by_frame_packet.values(),
+        key=lambda row: (
+            -int(row.get("overwrite_count", 0) or 0),
+            -int(row.get("record_count", 0) or 0),
+            int(row.get("frame_id", 0) or 0),
+            int(row.get("source_packet_id", 0) or 0),
+        ),
+    )
+    for row in ordered_packet_stage_rows_by_frame[:max_packet_stage_profiles_by_frame]:
+        source_packet_stage_profiles_by_frame.append(
+            _build_source_packet_stage_profile(row, include_frame_id=True)
+        )
+    source_packet_stage_profiles_by_frame_truncated_count = max(
+        0,
+        len(ordered_packet_stage_rows_by_frame) - len(source_packet_stage_profiles_by_frame),
     )
 
     return {
@@ -1187,9 +1303,15 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
             "available": texel_detail_available,
             "slot_summaries": texel_slot_summaries,
         },
+        "frame_count": len(unique_frames),
         "source_packet_stage_profiles": source_packet_stage_profiles,
         "source_packet_stage_profile_count": len(ordered_packet_stage_rows),
         "source_packet_stage_profile_truncated_count": source_packet_stage_profile_truncated_count,
+        "source_packet_stage_profiles_by_frame": source_packet_stage_profiles_by_frame,
+        "source_packet_stage_profiles_by_frame_count": len(ordered_packet_stage_rows_by_frame),
+        "source_packet_stage_profiles_by_frame_truncated_count": (
+            source_packet_stage_profiles_by_frame_truncated_count
+        ),
         "quantized_to_black_count": overwrite_quantized_to_black_count,
         "overwrite_quantized_to_black_count": overwrite_quantized_to_black_count,
         "black_write_quantized_to_black_count": black_write_quantized_to_black_count,
@@ -1210,13 +1332,18 @@ def _parse_triangle_packet_log(path: Optional[Path]) -> Dict[str, Any]:
             "total_x_edge_reject": 0,
             "zero_sample_records": 0,
             "zero_sample_reason_counts": {},
+            "frame_count": 0,
             "source_packet_profiles": [],
             "source_packet_profile_count": 0,
             "source_packet_profile_truncated_count": 0,
+            "source_packet_profiles_by_frame": [],
+            "source_packet_profiles_by_frame_count": 0,
+            "source_packet_profiles_by_frame_truncated_count": 0,
         }
 
     records: List[Dict[str, Any]] = []
     source_packet_stats: Dict[int, Dict[str, Any]] = {}
+    source_packet_stats_by_frame_packet: Dict[Tuple[int, int], Dict[str, Any]] = {}
     total_sample_candidates = 0
     total_writes = 0
     total_alpha_reject = 0
@@ -1227,6 +1354,7 @@ def _parse_triangle_packet_log(path: Optional[Path]) -> Dict[str, Any]:
     total_x_edge_reject = 0
     zero_sample_records = 0
     zero_sample_reason_counts: Dict[str, int] = {}
+    unique_frames: set[int] = set()
 
     def _reason_bump(reason: str) -> None:
         zero_sample_reason_counts[reason] = zero_sample_reason_counts.get(reason, 0) + 1
@@ -1244,44 +1372,115 @@ def _parse_triangle_packet_log(path: Optional[Path]) -> Dict[str, Any]:
             return "fill"
         return "other"
 
+    def _new_packet_row(packet_id: int, frame_id: int = 0) -> Dict[str, Any]:
+        row: Dict[str, Any] = {
+            "source_packet_id": int(packet_id),
+            "record_count": 0,
+            "sample_candidates": 0,
+            "writes": 0,
+            "alpha_reject": 0,
+            "coverage_reject": 0,
+            "depth_reject": 0,
+            "scissor_field_reject_rows": 0,
+            "y_range_reject_rows": 0,
+            "x_edge_reject": 0,
+            "bounds_reject_records": 0,
+            "degenerate_reject_records": 0,
+            "zero_sample_records": 0,
+            "zero_sample_y_range_records": 0,
+            "zero_sample_x_edge_records": 0,
+            "zero_sample_scissor_records": 0,
+            "zero_sample_bounds_records": 0,
+            "zero_sample_degenerate_records": 0,
+            "zero_sample_other_records": 0,
+            "op_counts": {},
+            "phase_counts": {},
+            "color_image_address": 0,
+            "combine_mux": "0x0000000000000000",
+            "other_modes": "0x0000000000000000",
+            "blend_params": "0x00000000",
+            "tile_format": 0,
+            "tile_size": 0,
+            "tile_line": 0,
+            "tile_tmem": 0,
+            "texture_image_width": 0,
+            "texture_image_address": "0x00000000",
+        }
+        if frame_id > 0:
+            row["frame_id"] = int(frame_id)
+        return row
+
     def _packet_row(packet_id: int) -> Dict[str, Any]:
         row = source_packet_stats.get(packet_id)
         if row is None:
-            row = {
-                "source_packet_id": int(packet_id),
-                "record_count": 0,
-                "sample_candidates": 0,
-                "writes": 0,
-                "alpha_reject": 0,
-                "coverage_reject": 0,
-                "depth_reject": 0,
-                "scissor_field_reject_rows": 0,
-                "y_range_reject_rows": 0,
-                "x_edge_reject": 0,
-                "bounds_reject_records": 0,
-                "degenerate_reject_records": 0,
-                "zero_sample_records": 0,
-                "zero_sample_y_range_records": 0,
-                "zero_sample_x_edge_records": 0,
-                "zero_sample_scissor_records": 0,
-                "zero_sample_bounds_records": 0,
-                "zero_sample_degenerate_records": 0,
-                "zero_sample_other_records": 0,
-                "op_counts": {},
-                "phase_counts": {},
-                "color_image_address": 0,
-                "combine_mux": "0x0000000000000000",
-                "other_modes": "0x0000000000000000",
-                "blend_params": "0x00000000",
-                "tile_format": 0,
-                "tile_size": 0,
-                "tile_line": 0,
-                "tile_tmem": 0,
-                "texture_image_width": 0,
-                "texture_image_address": "0x00000000",
-            }
+            row = _new_packet_row(packet_id)
             source_packet_stats[packet_id] = row
         return row
+
+    def _packet_row_by_frame(frame_id: int, packet_id: int) -> Dict[str, Any]:
+        key = (int(frame_id), int(packet_id))
+        row = source_packet_stats_by_frame_packet.get(key)
+        if row is None:
+            row = _new_packet_row(packet_id, frame_id)
+            source_packet_stats_by_frame_packet[key] = row
+        return row
+
+    def _accumulate_packet_row(
+        row: Dict[str, Any],
+        *,
+        sample_candidates: int,
+        writes: int,
+        alpha_reject: int,
+        coverage_reject: int,
+        depth_reject: int,
+        scissor_field_reject_rows: int,
+        y_range_reject_rows: int,
+        x_edge_reject: int,
+        bounds_reject: int,
+        degenerate_reject: int,
+        phase: int,
+        op_name: str,
+    ) -> None:
+        row["record_count"] = int(row.get("record_count", 0) or 0) + 1
+        row["sample_candidates"] = int(row.get("sample_candidates", 0) or 0) + sample_candidates
+        row["writes"] = int(row.get("writes", 0) or 0) + writes
+        row["alpha_reject"] = int(row.get("alpha_reject", 0) or 0) + alpha_reject
+        row["coverage_reject"] = int(row.get("coverage_reject", 0) or 0) + coverage_reject
+        row["depth_reject"] = int(row.get("depth_reject", 0) or 0) + depth_reject
+        row["scissor_field_reject_rows"] = int(row.get("scissor_field_reject_rows", 0) or 0) + scissor_field_reject_rows
+        row["y_range_reject_rows"] = int(row.get("y_range_reject_rows", 0) or 0) + y_range_reject_rows
+        row["x_edge_reject"] = int(row.get("x_edge_reject", 0) or 0) + x_edge_reject
+        if bounds_reject != 0:
+            row["bounds_reject_records"] = int(row.get("bounds_reject_records", 0) or 0) + 1
+        if degenerate_reject != 0:
+            row["degenerate_reject_records"] = int(row.get("degenerate_reject_records", 0) or 0) + 1
+        if sample_candidates == 0:
+            row["zero_sample_records"] = int(row.get("zero_sample_records", 0) or 0) + 1
+            reason_marked = False
+            if bounds_reject != 0:
+                row["zero_sample_bounds_records"] = int(row.get("zero_sample_bounds_records", 0) or 0) + 1
+                reason_marked = True
+            if degenerate_reject != 0:
+                row["zero_sample_degenerate_records"] = int(row.get("zero_sample_degenerate_records", 0) or 0) + 1
+                reason_marked = True
+            if scissor_field_reject_rows > 0:
+                row["zero_sample_scissor_records"] = int(row.get("zero_sample_scissor_records", 0) or 0) + 1
+                reason_marked = True
+            if y_range_reject_rows > 0:
+                row["zero_sample_y_range_records"] = int(row.get("zero_sample_y_range_records", 0) or 0) + 1
+                reason_marked = True
+            if x_edge_reject > 0:
+                row["zero_sample_x_edge_records"] = int(row.get("zero_sample_x_edge_records", 0) or 0) + 1
+                reason_marked = True
+            if not reason_marked:
+                row["zero_sample_other_records"] = int(row.get("zero_sample_other_records", 0) or 0) + 1
+
+        op_counts = row.get("op_counts")
+        if isinstance(op_counts, dict):
+            op_counts[op_name] = int(op_counts.get(op_name, 0) or 0) + 1
+        phase_counts = row.get("phase_counts")
+        if isinstance(phase_counts, dict):
+            phase_counts[str(phase)] = int(phase_counts.get(str(phase), 0) or 0) + 1
 
     for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         stripped = line.strip()
@@ -1301,6 +1500,9 @@ def _parse_triangle_packet_log(path: Optional[Path]) -> Dict[str, Any]:
         if not record:
             continue
         records.append(record)
+        frame_id = int(_u64(record, "frame"))
+        if frame_id > 0:
+            unique_frames.add(frame_id)
 
         sample_candidates = int(_u64(record, "sample_candidates"))
         writes = int(_u64(record, "writes"))
@@ -1350,73 +1552,65 @@ def _parse_triangle_packet_log(path: Optional[Path]) -> Dict[str, Any]:
             continue
 
         row = _packet_row(source_packet_id)
-        row["record_count"] = int(row.get("record_count", 0) or 0) + 1
-        row["sample_candidates"] = int(row.get("sample_candidates", 0) or 0) + sample_candidates
-        row["writes"] = int(row.get("writes", 0) or 0) + writes
-        row["alpha_reject"] = int(row.get("alpha_reject", 0) or 0) + alpha_reject
-        row["coverage_reject"] = int(row.get("coverage_reject", 0) or 0) + coverage_reject
-        row["depth_reject"] = int(row.get("depth_reject", 0) or 0) + depth_reject
-        row["scissor_field_reject_rows"] = int(row.get("scissor_field_reject_rows", 0) or 0) + scissor_field_reject_rows
-        row["y_range_reject_rows"] = int(row.get("y_range_reject_rows", 0) or 0) + y_range_reject_rows
-        row["x_edge_reject"] = int(row.get("x_edge_reject", 0) or 0) + x_edge_reject
-        if bounds_reject != 0:
-            row["bounds_reject_records"] = int(row.get("bounds_reject_records", 0) or 0) + 1
-        if degenerate_reject != 0:
-            row["degenerate_reject_records"] = int(row.get("degenerate_reject_records", 0) or 0) + 1
-        if sample_candidates == 0:
-            row["zero_sample_records"] = int(row.get("zero_sample_records", 0) or 0) + 1
-            reason_marked = False
-            if bounds_reject != 0:
-                row["zero_sample_bounds_records"] = int(row.get("zero_sample_bounds_records", 0) or 0) + 1
-                reason_marked = True
-            if degenerate_reject != 0:
-                row["zero_sample_degenerate_records"] = int(row.get("zero_sample_degenerate_records", 0) or 0) + 1
-                reason_marked = True
-            if scissor_field_reject_rows > 0:
-                row["zero_sample_scissor_records"] = int(row.get("zero_sample_scissor_records", 0) or 0) + 1
-                reason_marked = True
-            if y_range_reject_rows > 0:
-                row["zero_sample_y_range_records"] = int(row.get("zero_sample_y_range_records", 0) or 0) + 1
-                reason_marked = True
-            if x_edge_reject > 0:
-                row["zero_sample_x_edge_records"] = int(row.get("zero_sample_x_edge_records", 0) or 0) + 1
-                reason_marked = True
-            if not reason_marked:
-                row["zero_sample_other_records"] = int(row.get("zero_sample_other_records", 0) or 0) + 1
+        _accumulate_packet_row(
+            row,
+            sample_candidates=sample_candidates,
+            writes=writes,
+            alpha_reject=alpha_reject,
+            coverage_reject=coverage_reject,
+            depth_reject=depth_reject,
+            scissor_field_reject_rows=scissor_field_reject_rows,
+            y_range_reject_rows=y_range_reject_rows,
+            x_edge_reject=x_edge_reject,
+            bounds_reject=bounds_reject,
+            degenerate_reject=degenerate_reject,
+            phase=phase,
+            op_name=op_name,
+        )
+        if frame_id > 0:
+            row_by_frame = _packet_row_by_frame(frame_id, source_packet_id)
+            _accumulate_packet_row(
+                row_by_frame,
+                sample_candidates=sample_candidates,
+                writes=writes,
+                alpha_reject=alpha_reject,
+                coverage_reject=coverage_reject,
+                depth_reject=depth_reject,
+                scissor_field_reject_rows=scissor_field_reject_rows,
+                y_range_reject_rows=y_range_reject_rows,
+                x_edge_reject=x_edge_reject,
+                bounds_reject=bounds_reject,
+                degenerate_reject=degenerate_reject,
+                phase=phase,
+                op_name=op_name,
+            )
 
-        op_counts = row.get("op_counts")
-        if isinstance(op_counts, dict):
-            op_counts[op_name] = int(op_counts.get(op_name, 0) or 0) + 1
-        phase_counts = row.get("phase_counts")
-        if isinstance(phase_counts, dict):
-            phase_counts[str(phase)] = int(phase_counts.get(str(phase), 0) or 0) + 1
-
-        row["color_image_address"] = int(_u64(record, "color_image"))
+        target_rows = [row]
+        if frame_id > 0:
+            target_rows.append(row_by_frame)
+        color_image_address = int(_u64(record, "color_image"))
         combine_mux = int(_u64(record, "combine_mux"))
         other_modes = int(_u64(record, "other_modes"))
         blend_params = int(_u64(record, "blend_params"))
-        row["combine_mux"] = f"0x{combine_mux:016X}"
-        row["other_modes"] = f"0x{other_modes:016X}"
-        row["blend_params"] = f"0x{blend_params:08X}"
-        row["tile_format"] = int(_u64(record, "tile_format"))
-        row["tile_size"] = int(_u64(record, "tile_size"))
-        row["tile_line"] = int(_u64(record, "tile_line"))
-        row["tile_tmem"] = int(_u64(record, "tile_tmem"))
-        row["texture_image_width"] = int(_u64(record, "texture_image_width"))
-        row["texture_image_address"] = f"0x{int(_u64(record, 'texture_image_address')):08X}"
+        tile_format = int(_u64(record, "tile_format"))
+        tile_size = int(_u64(record, "tile_size"))
+        tile_line = int(_u64(record, "tile_line"))
+        tile_tmem = int(_u64(record, "tile_tmem"))
+        texture_image_width = int(_u64(record, "texture_image_width"))
+        texture_image_address = f"0x{int(_u64(record, 'texture_image_address')):08X}"
+        for target_row in target_rows:
+            target_row["color_image_address"] = color_image_address
+            target_row["combine_mux"] = f"0x{combine_mux:016X}"
+            target_row["other_modes"] = f"0x{other_modes:016X}"
+            target_row["blend_params"] = f"0x{blend_params:08X}"
+            target_row["tile_format"] = tile_format
+            target_row["tile_size"] = tile_size
+            target_row["tile_line"] = tile_line
+            target_row["tile_tmem"] = tile_tmem
+            target_row["texture_image_width"] = texture_image_width
+            target_row["texture_image_address"] = texture_image_address
 
-    max_profiles = 256
-    ordered_rows = sorted(
-        source_packet_stats.values(),
-        key=lambda row: (
-            -int(row.get("record_count", 0) or 0),
-            -int(row.get("sample_candidates", 0) or 0),
-            -int(row.get("writes", 0) or 0),
-            int(row.get("source_packet_id", 0) or 0),
-        ),
-    )
-    source_packet_profiles: List[Dict[str, Any]] = []
-    for row in ordered_rows[:max_profiles]:
+    def _build_packet_profile(row: Dict[str, Any], *, include_frame_id: bool) -> Dict[str, Any]:
         record_count = int(row.get("record_count", 0) or 0)
         sample_candidates = int(row.get("sample_candidates", 0) or 0)
         writes = int(row.get("writes", 0) or 0)
@@ -1447,59 +1641,89 @@ def _parse_triangle_packet_log(path: Optional[Path]) -> Dict[str, Any]:
             if count > dominant_zero_sample_reason_count:
                 dominant_zero_sample_reason = reason
                 dominant_zero_sample_reason_count = count
-        source_packet_profiles.append(
-            {
-                "source_packet_id": int(row.get("source_packet_id", 0) or 0),
-                "record_count": record_count,
-                "record_ratio_of_triangle_log": _ratio(record_count, len(records)),
-                "sample_candidates": sample_candidates,
-                "writes": writes,
-                "write_ratio": _ratio(writes, sample_candidates),
-                "alpha_reject": alpha_reject,
-                "alpha_reject_ratio": _ratio(alpha_reject, sample_candidates),
-                "coverage_reject": coverage_reject,
-                "coverage_reject_ratio": _ratio(coverage_reject, sample_candidates),
-                "depth_reject": depth_reject,
-                "depth_reject_ratio": _ratio(depth_reject, sample_candidates),
-                "scissor_field_reject_rows": scissor_field_reject_rows,
-                "y_range_reject_rows": y_range_reject_rows,
-                "x_edge_reject": x_edge_reject,
-                "bounds_reject_records": int(row.get("bounds_reject_records", 0) or 0),
-                "degenerate_reject_records": int(row.get("degenerate_reject_records", 0) or 0),
-                "zero_sample_records": zero_sample_records_for_packet,
-                "zero_sample_ratio": _ratio(zero_sample_records_for_packet, record_count),
-                "zero_sample_reason_counts": zero_sample_reason_counts_for_packet,
-                "zero_sample_y_range_ratio": _ratio(zero_sample_y_range_records, zero_sample_records_for_packet),
-                "zero_sample_x_edge_ratio": _ratio(zero_sample_x_edge_records, zero_sample_records_for_packet),
-                "zero_sample_scissor_ratio": _ratio(zero_sample_scissor_records, zero_sample_records_for_packet),
-                "dominant_zero_sample_reason": dominant_zero_sample_reason,
-                "dominant_zero_sample_reason_ratio": _ratio(
-                    dominant_zero_sample_reason_count,
-                    zero_sample_records_for_packet,
-                ),
-                "op_counts": (
-                    dict(sorted((row.get("op_counts", {}) or {}).items()))
-                    if isinstance(row.get("op_counts"), dict)
-                    else {}
-                ),
-                "phase_counts": (
-                    dict(sorted((row.get("phase_counts", {}) or {}).items()))
-                    if isinstance(row.get("phase_counts"), dict)
-                    else {}
-                ),
-                "color_image_address": int(row.get("color_image_address", 0) or 0),
-                "color_image_address_hex": f"0x{int(row.get('color_image_address', 0) or 0):08X}",
-                "combine_mux": row.get("combine_mux"),
-                "other_modes": row.get("other_modes"),
-                "blend_params": row.get("blend_params"),
-                "tile_format": int(row.get("tile_format", 0) or 0),
-                "tile_size": int(row.get("tile_size", 0) or 0),
-                "tile_line": int(row.get("tile_line", 0) or 0),
-                "tile_tmem": int(row.get("tile_tmem", 0) or 0),
-                "texture_image_width": int(row.get("texture_image_width", 0) or 0),
-                "texture_image_address": row.get("texture_image_address"),
-            }
-        )
+        profile: Dict[str, Any] = {
+            "source_packet_id": int(row.get("source_packet_id", 0) or 0),
+            "record_count": record_count,
+            "record_ratio_of_triangle_log": _ratio(record_count, len(records)),
+            "sample_candidates": sample_candidates,
+            "writes": writes,
+            "write_ratio": _ratio(writes, sample_candidates),
+            "alpha_reject": alpha_reject,
+            "alpha_reject_ratio": _ratio(alpha_reject, sample_candidates),
+            "coverage_reject": coverage_reject,
+            "coverage_reject_ratio": _ratio(coverage_reject, sample_candidates),
+            "depth_reject": depth_reject,
+            "depth_reject_ratio": _ratio(depth_reject, sample_candidates),
+            "scissor_field_reject_rows": scissor_field_reject_rows,
+            "y_range_reject_rows": y_range_reject_rows,
+            "x_edge_reject": x_edge_reject,
+            "bounds_reject_records": int(row.get("bounds_reject_records", 0) or 0),
+            "degenerate_reject_records": int(row.get("degenerate_reject_records", 0) or 0),
+            "zero_sample_records": zero_sample_records_for_packet,
+            "zero_sample_ratio": _ratio(zero_sample_records_for_packet, record_count),
+            "zero_sample_reason_counts": zero_sample_reason_counts_for_packet,
+            "zero_sample_y_range_ratio": _ratio(zero_sample_y_range_records, zero_sample_records_for_packet),
+            "zero_sample_x_edge_ratio": _ratio(zero_sample_x_edge_records, zero_sample_records_for_packet),
+            "zero_sample_scissor_ratio": _ratio(zero_sample_scissor_records, zero_sample_records_for_packet),
+            "dominant_zero_sample_reason": dominant_zero_sample_reason,
+            "dominant_zero_sample_reason_ratio": _ratio(
+                dominant_zero_sample_reason_count,
+                zero_sample_records_for_packet,
+            ),
+            "op_counts": (
+                dict(sorted((row.get("op_counts", {}) or {}).items()))
+                if isinstance(row.get("op_counts"), dict)
+                else {}
+            ),
+            "phase_counts": (
+                dict(sorted((row.get("phase_counts", {}) or {}).items()))
+                if isinstance(row.get("phase_counts"), dict)
+                else {}
+            ),
+            "color_image_address": int(row.get("color_image_address", 0) or 0),
+            "color_image_address_hex": f"0x{int(row.get('color_image_address', 0) or 0):08X}",
+            "combine_mux": row.get("combine_mux"),
+            "other_modes": row.get("other_modes"),
+            "blend_params": row.get("blend_params"),
+            "tile_format": int(row.get("tile_format", 0) or 0),
+            "tile_size": int(row.get("tile_size", 0) or 0),
+            "tile_line": int(row.get("tile_line", 0) or 0),
+            "tile_tmem": int(row.get("tile_tmem", 0) or 0),
+            "texture_image_width": int(row.get("texture_image_width", 0) or 0),
+            "texture_image_address": row.get("texture_image_address"),
+        }
+        if include_frame_id:
+            profile["frame_id"] = int(row.get("frame_id", 0) or 0)
+        return profile
+
+    max_profiles = 4096
+    ordered_rows = sorted(
+        source_packet_stats.values(),
+        key=lambda row: (
+            -int(row.get("record_count", 0) or 0),
+            -int(row.get("sample_candidates", 0) or 0),
+            -int(row.get("writes", 0) or 0),
+            int(row.get("source_packet_id", 0) or 0),
+        ),
+    )
+    source_packet_profiles: List[Dict[str, Any]] = []
+    for row in ordered_rows[:max_profiles]:
+        source_packet_profiles.append(_build_packet_profile(row, include_frame_id=False))
+
+    max_profiles_by_frame = 16384
+    ordered_rows_by_frame = sorted(
+        source_packet_stats_by_frame_packet.values(),
+        key=lambda row: (
+            -int(row.get("record_count", 0) or 0),
+            -int(row.get("sample_candidates", 0) or 0),
+            -int(row.get("writes", 0) or 0),
+            int(row.get("frame_id", 0) or 0),
+            int(row.get("source_packet_id", 0) or 0),
+        ),
+    )
+    source_packet_profiles_by_frame: List[Dict[str, Any]] = []
+    for row in ordered_rows_by_frame[:max_profiles_by_frame]:
+        source_packet_profiles_by_frame.append(_build_packet_profile(row, include_frame_id=True))
 
     return {
         "record_count": len(records),
@@ -1513,9 +1737,16 @@ def _parse_triangle_packet_log(path: Optional[Path]) -> Dict[str, Any]:
         "total_x_edge_reject": total_x_edge_reject,
         "zero_sample_records": zero_sample_records,
         "zero_sample_reason_counts": dict(sorted(zero_sample_reason_counts.items())),
+        "frame_count": len(unique_frames),
         "source_packet_profiles": source_packet_profiles,
         "source_packet_profile_count": len(ordered_rows),
         "source_packet_profile_truncated_count": max(0, len(ordered_rows) - len(source_packet_profiles)),
+        "source_packet_profiles_by_frame": source_packet_profiles_by_frame,
+        "source_packet_profiles_by_frame_count": len(ordered_rows_by_frame),
+        "source_packet_profiles_by_frame_truncated_count": max(
+            0,
+            len(ordered_rows_by_frame) - len(source_packet_profiles_by_frame),
+        ),
     }
 
 
@@ -1788,6 +2019,34 @@ def _build_signals(
         last_record,
         "selected_surface_vi_history_carry_copied_unwritten",
     )
+    selected_surface_self_history_carry_applied = _u64(
+        last_record,
+        "selected_surface_self_history_carry_applied",
+    )
+    selected_surface_self_history_carry_src = _u64(
+        last_record,
+        "selected_surface_self_history_carry_src",
+    )
+    selected_surface_self_history_carry_potential_black_fill = _u64(
+        last_record,
+        "selected_surface_self_history_carry_potential_black_fill",
+    )
+    selected_surface_self_history_carry_potential_nonblack_diff = _u64(
+        last_record,
+        "selected_surface_self_history_carry_potential_nonblack_diff",
+    )
+    selected_surface_self_history_carry_potential_unwritten_diff = _u64(
+        last_record,
+        "selected_surface_self_history_carry_potential_unwritten_diff",
+    )
+    selected_surface_self_history_carry_copied = _u64(
+        last_record,
+        "selected_surface_self_history_carry_copied",
+    )
+    selected_surface_self_history_carry_copied_unwritten = _u64(
+        last_record,
+        "selected_surface_self_history_carry_copied_unwritten",
+    )
     selected_surface_untouched_carry = _u64(last_record, "selected_surface_untouched_carry")
     selected_surface_quantized_black = _u64(last_record, "selected_surface_quantized_black")
     selected_surface_quantized_black_texrect = _u64(
@@ -1884,6 +2143,21 @@ def _build_signals(
         "selected_surface_vi_history_carry_copied": selected_surface_vi_history_carry_copied,
         "selected_surface_vi_history_carry_copied_unwritten": (
             selected_surface_vi_history_carry_copied_unwritten
+        ),
+        "selected_surface_self_history_carry_applied": selected_surface_self_history_carry_applied,
+        "selected_surface_self_history_carry_src": selected_surface_self_history_carry_src,
+        "selected_surface_self_history_carry_potential_black_fill": (
+            selected_surface_self_history_carry_potential_black_fill
+        ),
+        "selected_surface_self_history_carry_potential_nonblack_diff": (
+            selected_surface_self_history_carry_potential_nonblack_diff
+        ),
+        "selected_surface_self_history_carry_potential_unwritten_diff": (
+            selected_surface_self_history_carry_potential_unwritten_diff
+        ),
+        "selected_surface_self_history_carry_copied": selected_surface_self_history_carry_copied,
+        "selected_surface_self_history_carry_copied_unwritten": (
+            selected_surface_self_history_carry_copied_unwritten
         ),
         "vi_hash_decode": vi_hash_decode,
         "vi_hash_filter": vi_hash_filter,
@@ -2016,11 +2290,27 @@ def _build_signals(
             "forensics_vi_history_carry_copied_unwritten": (
                 selected_surface_vi_history_carry_copied_unwritten
             ),
+            "forensics_self_history_carry_applied": selected_surface_self_history_carry_applied,
+            "forensics_self_history_carry_src": selected_surface_self_history_carry_src,
+            "forensics_self_history_carry_potential_black_fill": (
+                selected_surface_self_history_carry_potential_black_fill
+            ),
+            "forensics_self_history_carry_potential_nonblack_diff": (
+                selected_surface_self_history_carry_potential_nonblack_diff
+            ),
+            "forensics_self_history_carry_potential_unwritten_diff": (
+                selected_surface_self_history_carry_potential_unwritten_diff
+            ),
+            "forensics_self_history_carry_copied": selected_surface_self_history_carry_copied,
+            "forensics_self_history_carry_copied_unwritten": (
+                selected_surface_self_history_carry_copied_unwritten
+            ),
         }
 
     overwrite_signal: Dict[str, Any] = {}
     overwrite_source_packet_stage_profiles: List[Dict[str, Any]] = []
     overwrite_source_packet_stage_by_id: Dict[int, Dict[str, Any]] = {}
+    overwrite_source_packet_stage_by_frame_and_id: Dict[Tuple[int, int], Dict[str, Any]] = {}
     if isinstance(overwrite_summary, dict):
         black_write_record_count = int(
             overwrite_summary.get("black_write_record_count", overwrite_summary.get("record_count", 0)) or 0
@@ -2059,6 +2349,9 @@ def _build_signals(
         black_write_stage_kill_counts = overwrite_summary.get("black_write_stage_kill_counts", {})
         overwrite_texel_detail = overwrite_summary.get("texel_detail", {})
         raw_source_packet_stage_profiles = overwrite_summary.get("source_packet_stage_profiles", [])
+        raw_source_packet_stage_profiles_by_frame = overwrite_summary.get(
+            "source_packet_stage_profiles_by_frame", []
+        )
         if isinstance(raw_source_packet_stage_profiles, list):
             overwrite_source_packet_stage_profiles = [
                 row for row in raw_source_packet_stage_profiles if isinstance(row, dict)
@@ -2067,6 +2360,16 @@ def _build_signals(
                 source_packet_id = int(row.get("source_packet_id", 0) or 0)
                 if source_packet_id > 0:
                     overwrite_source_packet_stage_by_id[source_packet_id] = row
+        overwrite_source_packet_stage_profiles_by_frame: List[Dict[str, Any]] = []
+        if isinstance(raw_source_packet_stage_profiles_by_frame, list):
+            overwrite_source_packet_stage_profiles_by_frame = [
+                row for row in raw_source_packet_stage_profiles_by_frame if isinstance(row, dict)
+            ]
+            for row in overwrite_source_packet_stage_profiles_by_frame:
+                source_packet_id = int(row.get("source_packet_id", 0) or 0)
+                frame_id = int(row.get("frame_id", 0) or 0)
+                if source_packet_id > 0 and frame_id > 0:
+                    overwrite_source_packet_stage_by_frame_and_id[(frame_id, source_packet_id)] = row
         overwrite_signal = {
             "record_count": overwrite_record_count,
             "black_write_record_count": black_write_record_count,
@@ -2121,6 +2424,13 @@ def _build_signals(
             ),
             "source_packet_stage_profile_truncated_count": int(
                 overwrite_summary.get("source_packet_stage_profile_truncated_count", 0) or 0
+            ),
+            "source_packet_stage_profiles_by_frame": overwrite_source_packet_stage_profiles_by_frame,
+            "source_packet_stage_profiles_by_frame_count": int(
+                overwrite_summary.get("source_packet_stage_profiles_by_frame_count", 0) or 0
+            ),
+            "source_packet_stage_profiles_by_frame_truncated_count": int(
+                overwrite_summary.get("source_packet_stage_profiles_by_frame_truncated_count", 0) or 0
             ),
         }
         if black_write_record_count > 0 and overwrite_record_count == 0:
@@ -2286,17 +2596,31 @@ def _build_signals(
 
     triangle_packet_signal: Dict[str, Any] = {}
     triangle_packet_source_by_id: Dict[int, Dict[str, Any]] = {}
+    triangle_packet_source_by_frame_and_id: Dict[Tuple[int, int], Dict[str, Any]] = {}
     if isinstance(triangle_packet_summary, dict):
         triangle_packet_profiles_raw = triangle_packet_summary.get("source_packet_profiles", [])
+        triangle_packet_profiles_by_frame_raw = triangle_packet_summary.get(
+            "source_packet_profiles_by_frame", []
+        )
         triangle_packet_profiles: List[Dict[str, Any]] = (
             [row for row in triangle_packet_profiles_raw if isinstance(row, dict)]
             if isinstance(triangle_packet_profiles_raw, list)
+            else []
+        )
+        triangle_packet_profiles_by_frame: List[Dict[str, Any]] = (
+            [row for row in triangle_packet_profiles_by_frame_raw if isinstance(row, dict)]
+            if isinstance(triangle_packet_profiles_by_frame_raw, list)
             else []
         )
         for row in triangle_packet_profiles:
             source_packet_id = int(row.get("source_packet_id", 0) or 0)
             if source_packet_id > 0:
                 triangle_packet_source_by_id[source_packet_id] = row
+        for row in triangle_packet_profiles_by_frame:
+            source_packet_id = int(row.get("source_packet_id", 0) or 0)
+            frame_id = int(row.get("frame_id", 0) or 0)
+            if source_packet_id > 0 and frame_id > 0:
+                triangle_packet_source_by_frame_and_id[(frame_id, source_packet_id)] = row
         triangle_packet_signal = {
             "record_count": int(triangle_packet_summary.get("record_count", 0) or 0),
             "total_sample_candidates": int(triangle_packet_summary.get("total_sample_candidates", 0) or 0),
@@ -2319,6 +2643,13 @@ def _build_signals(
             "source_packet_profile_count": int(triangle_packet_summary.get("source_packet_profile_count", 0) or 0),
             "source_packet_profile_truncated_count": int(
                 triangle_packet_summary.get("source_packet_profile_truncated_count", 0) or 0
+            ),
+            "source_packet_profiles_by_frame": triangle_packet_profiles_by_frame,
+            "source_packet_profiles_by_frame_count": int(
+                triangle_packet_summary.get("source_packet_profiles_by_frame_count", 0) or 0
+            ),
+            "source_packet_profiles_by_frame_truncated_count": int(
+                triangle_packet_summary.get("source_packet_profiles_by_frame_truncated_count", 0) or 0
             ),
             "write_ratio": _ratio(
                 int(triangle_packet_summary.get("total_writes", 0) or 0),
@@ -2776,16 +3107,46 @@ def _build_signals(
                 packet_hits = [row for row in packet_hits_raw if isinstance(row, dict)]
             packet_rows_considered = min(32, len(packet_hits))
             packet_rows_matched = 0
+            packet_rows_frame_key_matched = 0
+            packet_rows_packet_fallback_matched = 0
             packet_rows_triangle_matched = 0
+            packet_rows_triangle_frame_key_matched = 0
+            packet_rows_triangle_packet_fallback_matched = 0
             packet_rows_matched_any = 0
             packet_rows_overwrite_missing_triangle_matched = 0
             for row in packet_hits[:32]:
                 source_packet_id = int(row.get("source_packet_id", 0) or 0)
-                stage_row = overwrite_source_packet_stage_by_id.get(source_packet_id, {})
-                triangle_row = triangle_packet_source_by_id.get(source_packet_id, {})
+                packet_frame_id = int(row.get("frame_id", frame_id) or frame_id or 0)
+
+                stage_row: Dict[str, Any] = {}
+                stage_match_mode = "missing"
+                if packet_frame_id > 0:
+                    stage_row = overwrite_source_packet_stage_by_frame_and_id.get(
+                        (packet_frame_id, source_packet_id), {}
+                    )
+                    if stage_row:
+                        stage_match_mode = "frame_packet"
+                if not stage_row:
+                    stage_row = overwrite_source_packet_stage_by_id.get(source_packet_id, {})
+                    if stage_row:
+                        stage_match_mode = "packet_only"
+
+                triangle_row: Dict[str, Any] = {}
+                triangle_match_mode = "missing"
+                if packet_frame_id > 0:
+                    triangle_row = triangle_packet_source_by_frame_and_id.get(
+                        (packet_frame_id, source_packet_id), {}
+                    )
+                    if triangle_row:
+                        triangle_match_mode = "frame_packet"
+                if not triangle_row:
+                    triangle_row = triangle_packet_source_by_id.get(source_packet_id, {})
+                    if triangle_row:
+                        triangle_match_mode = "packet_only"
+
                 merged_row: Dict[str, Any] = {
                     "source_packet_id": source_packet_id,
-                    "frame_id": int(row.get("frame_id", frame_id) or frame_id or 0),
+                    "frame_id": packet_frame_id,
                     "op_kind": row.get("op_kind"),
                     "phase": row.get("phase"),
                     "color_image_address": int(row.get("color_image_address", 0) or 0),
@@ -2811,10 +3172,17 @@ def _build_signals(
                     ),
                     "overwrite_log_stage_coverage": "missing",
                     "triangle_packet_log_coverage": "missing",
+                    "overwrite_log_stage_match_mode": "missing",
+                    "triangle_packet_log_match_mode": "missing",
                 }
                 if stage_row:
                     packet_rows_matched += 1
+                    if stage_match_mode == "frame_packet":
+                        packet_rows_frame_key_matched += 1
+                    elif stage_match_mode == "packet_only":
+                        packet_rows_packet_fallback_matched += 1
                     merged_row["overwrite_log_stage_coverage"] = "matched"
+                    merged_row["overwrite_log_stage_match_mode"] = stage_match_mode
                     merged_row["overwrite_record_count"] = int(stage_row.get("overwrite_count", 0) or 0)
                     merged_row["log_record_count"] = int(stage_row.get("record_count", 0) or 0)
                     merged_row["overwrite_ratio_of_packet_records"] = stage_row.get(
@@ -2847,7 +3215,12 @@ def _build_signals(
                     )
                 if triangle_row:
                     packet_rows_triangle_matched += 1
+                    if triangle_match_mode == "frame_packet":
+                        packet_rows_triangle_frame_key_matched += 1
+                    elif triangle_match_mode == "packet_only":
+                        packet_rows_triangle_packet_fallback_matched += 1
                     merged_row["triangle_packet_log_coverage"] = "matched"
+                    merged_row["triangle_packet_log_match_mode"] = triangle_match_mode
                     merged_row["triangle_record_count"] = int(triangle_row.get("record_count", 0) or 0)
                     merged_row["triangle_sample_candidates"] = int(triangle_row.get("sample_candidates", 0) or 0)
                     merged_row["triangle_writes"] = int(triangle_row.get("writes", 0) or 0)
@@ -2892,8 +3265,14 @@ def _build_signals(
                 "rows_considered": packet_rows_considered,
                 "rows_matched_to_overwrite_log": packet_rows_matched,
                 "rows_missing_from_overwrite_log": max(0, packet_rows_considered - packet_rows_matched),
+                "rows_matched_to_overwrite_log_frame_packet": packet_rows_frame_key_matched,
+                "rows_matched_to_overwrite_log_packet_only": packet_rows_packet_fallback_matched,
                 "rows_matched_to_triangle_packet_log": packet_rows_triangle_matched,
                 "rows_missing_from_triangle_packet_log": max(0, packet_rows_considered - packet_rows_triangle_matched),
+                "rows_matched_to_triangle_packet_log_frame_packet": packet_rows_triangle_frame_key_matched,
+                "rows_matched_to_triangle_packet_log_packet_only": (
+                    packet_rows_triangle_packet_fallback_matched
+                ),
                 "rows_missing_from_both_logs": max(0, packet_rows_considered - packet_rows_matched_any),
                 "rows_missing_from_overwrite_but_matched_to_triangle_packet_log": (
                     packet_rows_overwrite_missing_triangle_matched
@@ -2913,6 +3292,24 @@ def _build_signals(
             if packet_rows_considered > 0 and packet_rows_triangle_matched == 0:
                 suspected_gaps.append(
                     "missing-region hotspot packets are absent from triangle packet log profiles; increase triangle packet log coverage/limits"
+                )
+            if (
+                packet_rows_considered > 0
+                and packet_rows_matched > 0
+                and packet_rows_frame_key_matched == 0
+                and packet_rows_packet_fallback_matched > 0
+            ):
+                suspected_gaps.append(
+                    "overwrite-stage packet attribution relied on packet-only fallback (frame tags missing or cross-frame packet-id collisions)"
+                )
+            if (
+                packet_rows_considered > 0
+                and packet_rows_triangle_matched > 0
+                and packet_rows_triangle_frame_key_matched == 0
+                and packet_rows_triangle_packet_fallback_matched > 0
+            ):
+                suspected_gaps.append(
+                    "triangle packet attribution relied on packet-only fallback (frame tags missing or cross-frame packet-id collisions)"
                 )
             if packet_rows_overwrite_missing_triangle_matched > 0:
                 suspected_gaps.append(
@@ -3426,6 +3823,13 @@ def _selected_forensics_fields(record: Dict[str, Any]) -> Dict[str, Any]:
         "selected_surface_vi_history_carry_potential_unwritten_diff",
         "selected_surface_vi_history_carry_copied",
         "selected_surface_vi_history_carry_copied_unwritten",
+        "selected_surface_self_history_carry_applied",
+        "selected_surface_self_history_carry_src",
+        "selected_surface_self_history_carry_potential_black_fill",
+        "selected_surface_self_history_carry_potential_nonblack_diff",
+        "selected_surface_self_history_carry_potential_unwritten_diff",
+        "selected_surface_self_history_carry_copied",
+        "selected_surface_self_history_carry_copied_unwritten",
         "vi_valid",
         "vi_origin",
         "vi_status",

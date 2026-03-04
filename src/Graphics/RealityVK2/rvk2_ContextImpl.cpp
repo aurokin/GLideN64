@@ -213,9 +213,10 @@ inline bool pixelHasVisibleColor(u32 _pixel)
 	return ((_pixel >> 8U) & 0x00FFFFFFU) != 0U;
 }
 
-rvk2::ExecutorConfig buildExecutorConfigFromVIRegisters()
+rvk2::ExecutorConfig buildExecutorConfigFromVIRegisters(u64 _frameId)
 {
 	rvk2::ExecutorConfig config = rvk2::loadExecutorConfigFromEnv();
+	config.frameId = _frameId;
 	if (REG.VI_STATUS == nullptr || REG.VI_ORIGIN == nullptr)
 		return config;
 
@@ -420,7 +421,7 @@ void appendFrameForensicsRecord(
 		static_cast<unsigned long long>(summary.viOutputNonBlackCount));
 	std::fprintf(
 		file,
-		"\tselected_surface_live_writes=%llu\tselected_surface_live_works=%llu\tselected_surface_from_history=%u\tselected_surface_history_age=%llu\thistory_surface_count=%u\thistory_vi_candidate_found=%u\thistory_vi_candidate_addr=0x%08X\thistory_vi_candidate_exact=%u\thistory_vi_candidate_age=%llu\thistory_vi_candidate_reject_age=%u\tselected_surface_overwrite_black=%llu\tselected_surface_overwrite_black_texrect=%llu\tselected_surface_overwrite_black_triangle=%llu\tselected_surface_quantized_black=%llu\tselected_surface_quantized_black_texrect=%llu\tselected_surface_quantized_black_triangle=%llu\tselected_surface_triangle_preserve_non_black=%llu\tselected_surface_texrect_nonblack=%llu\tselected_surface_triangle_nonblack=%llu\tselected_surface_untouched_carry=%llu\tselected_surface_history_merge_candidates=%llu\tselected_surface_history_merge_potential_black_fill=%llu\tselected_surface_history_merge_potential_nonblack_diff=%llu\tselected_surface_history_merge_copied=%llu\tselected_surface_vi_history_carry_applied=%u\tselected_surface_vi_history_carry_src=0x%08X\tselected_surface_vi_history_carry_potential_black_fill=%llu\tselected_surface_vi_history_carry_potential_nonblack_diff=%llu\tselected_surface_vi_history_carry_potential_unwritten_diff=%llu\tselected_surface_vi_history_carry_copied=%llu\tselected_surface_vi_history_carry_copied_unwritten=%llu\tselected_surface_untouched_carry_src=0x%08X\tdbg_disable_vi_history_present=%u\tdbg_prefer_live_surface_over_history=%u\tdbg_enable_surface_history_bootstrap=%u\tdbg_enable_cross_surface_bootstrap=%u\tdbg_cross_surface_bootstrap_copy_all=%u\tdbg_disable_same_frame_present_accum=%u\tboot_same_attempt=%llu\tboot_same_success=%llu\tboot_same_pixels=%llu\tboot_fallback_success=%llu\tboot_fallback_pixels=%llu\tboot_cross_candidates=%llu\tboot_cross_pixels=%llu\tboot_cross_copy_all_pixels=%llu\toverwrite_black_total=%llu\toverwrite_black_texrect=%llu\toverwrite_black_triangle=%llu\toverwrite_black_triangle_preserved=%llu\tquantized_black_total=%llu\tquantized_black_texrect=%llu\tquantized_black_triangle=%llu\tblend_eq_bypass_ops=%llu\tblend_mem_alpha_shift_ops=%llu",
+		"\tselected_surface_live_writes=%llu\tselected_surface_live_works=%llu\tselected_surface_from_history=%u\tselected_surface_history_age=%llu\thistory_surface_count=%u\thistory_vi_candidate_found=%u\thistory_vi_candidate_addr=0x%08X\thistory_vi_candidate_exact=%u\thistory_vi_candidate_age=%llu\thistory_vi_candidate_reject_age=%u\tselected_surface_overwrite_black=%llu\tselected_surface_overwrite_black_texrect=%llu\tselected_surface_overwrite_black_triangle=%llu\tselected_surface_quantized_black=%llu\tselected_surface_quantized_black_texrect=%llu\tselected_surface_quantized_black_triangle=%llu\tselected_surface_triangle_preserve_non_black=%llu\tselected_surface_texrect_nonblack=%llu\tselected_surface_triangle_nonblack=%llu\tselected_surface_untouched_carry=%llu\tselected_surface_history_merge_candidates=%llu\tselected_surface_history_merge_potential_black_fill=%llu\tselected_surface_history_merge_potential_nonblack_diff=%llu\tselected_surface_history_merge_copied=%llu\tselected_surface_vi_history_carry_applied=%u\tselected_surface_vi_history_carry_src=0x%08X\tselected_surface_vi_history_carry_potential_black_fill=%llu\tselected_surface_vi_history_carry_potential_nonblack_diff=%llu\tselected_surface_vi_history_carry_potential_unwritten_diff=%llu\tselected_surface_vi_history_carry_copied=%llu\tselected_surface_vi_history_carry_copied_unwritten=%llu\tselected_surface_self_history_carry_applied=%u\tselected_surface_self_history_carry_src=0x%08X\tselected_surface_self_history_carry_potential_black_fill=%llu\tselected_surface_self_history_carry_potential_nonblack_diff=%llu\tselected_surface_self_history_carry_potential_unwritten_diff=%llu\tselected_surface_self_history_carry_copied=%llu\tselected_surface_self_history_carry_copied_unwritten=%llu\tselected_surface_untouched_carry_src=0x%08X\tdbg_disable_vi_history_present=%u\tdbg_prefer_live_surface_over_history=%u\tdbg_enable_surface_history_bootstrap=%u\tdbg_enable_cross_surface_bootstrap=%u\tdbg_cross_surface_bootstrap_copy_all=%u\tdbg_disable_same_frame_present_accum=%u\tboot_same_attempt=%llu\tboot_same_success=%llu\tboot_same_pixels=%llu\tboot_fallback_success=%llu\tboot_fallback_pixels=%llu\tboot_cross_candidates=%llu\tboot_cross_pixels=%llu\tboot_cross_copy_all_pixels=%llu\toverwrite_black_total=%llu\toverwrite_black_texrect=%llu\toverwrite_black_triangle=%llu\toverwrite_black_triangle_preserved=%llu\tquantized_black_total=%llu\tquantized_black_texrect=%llu\tquantized_black_triangle=%llu\tblend_eq_bypass_ops=%llu\tblend_mem_alpha_shift_ops=%llu",
 		static_cast<unsigned long long>(summary.selectedPresentSurfaceLiveWriteCount),
 		static_cast<unsigned long long>(summary.selectedPresentSurfaceLiveWorkCount),
 		static_cast<u32>(summary.selectedPresentSurfaceFromHistory),
@@ -452,6 +453,13 @@ void appendFrameForensicsRecord(
 		static_cast<unsigned long long>(summary.selectedPresentSurfaceVIHistoryCarryPotentialUnwrittenDiffCount),
 		static_cast<unsigned long long>(summary.selectedPresentSurfaceVIHistoryCarryCopiedCount),
 		static_cast<unsigned long long>(summary.selectedPresentSurfaceVIHistoryCarryCopiedUnwrittenCount),
+		static_cast<u32>(summary.selectedPresentSurfaceSelfHistoryCarryApplied),
+		summary.selectedPresentSurfaceSelfHistoryCarrySourceAddress,
+		static_cast<unsigned long long>(summary.selectedPresentSurfaceSelfHistoryCarryPotentialBlackFillCount),
+		static_cast<unsigned long long>(summary.selectedPresentSurfaceSelfHistoryCarryPotentialNonBlackDiffCount),
+		static_cast<unsigned long long>(summary.selectedPresentSurfaceSelfHistoryCarryPotentialUnwrittenDiffCount),
+		static_cast<unsigned long long>(summary.selectedPresentSurfaceSelfHistoryCarryCopiedCount),
+		static_cast<unsigned long long>(summary.selectedPresentSurfaceSelfHistoryCarryCopiedUnwrittenCount),
 		summary.selectedPresentSurfaceUntouchedCarrySourceAddress,
 		static_cast<u32>(debugDisableVIHistoryPresentRequested()),
 		static_cast<u32>(debugPreferLiveSurfaceOverHistoryRequested()),
@@ -1047,7 +1055,7 @@ bool ContextImpl::present()
 		}
 	}
 
-	const ExecutorConfig config = buildExecutorConfigFromVIRegisters();
+	const ExecutorConfig config = buildExecutorConfigFromVIRegisters(frameId);
 	m_executor.updateConfig(config);
 	ExecutorOutput output =
 		m_executor.executeWithOutput(

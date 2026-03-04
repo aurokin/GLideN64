@@ -20,6 +20,7 @@ namespace {
 thread_local const rvk2::TextureReplacementStore * gActiveTextureReplacementStore = nullptr;
 thread_local rvk2::ExecutorSummary * gActiveExecutorSummary = nullptr;
 thread_local const u64 * gActiveExecutorTMEMWords = nullptr;
+thread_local u64 gActiveExecutorFrameId = 0ULL;
 
 enum : u8
 {
@@ -1095,7 +1096,8 @@ void appendOverwriteLog(
 				: (_opKind == static_cast<u8>(rvk2::RasterOpKind::kFillRect) ? "fill" : "other"));
 	std::fprintf(
 		file,
-		"work_ordinal=%llu\tsource_packet_id=%llu\top_kind=%u\top_name=%s\tphase=%u\tcolor_image=0x%08X\tx=%u\ty=%u\tprev=0x%08X\tnew=0x%08X\ttexel=0x%08X\tcombiner=0x%08X\tblender=0x%08X\tfinal=0x%08X\ttexture_source_bits=0x%08X\toverwrite_to_black=%u\tquantized_to_black=%u\tpreserved=%u\tcombine_mux=0x%016llX\tother_modes=0x%016llX\tblend_params=0x%08X\ttile=%u\ttile_format=%u\ttile_size=%u\ttile_line=%u\ttile_tmem=%u\ttexture_image_width=%u\ttexture_image_address=0x%08X",
+		"frame=%llu\twork_ordinal=%llu\tsource_packet_id=%llu\top_kind=%u\top_name=%s\tphase=%u\tcolor_image=0x%08X\tx=%u\ty=%u\tprev=0x%08X\tnew=0x%08X\ttexel=0x%08X\tcombiner=0x%08X\tblender=0x%08X\tfinal=0x%08X\ttexture_source_bits=0x%08X\toverwrite_to_black=%u\tquantized_to_black=%u\tpreserved=%u\tcombine_mux=0x%016llX\tother_modes=0x%016llX\tblend_params=0x%08X\ttile=%u\ttile_format=%u\ttile_size=%u\ttile_line=%u\ttile_tmem=%u\ttexture_image_width=%u\ttexture_image_address=0x%08X",
+		static_cast<unsigned long long>(gActiveExecutorFrameId),
 		static_cast<unsigned long long>(_workOrdinal),
 		static_cast<unsigned long long>(_sourcePacketId),
 		static_cast<unsigned>(_opKind),
@@ -4176,7 +4178,8 @@ void appendTrianglePacketLog(
 
 	std::fprintf(
 		file,
-		"work_ordinal=%llu\tsource_packet_id=%llu\top_kind=%u\top_name=triangle\tphase=%u\tcolor_image=0x%08X\tbounds_valid=%u\tbounds_x0=%u\tbounds_y0=%u\tbounds_x1=%u\tbounds_y1=%u\tbounds_reject=%u\tdegenerate_reject=%u\tsample_candidates=%llu\twrites=%llu\talpha_reject=%llu\tcoverage_reject=%llu\tdepth_reject=%llu\tscissor_field_reject_rows=%llu\ty_range_reject_rows=%llu\tx_edge_reject=%llu\tcombine_mux=0x%016llX\tother_modes=0x%016llX\tblend_params=0x%08X\ttile_format=%u\ttile_size=%u\ttile_line=%u\ttile_tmem=%u\ttexture_image_width=%u\ttexture_image_address=0x%08X\n",
+		"frame=%llu\twork_ordinal=%llu\tsource_packet_id=%llu\top_kind=%u\top_name=triangle\tphase=%u\tcolor_image=0x%08X\tbounds_valid=%u\tbounds_x0=%u\tbounds_y0=%u\tbounds_x1=%u\tbounds_y1=%u\tbounds_reject=%u\tdegenerate_reject=%u\tsample_candidates=%llu\twrites=%llu\talpha_reject=%llu\tcoverage_reject=%llu\tdepth_reject=%llu\tscissor_field_reject_rows=%llu\ty_range_reject_rows=%llu\tx_edge_reject=%llu\tcombine_mux=0x%016llX\tother_modes=0x%016llX\tblend_params=0x%08X\ttile_format=%u\ttile_size=%u\ttile_line=%u\ttile_tmem=%u\ttexture_image_width=%u\ttexture_image_address=0x%08X\n",
+		static_cast<unsigned long long>(gActiveExecutorFrameId),
 		static_cast<unsigned long long>(_workOrdinal),
 		static_cast<unsigned long long>(_work.sourcePacketId),
 		static_cast<unsigned>(_work.opKind),
@@ -4504,10 +4507,17 @@ inline s32 selectCombinerAlphaInputC(u8 _selector, const CombinerAlphaInputs & _
 	}
 }
 
-inline u8 evalCombinerEquation(s32 _a, s32 _b, s32 _c, s32 _d)
+inline s32 signExtend9(s32 _value)
 {
-	const s32 value = (((_a - _b) * _c + 128) >> 8) + _d;
-	const u32 value9 = static_cast<u32>(value) & 0x1FFU;
+	const s32 value = _value & 0x1FF;
+	if ((value & 0x180) == 0x180)
+		return value | ~0x1FF;
+	return value;
+}
+
+inline u8 clampSpecial9(s32 _value)
+{
+	const u32 value9 = static_cast<u32>(_value) & 0x1FFU;
 	if (value9 < 0x100U)
 		return static_cast<u8>(value9);
 	if (value9 < 0x180U)
@@ -4515,10 +4525,23 @@ inline u8 evalCombinerEquation(s32 _a, s32 _b, s32 _c, s32 _d)
 	return 0x00U;
 }
 
+inline u8 evalCombinerEquation(s32 _a, s32 _b, s32 _c, s32 _d)
+{
+	const s32 value =
+		(signExtend9(_a) - signExtend9(_b)) * signExtend9(_c)
+		+ (signExtend9(_d) << 8)
+		+ 0x80;
+	return clampSpecial9(value >> 8);
+}
+
 inline u8 evalCombinerAlphaEquation(s32 _a, s32 _b, s32 _c, s32 _d)
 {
-	const s32 value = (((_a - _b) * _c + 128) >> 8) + _d;
-	return clampU8FromS32(value);
+	const s32 value =
+		((signExtend9(_a) - signExtend9(_b)) * signExtend9(_c)
+			+ (signExtend9(_d) << 8)
+			+ 0x80)
+		>> 8;
+	return clampSpecial9(value);
 }
 
 inline u32 applySyntheticCombiner(
@@ -6594,6 +6617,8 @@ ExecutorOutput Executor::executeWithOutput(
 		? &m_textureReplacementStore
 		: nullptr;
 	const u64 * previousTMEMWords = gActiveExecutorTMEMWords;
+	const u64 previousFrameId = gActiveExecutorFrameId;
+	gActiveExecutorFrameId = m_config.frameId;
 
 	ExecutorOutput output{};
 	ExecutorSummary & summary = output.summary;
@@ -7499,6 +7524,122 @@ ExecutorOutput Executor::executeWithOutput(
 		summary.selectedPresentSurfaceWidth = it->second.width;
 		summary.selectedPresentSurfaceHeight = it->second.height;
 		summary.selectedPresentSurfaceSize = it->second.size;
+		ColorSurface & selectedSurface = it->second;
+		const size_t selectedPixelCount =
+			static_cast<size_t>(selectedSurface.width) * static_cast<size_t>(selectedSurface.height);
+		const bool selectedSurfaceValid =
+			selectedPixelCount > 0U
+			&& selectedSurface.pixels.size() >= selectedPixelCount;
+		const auto applyHistoryCarryFromCandidate =
+			[&](
+				const ExecutorCachedSurface & _candidate,
+				bool _allowSameAddress,
+				bool _requireRecentFrame,
+				u64 & _potentialBlackFill,
+				u64 & _potentialNonBlackDiff,
+				u64 & _potentialUnwrittenDiff,
+				u64 & _copiedPixels,
+				u64 & _copiedUnwrittenPixels) -> bool {
+			_potentialBlackFill = 0ULL;
+			_potentialNonBlackDiff = 0ULL;
+			_potentialUnwrittenDiff = 0ULL;
+			_copiedPixels = 0ULL;
+			_copiedUnwrittenPixels = 0ULL;
+			if (!selectedSurfaceValid
+				|| !_candidate.valid
+				|| (!_allowSameAddress && _candidate.address == presentSurfaceAddress)
+				|| (isDepthOnlyColorAddress(_candidate.address) && !allowDepthAliasedHistoryCarry)
+				|| _candidate.format != selectedSurface.format
+				|| _candidate.size != selectedSurface.size
+				|| _candidate.width != selectedSurface.width
+				|| _candidate.height < selectedSurface.height
+				|| _candidate.pixels.size() < selectedPixelCount) {
+				return false;
+			}
+			if (_requireRecentFrame) {
+				const u64 candidateAge = frameStamp >= _candidate.lastTouched
+					? (frameStamp - _candidate.lastTouched)
+					: 0ULL;
+				if (candidateAge == 0ULL || candidateAge > 8ULL)
+					return false;
+			}
+			const bool destinationHasWriteMask =
+				selectedSurface.writeMask.size() >= selectedPixelCount;
+			const bool sourceHasCoverage = _candidate.coverage.size() >= selectedPixelCount;
+			const bool sourceHasHiddenCoverage = _candidate.hiddenCoverage.size() >= selectedPixelCount;
+			for (size_t i = 0U; i < selectedPixelCount; ++i) {
+				const u32 sourcePixel = _candidate.pixels[i];
+				if (!pixelHasVisibleColor(sourcePixel))
+					continue;
+				const u32 destinationPixel = selectedSurface.pixels[i];
+				const bool destinationVisible = pixelHasVisibleColor(destinationPixel);
+				const bool destinationUnwritten =
+					destinationHasWriteMask && (selectedSurface.writeMask[i] == 0U);
+				const u8 destinationLuma = lumaFromRGBA(destinationPixel);
+				const u8 sourceLuma = lumaFromRGBA(sourcePixel);
+				const bool destinationVeryDark = destinationLuma <= 4U;
+				const bool sourceMuchBrighter =
+					sourceLuma >= 24U
+					&& static_cast<u32>(sourceLuma) > (static_cast<u32>(destinationLuma) + 16U);
+				if (!destinationVisible)
+					++_potentialBlackFill;
+				else if (destinationPixel != sourcePixel)
+					++_potentialNonBlackDiff;
+				if (destinationUnwritten && destinationPixel != sourcePixel)
+					++_potentialUnwrittenDiff;
+				const bool allowCarryForPixel =
+					!destinationVisible
+					|| destinationUnwritten
+					|| (destinationVeryDark && sourceMuchBrighter);
+				if (!allowCarryForPixel || destinationPixel == sourcePixel)
+					continue;
+				selectedSurface.pixels[i] = sourcePixel;
+				if (sourceHasCoverage && selectedSurface.coverage.size() >= selectedPixelCount) {
+					selectedSurface.coverage[i] =
+						static_cast<u8>(_candidate.coverage[i] & 0x7U);
+				}
+				if (sourceHasHiddenCoverage && selectedSurface.hiddenCoverage.size() >= selectedPixelCount) {
+					selectedSurface.hiddenCoverage[i] =
+						static_cast<u8>(_candidate.hiddenCoverage[i] & 0x1U);
+				}
+				++_copiedPixels;
+				if (destinationUnwritten)
+					++_copiedUnwrittenPixels;
+			}
+			return true;
+		};
+		const bool applySelfHistoryCarry =
+			allowVIHistorySelection
+			&& summary.presentSelectionReason == kExecutorPresentSelectionMostWrittenFallback
+			&& summary.selectedPresentSurfaceLiveWriteCount > 0ULL
+			&& historyIt != m_surfaceHistory.end()
+			&& historyIt->second.address == presentSurfaceAddress;
+		if (applySelfHistoryCarry) {
+			u64 potentialBlackFill = 0ULL;
+			u64 potentialNonBlackDiff = 0ULL;
+			u64 potentialUnwrittenDiff = 0ULL;
+			u64 copiedPixels = 0ULL;
+			u64 copiedUnwrittenPixels = 0ULL;
+			if (applyHistoryCarryFromCandidate(
+					historyIt->second,
+					true,
+					true,
+					potentialBlackFill,
+					potentialNonBlackDiff,
+					potentialUnwrittenDiff,
+					copiedPixels,
+					copiedUnwrittenPixels)) {
+				summary.selectedPresentSurfaceSelfHistoryCarrySourceAddress =
+					historyIt->second.address;
+				summary.selectedPresentSurfaceSelfHistoryCarryPotentialBlackFillCount = potentialBlackFill;
+				summary.selectedPresentSurfaceSelfHistoryCarryPotentialNonBlackDiffCount = potentialNonBlackDiff;
+				summary.selectedPresentSurfaceSelfHistoryCarryPotentialUnwrittenDiffCount = potentialUnwrittenDiff;
+				summary.selectedPresentSurfaceSelfHistoryCarryCopiedCount = copiedPixels;
+				summary.selectedPresentSurfaceSelfHistoryCarryCopiedUnwrittenCount = copiedUnwrittenPixels;
+				if (copiedPixels > 0ULL)
+					summary.selectedPresentSurfaceSelfHistoryCarryApplied = 1U;
+			}
+		}
 		const bool applyVIHistoryCandidateCarry =
 			allowVIHistorySelection
 			&& summary.presentSelectionReason == kExecutorPresentSelectionMostWrittenFallback
@@ -7508,73 +7649,34 @@ ExecutorOutput Executor::executeWithOutput(
 			&& summary.historyVIOriginCandidateAddress != presentSurfaceAddress
 			&& summary.selectedPresentSurfaceLiveWriteCount > 0ULL;
 		if (applyVIHistoryCandidateCarry) {
-			ColorSurface & selectedSurface = it->second;
-			const size_t pixelCount =
-				static_cast<size_t>(selectedSurface.width) * static_cast<size_t>(selectedSurface.height);
 			const auto historyCandidateIt = m_surfaceHistory.find(summary.historyVIOriginCandidateAddress);
-			if (pixelCount > 0U
-				&& selectedSurface.pixels.size() >= pixelCount
-				&& historyCandidateIt != m_surfaceHistory.end()) {
-				const ExecutorCachedSurface & historyCandidate = historyCandidateIt->second;
-					if (historyCandidate.valid
-						&& historyCandidate.address != presentSurfaceAddress
-						&& !(isDepthOnlyColorAddress(historyCandidate.address) && !allowDepthAliasedHistoryCarry)
-						&& historyCandidate.format == selectedSurface.format
-						&& historyCandidate.size == selectedSurface.size
-						&& historyCandidate.width == selectedSurface.width
-						&& historyCandidate.height >= selectedSurface.height
-						&& historyCandidate.pixels.size() >= pixelCount) {
-						const bool destinationHasWriteMask = selectedSurface.writeMask.size() >= pixelCount;
-						const bool sourceHasCoverage = historyCandidate.coverage.size() >= pixelCount;
-						const bool sourceHasHiddenCoverage = historyCandidate.hiddenCoverage.size() >= pixelCount;
-						u64 potentialBlackFill = 0ULL;
-						u64 potentialNonBlackDiff = 0ULL;
-						u64 potentialUnwrittenDiff = 0ULL;
-						u64 copiedPixels = 0ULL;
-						u64 copiedUnwrittenPixels = 0ULL;
-						for (size_t i = 0U; i < pixelCount; ++i) {
-							const u32 sourcePixel = historyCandidate.pixels[i];
-							if (!pixelHasVisibleColor(sourcePixel))
-								continue;
-							const u32 destinationPixel = selectedSurface.pixels[i];
-							const bool destinationVisible = pixelHasVisibleColor(destinationPixel);
-							const bool destinationUnwritten =
-								destinationHasWriteMask && (selectedSurface.writeMask[i] == 0U);
-							if (!destinationVisible)
-								++potentialBlackFill;
-							else if (destinationPixel != sourcePixel)
-								++potentialNonBlackDiff;
-							if (destinationUnwritten && destinationPixel != sourcePixel)
-								++potentialUnwrittenDiff;
-							const bool allowCarryForPixel =
-								!destinationVisible
-								|| destinationUnwritten;
-							if (!allowCarryForPixel || destinationPixel == sourcePixel)
-								continue;
-							selectedSurface.pixels[i] = sourcePixel;
-							if (sourceHasCoverage && selectedSurface.coverage.size() >= pixelCount) {
-								selectedSurface.coverage[i] =
-									static_cast<u8>(historyCandidate.coverage[i] & 0x7U);
-						}
-						if (sourceHasHiddenCoverage && selectedSurface.hiddenCoverage.size() >= pixelCount) {
-								selectedSurface.hiddenCoverage[i] =
-									static_cast<u8>(historyCandidate.hiddenCoverage[i] & 0x1U);
-							}
-							++copiedPixels;
-							if (destinationUnwritten)
-								++copiedUnwrittenPixels;
-						}
-						summary.selectedPresentSurfaceVIHistoryCarrySourceAddress = historyCandidate.address;
-						summary.selectedPresentSurfaceVIHistoryCarryPotentialBlackFillCount = potentialBlackFill;
-						summary.selectedPresentSurfaceVIHistoryCarryPotentialNonBlackDiffCount = potentialNonBlackDiff;
-						summary.selectedPresentSurfaceVIHistoryCarryPotentialUnwrittenDiffCount = potentialUnwrittenDiff;
-						summary.selectedPresentSurfaceVIHistoryCarryCopiedCount = copiedPixels;
-						summary.selectedPresentSurfaceVIHistoryCarryCopiedUnwrittenCount = copiedUnwrittenPixels;
-						if (copiedPixels > 0ULL)
-							summary.selectedPresentSurfaceVIHistoryCarryApplied = 1U;
-					}
+			if (historyCandidateIt != m_surfaceHistory.end()) {
+				u64 potentialBlackFill = 0ULL;
+				u64 potentialNonBlackDiff = 0ULL;
+				u64 potentialUnwrittenDiff = 0ULL;
+				u64 copiedPixels = 0ULL;
+				u64 copiedUnwrittenPixels = 0ULL;
+				if (applyHistoryCarryFromCandidate(
+						historyCandidateIt->second,
+						false,
+						false,
+						potentialBlackFill,
+						potentialNonBlackDiff,
+						potentialUnwrittenDiff,
+						copiedPixels,
+						copiedUnwrittenPixels)) {
+					summary.selectedPresentSurfaceVIHistoryCarrySourceAddress =
+						historyCandidateIt->second.address;
+					summary.selectedPresentSurfaceVIHistoryCarryPotentialBlackFillCount = potentialBlackFill;
+					summary.selectedPresentSurfaceVIHistoryCarryPotentialNonBlackDiffCount = potentialNonBlackDiff;
+					summary.selectedPresentSurfaceVIHistoryCarryPotentialUnwrittenDiffCount = potentialUnwrittenDiff;
+					summary.selectedPresentSurfaceVIHistoryCarryCopiedCount = copiedPixels;
+					summary.selectedPresentSurfaceVIHistoryCarryCopiedUnwrittenCount = copiedUnwrittenPixels;
+					if (copiedPixels > 0ULL)
+						summary.selectedPresentSurfaceVIHistoryCarryApplied = 1U;
 				}
 			}
+		}
 		VIFrameInput presentInput{};
 		presentInput.sourceAddressValid = viOriginMatchedSurface;
 		presentInput.sourceAddress = presentSurfaceAddress;
@@ -7881,6 +7983,7 @@ ExecutorOutput Executor::executeWithOutput(
 	gActiveExecutorSummary = previousExecutorSummary;
 	gActiveTextureReplacementStore = previousReplacementStore;
 	gActiveExecutorTMEMWords = previousTMEMWords;
+	gActiveExecutorFrameId = previousFrameId;
 	return output;
 }
 
