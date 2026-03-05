@@ -81,6 +81,9 @@ Fix missing textures and missing geometry in `paper_mario_intro` on Vulkan `rvk2
   - shadow-on `candidate_non_black_ratio=0.945481`
   - executor-off `candidate_non_black_ratio=0.584560`
   - oracle missing attribution: `missing_without_write_ratio=0.8825` (`with_prior_write_ratio=1.0`)
+- [x] Added explicit TMEM post-write snapshot capture hooks for load execution paths (`RDP` command loop + synthetic `gDP` load helpers) and a runtime unit test (`testRuntimeTMEMWriteSnapshotCapture`).
+- [x] Revalidated quick smoke and deep 20-frame shadow oracle after TMEM snapshot-capture hooks.
+- [ ] TMEM snapshot-capture hook impact: no structural oracle movement yet (`candidate_non_black_ratio` and `missing_without_write_ratio` unchanged); continue to next attribution lane.
 
 ## Current Lane-1 Evidence Snapshot
 - Deep run: `build/parity-runs/paper-mario/archive/paper_mario_intro.20260304-222205Z.21ceca95`

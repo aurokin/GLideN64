@@ -67,6 +67,11 @@ bool debugDisableSameFramePresentAccumRequested()
 	return envFlagEnabled("REALITYVK_RVK2_DEBUG_DISABLE_SAME_FRAME_PRESENT_ACCUM", false);
 }
 
+bool debugDisableTMEMSnapshotsRequested()
+{
+	return envFlagEnabled("REALITYVK_RVK2_DEBUG_DISABLE_TMEM_SNAPSHOTS", false);
+}
+
 const char * debugExecutorPresentDumpPath()
 {
 	static const char * path = []() -> const char * {
@@ -1044,12 +1049,18 @@ bool ContextImpl::present()
 
 	const ExecutorConfig config = buildExecutorConfigFromVIRegisters(frameId);
 	m_executor.updateConfig(config);
+	const std::vector<TMEMWordsSnapshot> * tmemSnapshots = &runtime().tmemSnapshots();
+	const std::vector<u32> * workTMEMSnapshotIndices = &runtime().renderWorkTMEMSnapshotIndices();
+	if (debugDisableTMEMSnapshotsRequested()) {
+		tmemSnapshots = nullptr;
+		workTMEMSnapshotIndices = nullptr;
+	}
 	ExecutorOutput output =
 		m_executor.executeWithOutput(
 			runtime().renderPlan(),
 			runtime().submissionPlan(),
-			&runtime().tmemSnapshots(),
-			&runtime().renderWorkTMEMSnapshotIndices());
+			tmemSnapshots,
+			workTMEMSnapshotIndices);
 
 	const bool allowSameFramePresentAccum = !debugDisableSameFramePresentAccumRequested();
 	if (allowSameFramePresentAccum

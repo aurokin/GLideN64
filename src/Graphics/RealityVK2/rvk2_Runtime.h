@@ -66,6 +66,7 @@ public:
 	const std::vector<u32> & renderWorkTMEMSnapshotIndices() const;
 	const RDPStateEngine & rdpState() const;
 	const TMEMModel & tmemModel() const;
+	void captureTMEMWriteSnapshot();
 
 	FrameTraceRecord buildFrameTrace() const;
 

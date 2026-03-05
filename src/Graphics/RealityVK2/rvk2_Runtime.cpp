@@ -813,6 +813,11 @@ const TMEMModel & Runtime::tmemModel() const
 	return m_tmemModel;
 }
 
+void Runtime::captureTMEMWriteSnapshot()
+{
+	captureCurrentTMEMSnapshot();
+}
+
 FrameTraceRecord Runtime::buildFrameTrace() const
 {
 	FrameTraceRecord record{};

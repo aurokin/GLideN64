@@ -83,6 +83,13 @@ inline void submitRvk2SyntheticRdp(
 		_fullWordCount);
 }
 
+inline void captureRvk2SyntheticTMEMWriteSnapshot()
+{
+	if (!shouldSubmitRvk2SyntheticRdp())
+		return;
+	rvk2::runtime().captureTMEMWriteSnapshot();
+}
+
 inline u32 packRGBA(u32 _r, u32 _g, u32 _b, u32 _a)
 {
 	return ((_r & 0xFFU) << 24)
@@ -781,6 +788,9 @@ void gDPLoadTile(u32 tile, u32 uls, u32 ult, u32 lrs, u32 lrt)
 			tmemAddr += line;
 		}
 	}
+
+	// Synthetic load submission happens before TMEM mutation; capture again after write.
+	captureRvk2SyntheticTMEMWriteSnapshot();
 }
 
 //****************************************************************
@@ -939,6 +949,9 @@ void gDPLoadBlock(u32 tile, u32 uls, u32 ult, u32 lrs, u32 dxt)
 		}
 	}
 
+	// Synthetic load submission happens before TMEM mutation; capture again after write.
+	captureRvk2SyntheticTMEMWriteSnapshot();
+
 	DebugMsg( DEBUG_NORMAL, "gDPLoadBlock( %i, %i, %i, %i, %i );\n", tile, uls, ult, lrs, dxt );
 }
 
@@ -982,6 +995,9 @@ void gDPLoadTLUT( u32 tile, u32 uls, u32 ult, u32 lrs, u32 lrt )
 		u16 *spal = reinterpret_cast<u16*>(RDRAM + gDP.textureImage.address);
 		memcpy(reinterpret_cast<u8*>(gDP.TexFilterPalette + start), spal, u32(count)<<1);
 	}
+
+	// Synthetic load submission happens before TMEM mutation; capture again after write.
+	captureRvk2SyntheticTMEMWriteSnapshot();
 
 	gDP.changed |= CHANGED_TMEM;
 

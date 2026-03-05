@@ -6568,10 +6568,21 @@ ExecutorOutput Executor::executeWithOutput(
 							for (size_t i = 0U; i < pixelCount; ++i) {
 								const u32 previousPixel = _cached.pixels[i];
 								if (!_copyAll) {
-									if (pixelHasVisibleColor(surface.pixels[i]))
-										continue;
 									if (!pixelHasVisibleColor(previousPixel))
 										continue;
+									const u32 destinationPixel = surface.pixels[i];
+									const bool destinationVisible = pixelHasVisibleColor(destinationPixel);
+									if (destinationVisible) {
+										const u8 destinationLuma = lumaFromRGBA(destinationPixel);
+										const u8 sourceLuma = lumaFromRGBA(previousPixel);
+										const bool destinationVeryDark = destinationLuma <= 4U;
+										const bool sourceMuchBrighter =
+											sourceLuma >= 24U
+											&& static_cast<u32>(sourceLuma)
+												> (static_cast<u32>(destinationLuma) + 16U);
+										if (!(destinationVeryDark && sourceMuchBrighter))
+											continue;
+									}
 								}
 								if (surface.pixels[i] != previousPixel) {
 									surface.pixels[i] = previousPixel;

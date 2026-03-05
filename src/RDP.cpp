@@ -585,6 +585,13 @@ inline void hashWord(u64 & _hash, u32 _word)
 	}
 }
 
+inline bool isRvk2TMEMLoadOpcode(u32 _cmd)
+{
+	return _cmd == 0x30U // LoadTLUT
+		|| _cmd == 0x33U // LoadBlock
+		|| _cmd == 0x34U; // LoadTile
+}
+
 } // namespace
 
 void RDP_ProcessRDPList()
@@ -682,6 +689,8 @@ void RDP_ProcessRDPList()
 			payloadWords);
 		LLETriangle::get().flush(cmd);
 		LLEcmd[cmd](RDP.w0, RDP.w1);
+		if (isRvk2TMEMLoadOpcode(cmd))
+			rvk2::runtime().captureTMEMWriteSnapshot();
 
 		RDP.cmd_cur = (RDP.cmd_cur + cmdLength / 4) & maxCMDMask;
 		commandByteOffset += cmdLength;

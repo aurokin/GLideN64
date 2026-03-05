@@ -37,6 +37,10 @@
   - `./scripts/paper_mario_shadow_oracle.sh --frames 20 --retry-count 0`
   - Current oracle gap snapshot: shadow-on `candidate_non_black_ratio=0.945481` vs executor-off `0.584560`.
   - Oracle missing attribution: `missing_without_write_ratio=0.8825` and `missing_without_write_with_prior_write_ratio=1.0`.
+- TMEM capture alignment checkpoint landed:
+  - Runtime now exposes explicit post-write TMEM snapshot capture, wired after executed `LoadTile/LoadBlock/LoadTLUT` in both `RDP` list and synthetic `gDP` load paths.
+  - Unit coverage added for render-work snapshot index linkage (`testRuntimeTMEMWriteSnapshotCapture`).
+  - Latest 20-frame oracle remains unchanged on structural gap metrics, so snapshot timing is not yet the primary blocker.
 
 ## Current Baseline (2026-03-05)
 - Latest non-shadow deep archive run: `paper_mario_intro.20260305-003843Z.57f1559c`

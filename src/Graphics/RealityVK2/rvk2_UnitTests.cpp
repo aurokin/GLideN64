@@ -5,6 +5,7 @@
 #include <vector>
 #include <sys/stat.h>
 
+#include "N64.h"
 #include "rvk2_CommandStream.h"
 #include "rvk2_Env.h"
 #include "rvk2_Executor.h"
@@ -1123,6 +1124,46 @@ void testTriangleSignedYBounds()
 	expectTrue(
 		renderPlan[0].rectLRY <= static_cast<u16>(4U),
 		"Signed-Y triangle rect LRY should stay near top edge");
+}
+
+void testRuntimeTMEMWriteSnapshotCapture()
+{
+	rvk2::Runtime runtime;
+	runtime.beginFrame(88ULL);
+
+	rvk2::TMEMWordsSnapshot backup{};
+	for (size_t i = 0U; i < backup.size(); ++i)
+		backup[i] = TMEM[i];
+
+	const u64 mutatedWord = backup[0] ^ 0x0101010101010101ULL;
+	TMEM[0] = mutatedWord;
+	runtime.captureTMEMWriteSnapshot();
+
+	const std::vector<rvk2::TMEMWordsSnapshot> & snapshots = runtime.tmemSnapshots();
+	expectTrue(snapshots.size() >= static_cast<size_t>(2U), "Runtime TMEM snapshot capture should append after write");
+	expectEq(snapshots.back()[0], mutatedWord, "Runtime TMEM snapshot tail should match mutated TMEM word");
+
+	rvk2::CommandProvenance provenance{};
+	provenance.taskId = 88U;
+	provenance.microcode = 1U;
+	runtime.submitRDPWord(0x00880000U, (0x2FU << 24) | (2U << 20), 0x00000000U, provenance);
+	runtime.submitRDPWord(0x00880008U, (0x36U << 24) | 0x00000011U, 0x00000022U, provenance);
+
+	const std::vector<u32> & indices = runtime.renderWorkTMEMSnapshotIndices();
+	expectEq(indices.size(), static_cast<size_t>(1U), "Runtime TMEM index count should match render work count");
+	if (!indices.empty()) {
+		const u32 snapshotIndex = indices[0];
+		expectTrue(snapshotIndex < snapshots.size(), "Runtime TMEM snapshot index should be in range");
+		if (snapshotIndex < snapshots.size()) {
+			expectEq(
+				snapshots[snapshotIndex][0],
+				mutatedWord,
+				"Runtime render work should reference post-write TMEM snapshot");
+		}
+	}
+
+	for (size_t i = 0U; i < backup.size(); ++i)
+		TMEM[i] = backup[i];
 }
 
 void testSyntheticTrianglePacking()
@@ -3710,6 +3751,7 @@ int main()
 	testRDPExtendedStateFields();
 	testTMEMStateTransitions();
 	testRuntimeDrawSemanticCapture();
+	testRuntimeTMEMWriteSnapshotCapture();
 	testTriangleSignedYBounds();
 	testSyntheticTrianglePacking();
 	testSyntheticTrianglePerspectivePacking();
