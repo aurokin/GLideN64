@@ -43,6 +43,9 @@
 - Shadow draw forwarding side-effect check:
   - `REALITYVK_RVK2_SHADOW_DRAW=1` with `REALITYVK_RVK2_SHADOW_PRESENT=0` is byte-identical to shadow-off executor output.
   - no-op forwarding is not the current structural blocker.
+- Conformance stability correction:
+  - restored history-carry bootstrap/merge to debug-gated defaults after narrowing the live-proxy change.
+  - `local_gate.sh` is green again (rvk2 unit + conformance PASS).
 - TMEM capture alignment checkpoint landed:
   - Runtime now exposes explicit post-write TMEM snapshot capture, wired after executed `LoadTile/LoadBlock/LoadTLUT` in both `RDP` list and synthetic `gDP` load paths.
   - Unit coverage added for render-work snapshot index linkage (`testRuntimeTMEMWriteSnapshotCapture`).

@@ -2981,9 +2981,17 @@ inline u32 samplePseudoTexelColor(
 		&& _work.phase == static_cast<u8>(rvk2::RenderPhase::kCopy)
 		&& effectiveTextureFormat(_work) == 2U
 		&& effectiveTextureSize(_work) == 1U;
+	// Bring-up heuristic: CI+TLUT content in paper_mario_intro frequently resolves
+	// through RDRAM while TMEM samples collapse to a single palette index. Prefer
+	// RDRAM on CI4/CI8+LUT until TMEM/LoadTile parity is restored.
+	const bool ciLutRdramPrimary =
+		decodeTextureLUTMode(_work) != 0U
+		&& effectiveTextureFormat(_work) == 2U
+		&& effectiveTextureSize(_work) <= 1U;
 	const bool forceRdramPrimary =
 		debugForceTextureRdramPrimary()
-		|| copyCI8RdramProbe;
+		|| copyCI8RdramProbe
+		|| ciLutRdramPrimary;
 	const bool fallbackRdramIfTmemBlack =
 		debugTexelFallbackRdramIfTmemBlack() && !forceRdramPrimary;
 
@@ -6360,10 +6368,7 @@ ExecutorOutput Executor::executeWithOutput(
 		u64 nonDepthAliasedWorkCount = 0ULL;
 	};
 	std::unordered_map<u32, SurfaceAddressRoleStats> surfaceAddressRoles;
-	// Promote same-address history bootstrap into the default path so
-	// unwritten regions inherit prior frame content like real RDRAM-backed
-	// color buffers. Keep cross-surface bootstrap behind explicit probes.
-	const bool allowSurfaceHistoryBootstrap = true;
+	const bool allowSurfaceHistoryBootstrap = debugEnableSurfaceHistoryBootstrap();
 	const bool allowCrossSurfaceBootstrap = debugEnableCrossSurfaceBootstrap();
 	const bool allowDepthAliasedHistoryCarry = debugAllowDepthAliasHistoryCarry();
 	for (const RenderWorkPacket & work : _workPackets) {
@@ -7095,6 +7100,7 @@ ExecutorOutput Executor::executeWithOutput(
 			selectedTriangleNonBlackIt->second;
 	}
 	if (it != surfaces.end()
+		&& debugEnableUntouchedPresentCarry()
 		&& summary.selectedPresentSurfaceLiveWriteCount > 0ULL
 		&& !m_surfaceHistory.empty()) {
 		ColorSurface & selectedSurface = it->second;
@@ -7288,6 +7294,7 @@ ExecutorOutput Executor::executeWithOutput(
 		};
 		const bool applySelfHistoryCarry =
 			allowVIHistorySelection
+			&& summary.presentSelectionReason == kExecutorPresentSelectionMostWrittenFallback
 			&& summary.selectedPresentSurfaceLiveWriteCount > 0ULL
 			&& historyIt != m_surfaceHistory.end()
 			&& historyIt->second.address == presentSurfaceAddress;
@@ -7319,6 +7326,7 @@ ExecutorOutput Executor::executeWithOutput(
 		}
 		const bool applyVIHistoryCandidateCarry =
 			allowVIHistorySelection
+			&& summary.presentSelectionReason == kExecutorPresentSelectionMostWrittenFallback
 			&& summary.historyVIOriginCandidateFound != 0U
 			&& summary.historyVIOriginCandidateRejectedByAge == 0U
 			&& summary.historyVIOriginCandidateAddress != 0U
@@ -7335,7 +7343,7 @@ ExecutorOutput Executor::executeWithOutput(
 				if (applyHistoryCarryFromCandidate(
 						historyCandidateIt->second,
 						false,
-						true,
+						false,
 						potentialBlackFill,
 						potentialNonBlackDiff,
 						potentialUnwrittenDiff,
@@ -7394,7 +7402,10 @@ ExecutorOutput Executor::executeWithOutput(
 		summary.selectedPresentSurfaceWidth = cached.width;
 		summary.selectedPresentSurfaceHeight = cached.height;
 		summary.selectedPresentSurfaceSize = cached.size;
-		const bool historyPresentMergeEnabled = true;
+		const bool historyPresentMergeEnabled =
+			debugEnableUntouchedPresentCarry()
+			|| debugHistoryMergeCopyNonBlack()
+			|| debugHistoryMergeLogPath() != nullptr;
 		const size_t presentPixelCount =
 			static_cast<size_t>(cached.width) * static_cast<size_t>(cached.height);
 		if (historyPresentMergeEnabled
@@ -7468,31 +7479,20 @@ ExecutorOutput Executor::executeWithOutput(
 				u64 mergedFromCandidate = 0ULL;
 				u64 potentialBlackFill = 0ULL;
 				u64 potentialNonBlackDiff = 0ULL;
-				for (size_t i = 0U; i < presentPixelCount; ++i) {
-					const u32 sourcePixel = _candidatePixels[i];
-					if (!pixelHasVisibleColor(sourcePixel))
-						continue;
-					const u32 destinationPixel = presentCached.pixels[i];
-					const bool destinationVisible = pixelHasVisibleColor(destinationPixel);
-					const u8 destinationLuma = lumaFromRGBA(destinationPixel);
-					const u8 sourceLuma = lumaFromRGBA(sourcePixel);
-					const bool destinationVeryDark = destinationLuma <= 4U;
-					const bool sourceMuchBrighter =
-						sourceLuma >= 24U
-						&& static_cast<u32>(sourceLuma)
-							> (static_cast<u32>(destinationLuma) + 16U);
-					if (!destinationVisible)
-						++potentialBlackFill;
-					else if (destinationPixel != sourcePixel)
-						++potentialNonBlackDiff;
-					const bool allowCarryForPixel =
-						!destinationVisible
-						|| copyNonBlackHistoryMerge
-						|| (destinationVeryDark && sourceMuchBrighter);
-					if (!allowCarryForPixel)
-						continue;
-					if (destinationPixel == sourcePixel)
-						continue;
+					for (size_t i = 0U; i < presentPixelCount; ++i) {
+						const u32 sourcePixel = _candidatePixels[i];
+						if (!pixelHasVisibleColor(sourcePixel))
+							continue;
+						const u32 destinationPixel = presentCached.pixels[i];
+						const bool destinationVisible = pixelHasVisibleColor(destinationPixel);
+						if (!destinationVisible)
+							++potentialBlackFill;
+						else if (destinationPixel != sourcePixel)
+							++potentialNonBlackDiff;
+						if (destinationVisible && !copyNonBlackHistoryMerge)
+							continue;
+						if (destinationPixel == sourcePixel)
+							continue;
 					presentCached.pixels[i] = sourcePixel;
 					if (sourceHasCoverage && presentCached.coverage.size() >= presentPixelCount)
 						presentCached.coverage[i] = static_cast<u8>((*_candidateCoverage)[i] & 0x7U);

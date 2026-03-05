@@ -94,6 +94,9 @@ Fix missing textures and missing geometry in `paper_mario_intro` on Vulkan `rvk2
 - [x] Proved `SHADOW_DRAW` side-effects are not the blocker:
   - `SHADOW_DRAW=1, SHADOW_PRESENT=0` is byte-identical to baseline shadow-off metrics at 20 frames.
   - conclusion: divergence is executor render behavior, not no-op forwarding side effects.
+- [x] Restored history-carry merge/bootstrap gating to prior debug-controlled defaults after conformance regression sweep.
+  - kept the VI-history compatible-live proxy selection change intact.
+  - re-ran full `local_gate.sh`; rvk2 unit + conformance suites pass again.
 
 ## Current Lane-1 Evidence Snapshot
 - Deep run: `build/parity-runs/paper-mario/archive/paper_mario_intro.20260304-222205Z.21ceca95`
@@ -135,3 +138,4 @@ Fix missing textures and missing geometry in `paper_mario_intro` on Vulkan `rvk2
 | 2026-03-05 01:45Z | Tooling | Added deterministic shadow-oracle script (`paper_mario_shadow_oracle.sh`) and docs wiring | deep oracle run (`frames=20`, retry `0`) | Enabled packet-attributed off-vs-on loop |
 | 2026-03-05 05:00Z | Lane 0 | Prefer compatible live surface over VI-history-only present selection (keep history candidate for carry telemetry) | build + deep shadow-oracle (`20260305-045842Z`) + frame-forensics diff | Small structural gain (`0.584560 -> 0.586726`), dominant missing-without-write gap unchanged |
 | 2026-03-05 05:12Z | Diagnosis | Verify shadow-forwarding side effects | 20-frame A/B (`SHADOW_DRAW=0/1`, `SHADOW_PRESENT=0`) | No executor output change; issue remains in executor path |
+| 2026-03-05 06:18Z | Stability | Restore history-carry default guards after conformance regression | `local_gate.sh` | Gate back to PASS with live-proxy selection retained |
