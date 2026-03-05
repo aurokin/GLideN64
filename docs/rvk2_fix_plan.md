@@ -122,6 +122,10 @@ Fix missing textures and missing geometry in `paper_mario_intro` on Vulkan `rvk2
     - `mae=0.274906` (from `0.276416`)
     - `candidate_non_black_ratio=0.775195` (from `0.775134`).
   - 20-frame oracle off lane improved image error (`rmse=0.333528`, `mae=0.221082`) with stable structure (`candidate_non_black_ratio=0.586726`).
+  - non-shadow deep archive compare (`125600 -> 130549`) confirms the same direction:
+    - `rmse: 0.335714 -> 0.333528`
+    - `mae: 0.221907 -> 0.221082`
+    - `candidate_non_black_ratio`: unchanged (`58.67%`).
   - missing-without-write attribution remains dominant (`0.882528`), so Lane A stays primary.
 
 ## Immediate Attack Plan

@@ -90,19 +90,19 @@
   - 20-frame deep probe showed no structural movement; reverted to keep runtime selection behavior stable.
 
 ## Current Baseline (2026-03-05)
-- Latest non-shadow deep archive run: `paper_mario_intro.20260305-102706Z.b7c46e23`
-- Comparison baseline for this checkpoint: `paper_mario_intro.20260305-100328Z.cdf22eca`
+- Latest non-shadow deep archive run: `paper_mario_intro.20260305-130549Z.ab8e9f63` (20-frame override).
+- Comparison baseline for this checkpoint: `paper_mario_intro.20260305-125600Z.670908a7` (20-frame override).
 - Archive index: `build/parity-runs/paper-mario/archive/index.tsv`
 - Latest key metrics:
-  - `rmse=0.371346`
-  - `mae=0.276243`
-  - `candidate_non_black_ratio=0.775134`
-  - `candidate_mean_luma=0.297256`
-- Delta vs baseline (`100328 -> 102706`):
-  - `rmse`: `+0.000000`
-  - `mae`: `+0.000000`
+  - `rmse=0.333528`
+  - `mae=0.221082`
+  - `candidate_non_black_ratio=0.586726`
+  - `candidate_mean_luma=0.243705`
+- Delta vs baseline (`125600 -> 130549`):
+  - `rmse`: `-0.002186`
+  - `mae`: `-0.000825`
   - `candidate_non_black_ratio`: `+0.00pp`
-  - suspected gaps: unchanged (`13`)
+  - suspected gaps: `12 -> 13` (gap text re-clustered despite image-error improvement)
 
 ## Tooling Constraints
 - Upstream `GLideN64` `dumpfb-preset` capture remains black in agent-mode flow; treat reference non-black ratio as non-actionable.
