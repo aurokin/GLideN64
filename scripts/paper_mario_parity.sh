@@ -1525,13 +1525,20 @@ if [[ "${DEEP_TELEMETRY}" == "1" ]]; then
 
   echo "==> [telemetry] summarize frame forensics"
   if [[ -s "${CANDIDATE_FRAME_FORENSICS_OUT}" ]]; then
-    if python3 "${ROOT_DIR}/scripts/rvk2_forensics_summary.py" --input "${CANDIDATE_FRAME_FORENSICS_OUT}" > "${CANDIDATE_FRAME_FORENSICS_SUMMARY_OUT}"; then
+    if python3 "${ROOT_DIR}/scripts/rvk2_forensics_summary.py" \
+      --input "${CANDIDATE_FRAME_FORENSICS_OUT}" \
+      --overwrite "${CANDIDATE_OVERWRITE_OUT}" \
+      > "${CANDIDATE_FRAME_FORENSICS_SUMMARY_OUT}"; then
       DEEP_FORENSICS_SUMMARY_EXIT_CODE="0"
     else
       DEEP_FORENSICS_SUMMARY_EXIT_CODE="$?"
       echo "WARN: full forensics summary failed (exit=${DEEP_FORENSICS_SUMMARY_EXIT_CODE})." >&2
     fi
-    if python3 "${ROOT_DIR}/scripts/rvk2_forensics_summary.py" --input "${CANDIDATE_FRAME_FORENSICS_OUT}" --active-only > "${CANDIDATE_FRAME_FORENSICS_ACTIVE_SUMMARY_OUT}"; then
+    if python3 "${ROOT_DIR}/scripts/rvk2_forensics_summary.py" \
+      --input "${CANDIDATE_FRAME_FORENSICS_OUT}" \
+      --overwrite "${CANDIDATE_OVERWRITE_OUT}" \
+      --active-only \
+      > "${CANDIDATE_FRAME_FORENSICS_ACTIVE_SUMMARY_OUT}"; then
       DEEP_FORENSICS_ACTIVE_SUMMARY_EXIT_CODE="0"
     else
       DEEP_FORENSICS_ACTIVE_SUMMARY_EXIT_CODE="$?"

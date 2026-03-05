@@ -702,6 +702,30 @@ bool debugOverwriteLogPassesFilters(u64 _workOrdinal, u64 _sourcePacketId)
 	return true;
 }
 
+constexpr u8 kOverwriteFocusClusterNone = 0U;
+constexpr u8 kOverwriteFocusClusterFill = 1U;
+constexpr u8 kOverwriteFocusClusterTexRect = 2U;
+
+inline bool isFocusFillStateCluster(const rvk2::RenderWorkPacket & _work)
+{
+	if (_work.opKind != static_cast<u8>(rvk2::RasterOpKind::kFillRect))
+		return false;
+	const u64 combine = static_cast<u64>(_work.combineMux);
+	const u64 other = static_cast<u64>(_work.otherModes);
+	return (combine == 0x00FFFFFFFFFE793CULL && other == 0x00380C7F00000000ULL)
+		|| (combine == 0x00FFFFFFFFFCF87CULL && other == 0x00308C7F00000000ULL);
+}
+
+inline bool isFocusTexRectStateCluster(const rvk2::RenderWorkPacket & _work)
+{
+	if (_work.opKind != static_cast<u8>(rvk2::RasterOpKind::kTexRect))
+		return false;
+	const u64 combine = static_cast<u64>(_work.combineMux);
+	const u64 other = static_cast<u64>(_work.otherModes);
+	return (combine == 0x00FFFFFFFFFCF87CULL && other == 0x00208C7F00000000ULL)
+		|| (combine == 0x00FFFFFFFFFCF87CULL && other == 0x00308C7F00000000ULL);
+}
+
 void appendOverwriteLog(
 	u64 _workOrdinal,
 	u64 _sourcePacketId,
@@ -719,6 +743,10 @@ void appendOverwriteLog(
 	bool _overwriteToBlack,
 	bool _quantizedToBlack,
 	bool _preservedNonBlack,
+	bool _previousWriteMaskSet,
+	u8 _focusCluster,
+	bool _focusTexelRepeat,
+	bool _focusTLUTRepeat,
 	const rvk2::RenderWorkPacket & _work)
 {
 	const char * logPath = debugOverwriteLogPath();
@@ -744,7 +772,7 @@ void appendOverwriteLog(
 				: (_opKind == static_cast<u8>(rvk2::RasterOpKind::kFillRect) ? "fill" : "other"));
 	std::fprintf(
 		file,
-		"frame=%llu\twork_ordinal=%llu\tsource_packet_id=%llu\top_kind=%u\top_name=%s\tphase=%u\tcolor_image=0x%08X\tx=%u\ty=%u\tprev=0x%08X\tnew=0x%08X\ttexel=0x%08X\tcombiner=0x%08X\tblender=0x%08X\tfinal=0x%08X\ttexture_source_bits=0x%08X\toverwrite_to_black=%u\tquantized_to_black=%u\tpreserved=%u\tcombine_mux=0x%016llX\tother_modes=0x%016llX\tblend_params=0x%08X\ttile=%u\ttile_format=%u\ttile_size=%u\ttile_line=%u\ttile_tmem=%u\ttexture_image_width=%u\ttexture_image_address=0x%08X",
+		"frame=%llu\twork_ordinal=%llu\tsource_packet_id=%llu\top_kind=%u\top_name=%s\tphase=%u\tcolor_image=0x%08X\tx=%u\ty=%u\tprev=0x%08X\tnew=0x%08X\ttexel=0x%08X\tcombiner=0x%08X\tblender=0x%08X\tfinal=0x%08X\ttexture_source_bits=0x%08X\toverwrite_to_black=%u\tquantized_to_black=%u\tpreserved=%u\tprev_write_mask=%u\tfocus_cluster=%u\tfocus_texel_repeat=%u\tfocus_tlut_repeat=%u\tcombine_mux=0x%016llX\tother_modes=0x%016llX\tblend_params=0x%08X\ttile=%u\ttile_format=%u\ttile_size=%u\ttile_line=%u\ttile_tmem=%u\ttexture_image_width=%u\ttexture_image_address=0x%08X",
 		static_cast<unsigned long long>(gActiveExecutorFrameId),
 		static_cast<unsigned long long>(_workOrdinal),
 		static_cast<unsigned long long>(_sourcePacketId),
@@ -764,6 +792,10 @@ void appendOverwriteLog(
 		_overwriteToBlack ? 1U : 0U,
 		_quantizedToBlack ? 1U : 0U,
 		_preservedNonBlack ? 1U : 0U,
+		_previousWriteMaskSet ? 1U : 0U,
+		static_cast<unsigned>(_focusCluster),
+		_focusTexelRepeat ? 1U : 0U,
+		_focusTLUTRepeat ? 1U : 0U,
 		static_cast<unsigned long long>(_work.combineMux),
 		static_cast<unsigned long long>(_work.otherModes),
 		_work.blendParams,
@@ -5354,6 +5386,15 @@ void writeRect(
 	const bool cycle2Work = _work.phase == static_cast<u8>(rvk2::RenderPhase::kCycle2);
 	const bool decodeCycle2BlendSelectors = cycle2Work;
 	const BlendMuxSelectors stageBlendSelectors = decodeBlendMuxSelectors(_work, decodeCycle2BlendSelectors);
+	const bool focusFillCluster = isFocusFillStateCluster(_work);
+	const bool focusTexRectCluster = isFocusTexRectStateCluster(_work);
+	const u8 focusCluster = focusFillCluster
+		? kOverwriteFocusClusterFill
+		: (focusTexRectCluster ? kOverwriteFocusClusterTexRect : kOverwriteFocusClusterNone);
+	bool hasPrevFocusTexelColor = false;
+	u32 prevFocusTexelColor = 0U;
+	bool hasPrevFocusTLUTLookup = false;
+	u32 prevFocusTLUTLookup = 0U;
 	WriteBounds bounds{};
 	if (!computeWriteBounds(_work, _config.maxSurfaceWidth, _config.maxSurfaceHeight, bounds)) {
 		return;
@@ -5588,14 +5629,16 @@ void writeRect(
 				combinerColor,
 				blenderColor,
 				finalColor);
-			const u64 writeLuma = static_cast<u64>(lumaFromRGBA(writeColor));
-			u32 encodedWriteColor = encodeSurfaceColor(writeColor, _work.colorImageSize);
-			const u32 previousEncodedColor = _surface.pixels[colorIdx];
-			const bool quantizedToBlack =
-				(_work.colorImageSize == 2U)
-				&& shouldQuantizeColorImage16Surface()
-				&& pixelHasVisibleColor(writeColor)
-				&& !pixelHasVisibleColor(encodedWriteColor);
+				const u64 writeLuma = static_cast<u64>(lumaFromRGBA(writeColor));
+				u32 encodedWriteColor = encodeSurfaceColor(writeColor, _work.colorImageSize);
+				const u32 previousEncodedColor = _surface.pixels[colorIdx];
+				const bool previousWriteMaskSet =
+					(!_surface.writeMask.empty() && _surface.writeMask[colorIdx] != 0U);
+				const bool quantizedToBlack =
+					(_work.colorImageSize == 2U)
+					&& shouldQuantizeColorImage16Surface()
+					&& pixelHasVisibleColor(writeColor)
+					&& !pixelHasVisibleColor(encodedWriteColor);
 			const bool overwriteToBlack =
 				pixelHasVisibleColor(previousEncodedColor)
 				&& !pixelHasVisibleColor(encodedWriteColor);
@@ -5614,17 +5657,94 @@ void writeRect(
 				if (_work.opKind == static_cast<u8>(rvk2::RasterOpKind::kTexRect))
 					++_summary.writeTexRectOverwriteToBlackCount;
 			}
-			if (quantizedToBlack) {
-				++_summary.writeQuantizedToBlackCount;
-				if (_work.opKind == static_cast<u8>(rvk2::RasterOpKind::kTexRect))
-					++_summary.writeTexRectQuantizedToBlackCount;
-			}
-			if (preserveTexRectNonBlack)
-				encodedWriteColor = previousEncodedColor;
-			if (logWrite) {
-				appendOverwriteLog(
-					_summary.executedWorkCount,
-					_work.sourcePacketId,
+				if (quantizedToBlack) {
+					++_summary.writeQuantizedToBlackCount;
+					if (_work.opKind == static_cast<u8>(rvk2::RasterOpKind::kTexRect))
+						++_summary.writeTexRectQuantizedToBlackCount;
+				}
+				if (preserveTexRectNonBlack)
+					encodedWriteColor = previousEncodedColor;
+				const bool encodedWriteVisible = pixelHasVisibleColor(encodedWriteColor);
+				const bool previousVisible = pixelHasVisibleColor(previousEncodedColor);
+				const u64 previousLuma = static_cast<u64>(lumaFromRGBA(previousEncodedColor));
+				const u64 encodedWriteLuma = static_cast<u64>(lumaFromRGBA(encodedWriteColor));
+				bool focusTexelRepeat = false;
+				bool focusTLUTRepeat = false;
+				if (focusFillCluster) {
+					++_summary.focusFillWriteCount;
+					if (previousWriteMaskSet)
+						++_summary.focusFillWriteMaskSetCount;
+					else
+						++_summary.focusFillWriteMaskUnsetCount;
+					if (previousVisible)
+						++_summary.focusFillPrevNonBlackCount;
+					if (encodedWriteVisible)
+						++_summary.focusFillNewNonBlackCount;
+					if (overwriteToBlack)
+						++_summary.focusFillOverwriteToBlackCount;
+					_summary.focusFillPrevLumaSum += previousLuma;
+					_summary.focusFillNewLumaSum += encodedWriteLuma;
+					if (encodedWriteLuma > previousLuma)
+						++_summary.focusFillLumaIncreaseCount;
+					else if (encodedWriteLuma < previousLuma)
+						++_summary.focusFillLumaDecreaseCount;
+					else
+						++_summary.focusFillLumaEqualCount;
+				}
+				else if (focusTexRectCluster) {
+					++_summary.focusTexRectWriteCount;
+					if (previousWriteMaskSet)
+						++_summary.focusTexRectWriteMaskSetCount;
+					else
+						++_summary.focusTexRectWriteMaskUnsetCount;
+					if (previousVisible)
+						++_summary.focusTexRectPrevNonBlackCount;
+					if (encodedWriteVisible)
+						++_summary.focusTexRectNewNonBlackCount;
+					if (overwriteToBlack)
+						++_summary.focusTexRectOverwriteToBlackCount;
+					_summary.focusTexRectPrevLumaSum += previousLuma;
+					_summary.focusTexRectNewLumaSum += encodedWriteLuma;
+					if (encodedWriteLuma > previousLuma)
+						++_summary.focusTexRectLumaIncreaseCount;
+					else if (encodedWriteLuma < previousLuma)
+						++_summary.focusTexRectLumaDecreaseCount;
+					else
+						++_summary.focusTexRectLumaEqualCount;
+					if (hasPrevFocusTexelColor) {
+						focusTexelRepeat = (textureColor == prevFocusTexelColor);
+						if (focusTexelRepeat)
+							++_summary.focusTexRectTexelRepeatCount;
+						else
+							++_summary.focusTexRectTexelChangeCount;
+					}
+					prevFocusTexelColor = textureColor;
+					hasPrevFocusTexelColor = true;
+					if (captureTexelDetail) {
+						const DebugTextureSampleLogEntry & tex0 =
+							gDebugTextureSampleLogSlots[rvk2::kExecutorTextureSampleSlotTexel0];
+						if (tex0.valid && tex0.tlutApplied != 0U) {
+							++_summary.focusTexRectTLUTAppliedCount;
+							const u32 currentTLUTLookup = static_cast<u32>(tex0.tlutLookupAddress);
+							if (hasPrevFocusTLUTLookup) {
+								focusTLUTRepeat = (currentTLUTLookup == prevFocusTLUTLookup);
+								if (focusTLUTRepeat)
+									++_summary.focusTexRectTLUTLookupRepeatCount;
+								else
+									++_summary.focusTexRectTLUTLookupChangeCount;
+							}
+							prevFocusTLUTLookup = currentTLUTLookup;
+							hasPrevFocusTLUTLookup = true;
+						}
+						else {
+							++_summary.focusTexRectTLUTLookupInvalidCount;
+						}
+					}
+				}
+				if (logWrite) {
+					appendOverwriteLog(
+						_summary.executedWorkCount,
+						_work.sourcePacketId,
 					_work.opKind,
 					_work.colorImageAddress,
 					x,
@@ -5635,12 +5755,16 @@ void writeRect(
 					combinerColor,
 					blenderColor,
 					finalColor,
-					textureSourceBits,
-					overwriteToBlack,
-					quantizedToBlack,
-					preserveTexRectNonBlack,
-					_work);
-				}
+						textureSourceBits,
+						overwriteToBlack,
+						quantizedToBlack,
+						preserveTexRectNonBlack,
+						previousWriteMaskSet,
+						focusCluster,
+						focusTexelRepeat,
+						focusTLUTRepeat,
+						_work);
+					}
 				_surface.pixels[colorIdx] = encodedWriteColor;
 				writeColorImagePixelToRdram(_work, x, y, encodedWriteColor);
 				if (!_surface.writeMask.empty())
@@ -6070,12 +6194,16 @@ void writeTriangle(
 					combinerColor,
 					blenderColor,
 					finalColor,
-					textureSourceBits,
-					overwriteToBlack,
-					quantizedToBlack,
-					preserveNonBlackOverwrite,
-					_work);
-			}
+						textureSourceBits,
+						overwriteToBlack,
+						quantizedToBlack,
+						preserveNonBlackOverwrite,
+						false,
+						kOverwriteFocusClusterNone,
+						false,
+						false,
+						_work);
+				}
 				_surface.pixels[colorIdx] = encodedWriteColor;
 				writeColorImagePixelToRdram(_work, x, y, encodedWriteColor);
 				if (!_surface.writeMask.empty())

@@ -50,6 +50,10 @@
   - Runtime now exposes explicit post-write TMEM snapshot capture, wired after executed `LoadTile/LoadBlock/LoadTLUT` in both `RDP` list and synthetic `gDP` load paths.
   - Unit coverage added for render-work snapshot index linkage (`testRuntimeTMEMWriteSnapshotCapture`).
   - Latest 20-frame oracle remains unchanged on structural gap metrics, so snapshot timing is not yet the primary blocker.
+- Focus-cluster telemetry coverage fix landed:
+  - frame-forensics summaries now fall back to overwrite-derived focus metrics when in-core frame counters report zero.
+  - deep parity forensics summary generation now passes overwrite log input automatically.
+  - telemetry bundle focus-cluster source is explicit (`forensics` vs `overwrite_log`) so analysis remains attributable.
 
 ## Current Baseline (2026-03-05)
 - Latest non-shadow deep archive run: `paper_mario_intro.20260305-003843Z.57f1559c`

@@ -97,6 +97,10 @@ Fix missing textures and missing geometry in `paper_mario_intro` on Vulkan `rvk2
 - [x] Restored history-carry merge/bootstrap gating to prior debug-controlled defaults after conformance regression sweep.
   - kept the VI-history compatible-live proxy selection change intact.
   - re-ran full `local_gate.sh`; rvk2 unit + conformance suites pass again.
+- [x] Backfilled focus-cluster telemetry from overwrite logs when frame-forensics focus counters are zero.
+  - `rvk2_telemetry_bundle.py` and `rvk2_forensics_summary.py` now auto-fallback to overwrite-derived focus metrics.
+  - deep parity forensics summaries now pass overwrite log input by default.
+  - `local_gate.sh` remains PASS after telemetry fallback wiring.
 
 ## Current Lane-1 Evidence Snapshot
 - Deep run: `build/parity-runs/paper-mario/archive/paper_mario_intro.20260304-222205Z.21ceca95`

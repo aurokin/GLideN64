@@ -207,6 +207,17 @@ def _ratio(numer: int, denom: int) -> Optional[float]:
     return float(numer) / float(denom)
 
 
+def _pixel_visible(color: int) -> bool:
+    return (int(color) & 0x00FFFFFF) != 0
+
+
+def _luma_from_rgba(color: int) -> int:
+    r = (int(color) >> 24) & 0xFF
+    g = (int(color) >> 16) & 0xFF
+    b = (int(color) >> 8) & 0xFF
+    return ((r * 77) + (g * 150) + (b * 29) + 128) >> 8
+
+
 def _decode_combiner_cycle_selectors(combine_mux: int, cycle2: bool) -> Dict[str, int]:
     mode0 = (combine_mux >> 32) & 0xFFFFFFFF
     mode1 = combine_mux & 0xFFFFFFFF
@@ -432,6 +443,41 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
             "overwrite_quantized_to_black_count": 0,
             "black_write_quantized_to_black_count": 0,
             "texel_detail": {"available": False, "slot_summaries": {}},
+            "focus_clusters": {
+                "fill": {
+                    "writes": 0,
+                    "write_mask_unset": 0,
+                    "write_mask_set": 0,
+                    "prev_nonblack": 0,
+                    "new_nonblack": 0,
+                    "overwrite_black": 0,
+                    "prev_luma_sum": 0,
+                    "new_luma_sum": 0,
+                    "luma_increase": 0,
+                    "luma_decrease": 0,
+                    "luma_equal": 0,
+                },
+                "texrect": {
+                    "writes": 0,
+                    "write_mask_unset": 0,
+                    "write_mask_set": 0,
+                    "prev_nonblack": 0,
+                    "new_nonblack": 0,
+                    "overwrite_black": 0,
+                    "prev_luma_sum": 0,
+                    "new_luma_sum": 0,
+                    "luma_increase": 0,
+                    "luma_decrease": 0,
+                    "luma_equal": 0,
+                    "texel_repeat": 0,
+                    "texel_change": 0,
+                    "tlut_applied": 0,
+                    "tlut_lookup_repeat": 0,
+                    "tlut_lookup_change": 0,
+                    "tlut_lookup_invalid": 0,
+                },
+                "source": "overwrite_log",
+            },
             "frame_count": 0,
             "source_packet_stage_profiles": [],
             "source_packet_stage_profile_count": 0,
@@ -477,6 +523,36 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
     overwrite_quantized_to_black_count = 0
     black_write_quantized_to_black_count = 0
     unique_frames: set[int] = set()
+    focus_fill_writes = 0
+    focus_fill_write_mask_unset = 0
+    focus_fill_write_mask_set = 0
+    focus_fill_prev_nonblack = 0
+    focus_fill_new_nonblack = 0
+    focus_fill_overwrite_black = 0
+    focus_fill_prev_luma_sum = 0
+    focus_fill_new_luma_sum = 0
+    focus_fill_luma_increase = 0
+    focus_fill_luma_decrease = 0
+    focus_fill_luma_equal = 0
+    focus_texrect_writes = 0
+    focus_texrect_write_mask_unset = 0
+    focus_texrect_write_mask_set = 0
+    focus_texrect_prev_nonblack = 0
+    focus_texrect_new_nonblack = 0
+    focus_texrect_overwrite_black = 0
+    focus_texrect_prev_luma_sum = 0
+    focus_texrect_new_luma_sum = 0
+    focus_texrect_luma_increase = 0
+    focus_texrect_luma_decrease = 0
+    focus_texrect_luma_equal = 0
+    focus_texrect_texel_repeat = 0
+    focus_texrect_texel_change = 0
+    focus_texrect_tlut_applied = 0
+    focus_texrect_tlut_lookup_repeat = 0
+    focus_texrect_tlut_lookup_change = 0
+    focus_texrect_tlut_lookup_invalid = 0
+    focus_prev_texel_by_packet: Dict[int, int] = {}
+    focus_prev_tlut_lookup_by_packet: Dict[int, int] = {}
     texel_slot_names = ("tex0", "tex1", "tex0_next")
     texel_source_names = {
         0: "none",
@@ -670,6 +746,78 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
                 overwrite_source_packet_counts[source_packet_id] = (
                     overwrite_source_packet_counts.get(source_packet_id, 0) + 1
                 )
+
+        focus_cluster = int(_u64(record, "focus_cluster"))
+        if focus_cluster in (1, 2):
+            prev_color = int(_u64(record, "prev"))
+            new_color = int(_u64(record, "new"))
+            prev_visible = _pixel_visible(prev_color)
+            new_visible = _pixel_visible(new_color)
+            prev_luma = _luma_from_rgba(prev_color)
+            new_luma = _luma_from_rgba(new_color)
+            prev_write_mask = int(_u64(record, "prev_write_mask")) != 0
+            if focus_cluster == 1:
+                focus_fill_writes += 1
+                if prev_write_mask:
+                    focus_fill_write_mask_set += 1
+                else:
+                    focus_fill_write_mask_unset += 1
+                if prev_visible:
+                    focus_fill_prev_nonblack += 1
+                if new_visible:
+                    focus_fill_new_nonblack += 1
+                if overwrite_to_black:
+                    focus_fill_overwrite_black += 1
+                focus_fill_prev_luma_sum += prev_luma
+                focus_fill_new_luma_sum += new_luma
+                if new_luma > prev_luma:
+                    focus_fill_luma_increase += 1
+                elif new_luma < prev_luma:
+                    focus_fill_luma_decrease += 1
+                else:
+                    focus_fill_luma_equal += 1
+            else:
+                focus_texrect_writes += 1
+                if prev_write_mask:
+                    focus_texrect_write_mask_set += 1
+                else:
+                    focus_texrect_write_mask_unset += 1
+                if prev_visible:
+                    focus_texrect_prev_nonblack += 1
+                if new_visible:
+                    focus_texrect_new_nonblack += 1
+                if overwrite_to_black:
+                    focus_texrect_overwrite_black += 1
+                focus_texrect_prev_luma_sum += prev_luma
+                focus_texrect_new_luma_sum += new_luma
+                if new_luma > prev_luma:
+                    focus_texrect_luma_increase += 1
+                elif new_luma < prev_luma:
+                    focus_texrect_luma_decrease += 1
+                else:
+                    focus_texrect_luma_equal += 1
+                packet_key = int(source_packet_id) if source_packet_id > 0 else -1
+                texel_color = int(_u64(record, "texel"))
+                prev_texel = focus_prev_texel_by_packet.get(packet_key)
+                if prev_texel is not None:
+                    if texel_color == prev_texel:
+                        focus_texrect_texel_repeat += 1
+                    else:
+                        focus_texrect_texel_change += 1
+                focus_prev_texel_by_packet[packet_key] = texel_color
+                tex0_tlut_applied = int(_u64(record, "tex0_tlut_applied")) != 0
+                if tex0_tlut_applied:
+                    focus_texrect_tlut_applied += 1
+                    tlut_lookup = int(_u64(record, "tex0_tlut_addr"))
+                    prev_lookup = focus_prev_tlut_lookup_by_packet.get(packet_key)
+                    if prev_lookup is not None:
+                        if tlut_lookup == prev_lookup:
+                            focus_texrect_tlut_lookup_repeat += 1
+                        else:
+                            focus_texrect_tlut_lookup_change += 1
+                    focus_prev_tlut_lookup_by_packet[packet_key] = tlut_lookup
+                else:
+                    focus_texrect_tlut_lookup_invalid += 1
 
         texture_source_bits = _u64(record, "texture_source_bits")
         source_key = f"0x{texture_source_bits:08X}"
@@ -1302,6 +1450,62 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
         "texel_detail": {
             "available": texel_detail_available,
             "slot_summaries": texel_slot_summaries,
+        },
+        "focus_clusters": {
+            "fill": {
+                "writes": focus_fill_writes,
+                "write_mask_unset": focus_fill_write_mask_unset,
+                "write_mask_set": focus_fill_write_mask_set,
+                "write_mask_unset_ratio": _ratio(focus_fill_write_mask_unset, focus_fill_writes),
+                "prev_nonblack": focus_fill_prev_nonblack,
+                "prev_nonblack_ratio": _ratio(focus_fill_prev_nonblack, focus_fill_writes),
+                "new_nonblack": focus_fill_new_nonblack,
+                "new_nonblack_ratio": _ratio(focus_fill_new_nonblack, focus_fill_writes),
+                "overwrite_black": focus_fill_overwrite_black,
+                "overwrite_black_ratio": _ratio(focus_fill_overwrite_black, focus_fill_writes),
+                "prev_luma_sum": focus_fill_prev_luma_sum,
+                "new_luma_sum": focus_fill_new_luma_sum,
+                "luma_increase": focus_fill_luma_increase,
+                "luma_decrease": focus_fill_luma_decrease,
+                "luma_equal": focus_fill_luma_equal,
+            },
+            "texrect": {
+                "writes": focus_texrect_writes,
+                "write_mask_unset": focus_texrect_write_mask_unset,
+                "write_mask_set": focus_texrect_write_mask_set,
+                "write_mask_unset_ratio": _ratio(focus_texrect_write_mask_unset, focus_texrect_writes),
+                "prev_nonblack": focus_texrect_prev_nonblack,
+                "prev_nonblack_ratio": _ratio(focus_texrect_prev_nonblack, focus_texrect_writes),
+                "new_nonblack": focus_texrect_new_nonblack,
+                "new_nonblack_ratio": _ratio(focus_texrect_new_nonblack, focus_texrect_writes),
+                "overwrite_black": focus_texrect_overwrite_black,
+                "overwrite_black_ratio": _ratio(focus_texrect_overwrite_black, focus_texrect_writes),
+                "prev_luma_sum": focus_texrect_prev_luma_sum,
+                "new_luma_sum": focus_texrect_new_luma_sum,
+                "luma_increase": focus_texrect_luma_increase,
+                "luma_decrease": focus_texrect_luma_decrease,
+                "luma_equal": focus_texrect_luma_equal,
+                "texel_repeat": focus_texrect_texel_repeat,
+                "texel_change": focus_texrect_texel_change,
+                "texel_repeat_ratio": _ratio(
+                    focus_texrect_texel_repeat,
+                    focus_texrect_texel_repeat + focus_texrect_texel_change,
+                ),
+                "tlut_applied": focus_texrect_tlut_applied,
+                "tlut_applied_ratio": _ratio(focus_texrect_tlut_applied, focus_texrect_writes),
+                "tlut_lookup_repeat": focus_texrect_tlut_lookup_repeat,
+                "tlut_lookup_change": focus_texrect_tlut_lookup_change,
+                "tlut_lookup_repeat_ratio": _ratio(
+                    focus_texrect_tlut_lookup_repeat,
+                    focus_texrect_tlut_lookup_repeat + focus_texrect_tlut_lookup_change,
+                ),
+                "tlut_lookup_invalid": focus_texrect_tlut_lookup_invalid,
+                "tlut_lookup_invalid_ratio": _ratio(
+                    focus_texrect_tlut_lookup_invalid,
+                    focus_texrect_tlut_applied + focus_texrect_tlut_lookup_invalid,
+                ),
+            },
+            "source": "overwrite_log",
         },
         "frame_count": len(unique_frames),
         "source_packet_stage_profiles": source_packet_stage_profiles,
@@ -2082,6 +2286,72 @@ def _build_signals(
     texrect_nonblack = _u64(last_record, "texrect_nonblack")
     tri_luma_sum = _u64(last_record, "tri_luma_sum")
     texrect_luma_sum = _u64(last_record, "texrect_luma_sum")
+    focus_fill_writes = _u64(last_record, "focus_fill_writes")
+    focus_fill_write_mask_unset = _u64(last_record, "focus_fill_write_mask_unset")
+    focus_fill_write_mask_set = _u64(last_record, "focus_fill_write_mask_set")
+    focus_fill_prev_nonblack = _u64(last_record, "focus_fill_prev_nonblack")
+    focus_fill_new_nonblack = _u64(last_record, "focus_fill_new_nonblack")
+    focus_fill_overwrite_black = _u64(last_record, "focus_fill_overwrite_black")
+    focus_fill_prev_luma_sum = _u64(last_record, "focus_fill_prev_luma_sum")
+    focus_fill_new_luma_sum = _u64(last_record, "focus_fill_new_luma_sum")
+    focus_texrect_writes = _u64(last_record, "focus_texrect_writes")
+    focus_texrect_write_mask_unset = _u64(last_record, "focus_texrect_write_mask_unset")
+    focus_texrect_write_mask_set = _u64(last_record, "focus_texrect_write_mask_set")
+    focus_texrect_prev_nonblack = _u64(last_record, "focus_texrect_prev_nonblack")
+    focus_texrect_new_nonblack = _u64(last_record, "focus_texrect_new_nonblack")
+    focus_texrect_overwrite_black = _u64(last_record, "focus_texrect_overwrite_black")
+    focus_texrect_prev_luma_sum = _u64(last_record, "focus_texrect_prev_luma_sum")
+    focus_texrect_new_luma_sum = _u64(last_record, "focus_texrect_new_luma_sum")
+    focus_texrect_texel_repeat = _u64(last_record, "focus_texrect_texel_repeat")
+    focus_texrect_texel_change = _u64(last_record, "focus_texrect_texel_change")
+    focus_texrect_tlut_applied = _u64(last_record, "focus_texrect_tlut_applied")
+    focus_texrect_tlut_lookup_repeat = _u64(last_record, "focus_texrect_tlut_lookup_repeat")
+    focus_texrect_tlut_lookup_change = _u64(last_record, "focus_texrect_tlut_lookup_change")
+    focus_texrect_tlut_lookup_invalid = _u64(last_record, "focus_texrect_tlut_lookup_invalid")
+    focus_source = "forensics"
+    overwrite_focus_clusters = (
+        overwrite_summary.get("focus_clusters", {})
+        if isinstance(overwrite_summary, dict)
+        else {}
+    )
+    overwrite_focus_fill = (
+        overwrite_focus_clusters.get("fill", {})
+        if isinstance(overwrite_focus_clusters, dict)
+        else {}
+    )
+    overwrite_focus_texrect = (
+        overwrite_focus_clusters.get("texrect", {})
+        if isinstance(overwrite_focus_clusters, dict)
+        else {}
+    )
+    overwrite_focus_fill_writes = int(overwrite_focus_fill.get("writes", 0) or 0)
+    overwrite_focus_texrect_writes = int(overwrite_focus_texrect.get("writes", 0) or 0)
+    if focus_fill_writes == 0 and overwrite_focus_fill_writes > 0:
+        focus_fill_writes = overwrite_focus_fill_writes
+        focus_fill_write_mask_unset = int(overwrite_focus_fill.get("write_mask_unset", 0) or 0)
+        focus_fill_write_mask_set = int(overwrite_focus_fill.get("write_mask_set", 0) or 0)
+        focus_fill_prev_nonblack = int(overwrite_focus_fill.get("prev_nonblack", 0) or 0)
+        focus_fill_new_nonblack = int(overwrite_focus_fill.get("new_nonblack", 0) or 0)
+        focus_fill_overwrite_black = int(overwrite_focus_fill.get("overwrite_black", 0) or 0)
+        focus_fill_prev_luma_sum = int(overwrite_focus_fill.get("prev_luma_sum", 0) or 0)
+        focus_fill_new_luma_sum = int(overwrite_focus_fill.get("new_luma_sum", 0) or 0)
+        focus_source = "overwrite_log"
+    if focus_texrect_writes == 0 and overwrite_focus_texrect_writes > 0:
+        focus_texrect_writes = overwrite_focus_texrect_writes
+        focus_texrect_write_mask_unset = int(overwrite_focus_texrect.get("write_mask_unset", 0) or 0)
+        focus_texrect_write_mask_set = int(overwrite_focus_texrect.get("write_mask_set", 0) or 0)
+        focus_texrect_prev_nonblack = int(overwrite_focus_texrect.get("prev_nonblack", 0) or 0)
+        focus_texrect_new_nonblack = int(overwrite_focus_texrect.get("new_nonblack", 0) or 0)
+        focus_texrect_overwrite_black = int(overwrite_focus_texrect.get("overwrite_black", 0) or 0)
+        focus_texrect_prev_luma_sum = int(overwrite_focus_texrect.get("prev_luma_sum", 0) or 0)
+        focus_texrect_new_luma_sum = int(overwrite_focus_texrect.get("new_luma_sum", 0) or 0)
+        focus_texrect_texel_repeat = int(overwrite_focus_texrect.get("texel_repeat", 0) or 0)
+        focus_texrect_texel_change = int(overwrite_focus_texrect.get("texel_change", 0) or 0)
+        focus_texrect_tlut_applied = int(overwrite_focus_texrect.get("tlut_applied", 0) or 0)
+        focus_texrect_tlut_lookup_repeat = int(overwrite_focus_texrect.get("tlut_lookup_repeat", 0) or 0)
+        focus_texrect_tlut_lookup_change = int(overwrite_focus_texrect.get("tlut_lookup_change", 0) or 0)
+        focus_texrect_tlut_lookup_invalid = int(overwrite_focus_texrect.get("tlut_lookup_invalid", 0) or 0)
+        focus_source = "overwrite_log"
     writes = _u64(last_record, "writes")
 
     depth_eval = _u64(last_record, "depth_eval")
@@ -2201,6 +2471,68 @@ def _build_signals(
         "texrect_luma_per_write": _ratio(texrect_luma_sum, write_texrect),
         "triangle_writes_per_work": _ratio(write_tri, work_tri),
         "texrect_writes_per_work": _ratio(write_texrect, work_texrect),
+        "focus_clusters": {
+            "source": focus_source,
+            "fill": {
+                "writes": focus_fill_writes,
+                "write_mask_unset": focus_fill_write_mask_unset,
+                "write_mask_set": focus_fill_write_mask_set,
+                "write_mask_unset_ratio": _ratio(focus_fill_write_mask_unset, focus_fill_writes),
+                "prev_nonblack": focus_fill_prev_nonblack,
+                "prev_nonblack_ratio": _ratio(focus_fill_prev_nonblack, focus_fill_writes),
+                "new_nonblack": focus_fill_new_nonblack,
+                "new_nonblack_ratio": _ratio(focus_fill_new_nonblack, focus_fill_writes),
+                "overwrite_black": focus_fill_overwrite_black,
+                "overwrite_black_ratio": _ratio(focus_fill_overwrite_black, focus_fill_writes),
+                "prev_luma_sum": focus_fill_prev_luma_sum,
+                "new_luma_sum": focus_fill_new_luma_sum,
+                "luma_delta_sum": int(focus_fill_new_luma_sum - focus_fill_prev_luma_sum),
+                "luma_delta_per_write": (
+                    float(focus_fill_new_luma_sum - focus_fill_prev_luma_sum) / float(focus_fill_writes)
+                    if focus_fill_writes > 0
+                    else None
+                ),
+            },
+            "texrect": {
+                "writes": focus_texrect_writes,
+                "write_mask_unset": focus_texrect_write_mask_unset,
+                "write_mask_set": focus_texrect_write_mask_set,
+                "write_mask_unset_ratio": _ratio(focus_texrect_write_mask_unset, focus_texrect_writes),
+                "prev_nonblack": focus_texrect_prev_nonblack,
+                "prev_nonblack_ratio": _ratio(focus_texrect_prev_nonblack, focus_texrect_writes),
+                "new_nonblack": focus_texrect_new_nonblack,
+                "new_nonblack_ratio": _ratio(focus_texrect_new_nonblack, focus_texrect_writes),
+                "overwrite_black": focus_texrect_overwrite_black,
+                "overwrite_black_ratio": _ratio(focus_texrect_overwrite_black, focus_texrect_writes),
+                "prev_luma_sum": focus_texrect_prev_luma_sum,
+                "new_luma_sum": focus_texrect_new_luma_sum,
+                "luma_delta_sum": int(focus_texrect_new_luma_sum - focus_texrect_prev_luma_sum),
+                "luma_delta_per_write": (
+                    float(focus_texrect_new_luma_sum - focus_texrect_prev_luma_sum) / float(focus_texrect_writes)
+                    if focus_texrect_writes > 0
+                    else None
+                ),
+                "texel_repeat": focus_texrect_texel_repeat,
+                "texel_change": focus_texrect_texel_change,
+                "texel_repeat_ratio": _ratio(
+                    focus_texrect_texel_repeat,
+                    focus_texrect_texel_repeat + focus_texrect_texel_change,
+                ),
+                "tlut_applied": focus_texrect_tlut_applied,
+                "tlut_applied_ratio": _ratio(focus_texrect_tlut_applied, focus_texrect_writes),
+                "tlut_lookup_repeat": focus_texrect_tlut_lookup_repeat,
+                "tlut_lookup_change": focus_texrect_tlut_lookup_change,
+                "tlut_lookup_repeat_ratio": _ratio(
+                    focus_texrect_tlut_lookup_repeat,
+                    focus_texrect_tlut_lookup_repeat + focus_texrect_tlut_lookup_change,
+                ),
+                "tlut_lookup_invalid": focus_texrect_tlut_lookup_invalid,
+                "tlut_lookup_invalid_ratio": _ratio(
+                    focus_texrect_tlut_lookup_invalid,
+                    focus_texrect_tlut_applied + focus_texrect_tlut_lookup_invalid,
+                ),
+            },
+        },
     }
 
     depth_signal = {
@@ -2214,6 +2546,27 @@ def _build_signals(
 
     suspected_gaps: List[str] = []
     hard_faults: List[str] = []
+
+    if focus_fill_writes > 0:
+        focus_fill_unset_ratio = _ratio(focus_fill_write_mask_unset, focus_fill_writes)
+        if isinstance(focus_fill_unset_ratio, (int, float)) and focus_fill_unset_ratio > 0.80:
+            suspected_gaps.append(
+                "focus fill cluster writes are mostly first-touch pixels (>80% write-mask-unset); carry-forward dependence likely unresolved"
+            )
+    if focus_texrect_writes > 0:
+        focus_texrect_unset_ratio = _ratio(focus_texrect_write_mask_unset, focus_texrect_writes)
+        if isinstance(focus_texrect_unset_ratio, (int, float)) and focus_texrect_unset_ratio > 0.80:
+            suspected_gaps.append(
+                "focus texrect cluster writes are mostly first-touch pixels (>80% write-mask-unset); upstream primitive coverage remains sparse"
+            )
+        focus_texrect_tlut_invalid_ratio = _ratio(
+            focus_texrect_tlut_lookup_invalid,
+            focus_texrect_tlut_applied + focus_texrect_tlut_lookup_invalid,
+        )
+        if isinstance(focus_texrect_tlut_invalid_ratio, (int, float)) and focus_texrect_tlut_invalid_ratio > 0.50:
+            suspected_gaps.append(
+                "focus texrect cluster lacks TLUT detail on most writes; rerun deep telemetry with texel-detail enabled for packet-level TLUT parity"
+            )
 
     if isinstance(executor_present_compare, dict) and executor_present_compare.get("available") is True:
         direct_rmse = executor_present_compare.get("rmse")
@@ -3597,7 +3950,10 @@ def _build_signals(
     }
 
 
-def _summarize_forensics_records(records: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _summarize_forensics_records(
+    records: List[Dict[str, Any]],
+    overwrite_summary: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     if not records:
         return {
             "active_record_count": 0,
@@ -3607,6 +3963,9 @@ def _summarize_forensics_records(records: List[Dict[str, Any]]) -> Dict[str, Any
             "vi_origin_match_rate": None,
             "vi_source_invalid_rate": None,
             "present_select_share": {},
+            "focus_fill_write_mask_unset_rate": None,
+            "focus_texrect_write_mask_unset_rate": None,
+            "focus_texrect_tlut_lookup_invalid_rate": None,
         }
 
     active_records = [
@@ -3623,6 +3982,30 @@ def _summarize_forensics_records(records: List[Dict[str, Any]]) -> Dict[str, Any
     vi_origin_match = sum(1 for rec in source if _u64(rec, "vi_origin_match") != 0)
     vi_src_samples = sum(_u64(rec, "vi_src_samples") for rec in source)
     vi_src_invalid = sum(_u64(rec, "vi_src_invalid") for rec in source)
+    focus_fill_writes = sum(_u64(rec, "focus_fill_writes") for rec in source)
+    focus_fill_write_mask_unset = sum(_u64(rec, "focus_fill_write_mask_unset") for rec in source)
+    focus_texrect_writes = sum(_u64(rec, "focus_texrect_writes") for rec in source)
+    focus_texrect_write_mask_unset = sum(_u64(rec, "focus_texrect_write_mask_unset") for rec in source)
+    focus_texrect_tlut_applied = sum(_u64(rec, "focus_texrect_tlut_applied") for rec in source)
+    focus_texrect_tlut_lookup_invalid = sum(
+        _u64(rec, "focus_texrect_tlut_lookup_invalid") for rec in source
+    )
+    if focus_fill_writes == 0 and isinstance(overwrite_summary, dict):
+        focus_clusters = overwrite_summary.get("focus_clusters", {})
+        if isinstance(focus_clusters, dict):
+            fill = focus_clusters.get("fill", {})
+            if isinstance(fill, dict):
+                focus_fill_writes = int(fill.get("writes", 0) or 0)
+                focus_fill_write_mask_unset = int(fill.get("write_mask_unset", 0) or 0)
+    if focus_texrect_writes == 0 and isinstance(overwrite_summary, dict):
+        focus_clusters = overwrite_summary.get("focus_clusters", {})
+        if isinstance(focus_clusters, dict):
+            texrect = focus_clusters.get("texrect", {})
+            if isinstance(texrect, dict):
+                focus_texrect_writes = int(texrect.get("writes", 0) or 0)
+                focus_texrect_write_mask_unset = int(texrect.get("write_mask_unset", 0) or 0)
+                focus_texrect_tlut_applied = int(texrect.get("tlut_applied", 0) or 0)
+                focus_texrect_tlut_lookup_invalid = int(texrect.get("tlut_lookup_invalid", 0) or 0)
 
     present_select_counts: Dict[str, int] = {}
     for rec in source:
@@ -3643,6 +4026,15 @@ def _summarize_forensics_records(records: List[Dict[str, Any]]) -> Dict[str, Any
         "vi_origin_match_rate": _ratio(vi_origin_match, total),
         "vi_source_invalid_rate": _ratio(vi_src_invalid, vi_src_samples),
         "present_select_share": present_select_share,
+        "focus_fill_write_mask_unset_rate": _ratio(focus_fill_write_mask_unset, focus_fill_writes),
+        "focus_texrect_write_mask_unset_rate": _ratio(
+            focus_texrect_write_mask_unset,
+            focus_texrect_writes,
+        ),
+        "focus_texrect_tlut_lookup_invalid_rate": _ratio(
+            focus_texrect_tlut_lookup_invalid,
+            focus_texrect_tlut_applied + focus_texrect_tlut_lookup_invalid,
+        ),
     }
 
 
@@ -3884,6 +4276,34 @@ def _selected_forensics_fields(record: Dict[str, Any]) -> Dict[str, Any]:
         "texrect_nonblack",
         "tri_luma_sum",
         "texrect_luma_sum",
+        "focus_fill_writes",
+        "focus_fill_write_mask_unset",
+        "focus_fill_write_mask_set",
+        "focus_fill_prev_nonblack",
+        "focus_fill_new_nonblack",
+        "focus_fill_overwrite_black",
+        "focus_fill_prev_luma_sum",
+        "focus_fill_new_luma_sum",
+        "focus_fill_luma_increase",
+        "focus_fill_luma_decrease",
+        "focus_fill_luma_equal",
+        "focus_texrect_writes",
+        "focus_texrect_write_mask_unset",
+        "focus_texrect_write_mask_set",
+        "focus_texrect_prev_nonblack",
+        "focus_texrect_new_nonblack",
+        "focus_texrect_overwrite_black",
+        "focus_texrect_prev_luma_sum",
+        "focus_texrect_new_luma_sum",
+        "focus_texrect_luma_increase",
+        "focus_texrect_luma_decrease",
+        "focus_texrect_luma_equal",
+        "focus_texrect_texel_repeat",
+        "focus_texrect_texel_change",
+        "focus_texrect_tlut_applied",
+        "focus_texrect_tlut_lookup_repeat",
+        "focus_texrect_tlut_lookup_change",
+        "focus_texrect_tlut_lookup_invalid",
         "depth_eval",
         "depth_reject",
         "depth_update",
@@ -3999,7 +4419,7 @@ def main() -> int:
     forensics_records_by_frame = forensics_data.get("records_by_frame", {})
     if not isinstance(forensics_records_by_frame, dict):
         forensics_records_by_frame = {}
-    forensics_rollup = _summarize_forensics_records(forensics_records)
+    forensics_rollup = _summarize_forensics_records(forensics_records, overwrite_summary)
     replay_forensics_correlation = _build_replay_forensics_correlation(
         replay,
         forensics_records_by_frame,
