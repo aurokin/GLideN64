@@ -101,6 +101,10 @@ Fix missing textures and missing geometry in `paper_mario_intro` on Vulkan `rvk2
   - `rvk2_telemetry_bundle.py` and `rvk2_forensics_summary.py` now auto-fallback to overwrite-derived focus metrics.
   - deep parity forensics summaries now pass overwrite log input by default.
   - `local_gate.sh` remains PASS after telemetry fallback wiring.
+- [x] Hardened telemetry bundle parsing for large deep telemetry logs.
+  - `rvk2_telemetry_bundle.py` now streams overwrite/triangle logs line-by-line instead of `read_text().splitlines()` loading.
+  - added shared key/value record parser helpers to reduce parser duplication and keep behavior stable.
+  - validated on prior OOM case (`shadow-oracle/20260305-071322Z` with `12G` overwrite log): bundle generation now completes (`paper_mario_intro.telemetry-bundle.retry.json`).
 
 ## Current Lane-1 Evidence Snapshot
 - Deep run: `build/parity-runs/paper-mario/archive/paper_mario_intro.20260304-222205Z.21ceca95`
@@ -143,3 +147,4 @@ Fix missing textures and missing geometry in `paper_mario_intro` on Vulkan `rvk2
 | 2026-03-05 05:00Z | Lane 0 | Prefer compatible live surface over VI-history-only present selection (keep history candidate for carry telemetry) | build + deep shadow-oracle (`20260305-045842Z`) + frame-forensics diff | Small structural gain (`0.584560 -> 0.586726`), dominant missing-without-write gap unchanged |
 | 2026-03-05 05:12Z | Diagnosis | Verify shadow-forwarding side effects | 20-frame A/B (`SHADOW_DRAW=0/1`, `SHADOW_PRESENT=0`) | No executor output change; issue remains in executor path |
 | 2026-03-05 06:18Z | Stability | Restore history-carry default guards after conformance regression | `local_gate.sh` | Gate back to PASS with live-proxy selection retained |
+| 2026-03-05 07:34Z | Tooling | Stream telemetry bundle parsing for overwrite/triangle logs | `local_gate.sh` + 12GB bundle regen (`shadow-oracle/20260305-071322Z/off`) | OOM resolved for deep bundle generation; large-run telemetry now completes |

@@ -154,12 +154,41 @@ run_shadow_case() {
     REALITYVK_PM_VISUAL_GATE=0 \
     REALITYVK_PM_AUTO_COMPARE_VIEW=0 \
     REALITYVK_PM_KNOB_TRACK_ENABLE=0 \
+    REALITYVK_PM_DEEP_TELEMETRY=1 \
+    REALITYVK_PM_DEEP_TELEMETRY_ARCHIVE=1 \
+    REALITYVK_PM_DEEP_TELEMETRY_OVERWRITE_LOG=1 \
+    REALITYVK_PM_DEEP_TELEMETRY_OVERWRITE_LOG_LIMIT=3000000 \
+    REALITYVK_PM_DEEP_TELEMETRY_OVERWRITE_LOG_INCLUDE_ALL_WRITES=1 \
+    REALITYVK_PM_DEEP_TELEMETRY_OVERWRITE_LOG_INCLUDE_TEXEL_DETAIL=1 \
+    REALITYVK_PM_DEEP_TELEMETRY_OVERWRITE_LOG_AUTO_PACKET_IDS_FROM_LAST_FOCUS=0 \
+    REALITYVK_PM_DEEP_TELEMETRY_OVERWRITE_LOG_PACKET_IDS= \
+    REALITYVK_PM_DEEP_TELEMETRY_TRIANGLE_PACKET_LOG=1 \
+    REALITYVK_PM_DEEP_TELEMETRY_COMMAND_CENSUS=1 \
     REALITYVK_PM_FRAMES_OVERRIDE="${FRAMES_OVERRIDE}" \
     REALITYVK_PM_RUN_ROOT="${run_root_case}" \
     REALITYVK_SMOKE_CAPTURE_RETRY_COUNT="${RETRY_COUNT}" \
     REALITYVK_RVK2_SHADOW_DRAW="${shadow_draw}" \
     REALITYVK_RVK2_SHADOW_PRESENT="${shadow_present}" \
     "${ROOT_DIR}/scripts/paper_mario_parity.sh"
+}
+
+resolve_shadow_run_telemetry_artifact() {
+  local run_root_case="$1"
+  local suffix="$2"
+  local local_path="${run_root_case}/telemetry/${SCENARIO_ID}.candidate.${suffix}"
+  if [[ -f "${local_path}" ]]; then
+    printf '%s\n' "${local_path}"
+    return 0
+  fi
+
+  local latest_archive="${run_root_case}/archive/${SCENARIO_ID}.latest"
+  local archive_path="${latest_archive}/telemetry/${SCENARIO_ID}.candidate.${suffix}"
+  if [[ -f "${archive_path}" ]]; then
+    printf '%s\n' "${archive_path}"
+    return 0
+  fi
+
+  return 1
 }
 
 if [[ "${DRY_RUN}" == "1" ]]; then
@@ -247,13 +276,28 @@ python3 "${ROOT_DIR}/scripts/rvk2_image_diff_playbook.py" \
   --outdir "${oracle_root}" \
   "${diff_args[@]}"
 
-off_packet_trace="${off_root}/telemetry/${SCENARIO_ID}.candidate.packet.tsv"
-off_forensics="${off_root}/telemetry/${SCENARIO_ID}.candidate.frame-forensics.tsv"
-off_triangle_log="${off_root}/telemetry/${SCENARIO_ID}.candidate.triangle-packet.tsv"
+off_packet_trace=""
+off_forensics=""
+off_triangle_log=""
+if off_packet_trace="$(resolve_shadow_run_telemetry_artifact "${off_root}" "packet.tsv")"; then
+  :
+else
+  off_packet_trace=""
+fi
+if off_forensics="$(resolve_shadow_run_telemetry_artifact "${off_root}" "frame-forensics.tsv")"; then
+  :
+else
+  off_forensics=""
+fi
+if off_triangle_log="$(resolve_shadow_run_telemetry_artifact "${off_root}" "triangle-packet.tsv")"; then
+  :
+else
+  off_triangle_log=""
+fi
 oracle_diff_summary="${oracle_root}/summary.json"
 oracle_missing_focus="${oracle_root}/missing-region-focus.off-vs-shadow.json"
 
-if [[ -f "${off_packet_trace}" && -f "${oracle_diff_summary}" ]]; then
+if [[ -n "${off_packet_trace}" && -f "${off_packet_trace}" && -f "${oracle_diff_summary}" ]]; then
   focus_cmd=(
     python3 "${ROOT_DIR}/scripts/rvk2_missing_region_focus.py"
     --packet-trace "${off_packet_trace}"
@@ -261,15 +305,15 @@ if [[ -f "${off_packet_trace}" && -f "${oracle_diff_summary}" ]]; then
     --output "${oracle_missing_focus}"
     --history-frame-window "${HISTORY_FRAME_WINDOW}"
   )
-  if [[ -f "${off_forensics}" ]]; then
+  if [[ -n "${off_forensics}" && -f "${off_forensics}" ]]; then
     focus_cmd+=(--forensics "${off_forensics}")
   fi
-  if [[ -f "${off_triangle_log}" ]]; then
+  if [[ -n "${off_triangle_log}" && -f "${off_triangle_log}" ]]; then
     focus_cmd+=(--triangle-packet-log "${off_triangle_log}")
   fi
   "${focus_cmd[@]}"
 else
-  echo "WARN: skipping missing-region focus (packet trace or diff summary not found)." >&2
+  echo "WARN: skipping missing-region focus (off packet trace or oracle diff summary not found)." >&2
 fi
 
 python3 - \

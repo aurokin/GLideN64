@@ -150,28 +150,37 @@ def _parse_int(value: str) -> Optional[int]:
         return None
 
 
+def _iter_nonempty_lines(path: Path):
+    with path.open("r", encoding="utf-8", errors="replace") as handle:
+        for raw in handle:
+            line = raw.strip()
+            if line:
+                yield line
+
+
+def _parse_kv_record(line: str) -> Dict[str, Any]:
+    record: Dict[str, Any] = {}
+    for token in line.split("\t"):
+        if "=" not in token:
+            continue
+        key, raw = token.split("=", 1)
+        key = key.strip()
+        raw = raw.strip()
+        if not key:
+            continue
+        parsed = _parse_int(raw)
+        record[key] = parsed if parsed is not None else raw
+    return record
+
+
 def _parse_forensics(path: Optional[Path]) -> Dict[str, Any]:
     if path is None or not path.is_file():
         return {"record_count": 0, "records": [], "records_by_frame": {}, "last_record": {}}
 
-    lines = [line.strip() for line in path.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()]
-    if not lines:
-        return {"record_count": 0, "records": [], "records_by_frame": {}, "last_record": {}}
-
     records: List[Dict[str, Any]] = []
     records_by_frame: Dict[int, Dict[str, Any]] = {}
-    for line in lines:
-        record: Dict[str, Any] = {}
-        for token in line.split("\t"):
-            if "=" not in token:
-                continue
-            key, raw = token.split("=", 1)
-            key = key.strip()
-            raw = raw.strip()
-            if not key:
-                continue
-            parsed = _parse_int(raw)
-            record[key] = parsed if parsed is not None else raw
+    for line in _iter_nonempty_lines(path):
+        record = _parse_kv_record(line)
         if not record:
             continue
         records.append(record)
@@ -328,22 +337,8 @@ def _parse_history_merge_log(path: Optional[Path]) -> Dict[str, Any]:
     top_black_fill_record: Dict[str, Any] = {}
     top_copied_record: Dict[str, Any] = {}
 
-    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    for line in lines:
-        stripped = line.strip()
-        if not stripped:
-            continue
-        record: Dict[str, Any] = {}
-        for token in stripped.split("\t"):
-            if "=" not in token:
-                continue
-            key, raw = token.split("=", 1)
-            key = key.strip()
-            raw = raw.strip()
-            if not key:
-                continue
-            parsed = _parse_int(raw)
-            record[key] = parsed if parsed is not None else raw
+    for line in _iter_nonempty_lines(path):
+        record = _parse_kv_record(line)
         if not record:
             continue
         records.append(record)
@@ -487,7 +482,7 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
             "source_packet_stage_profiles_by_frame_truncated_count": 0,
         }
 
-    records: List[Dict[str, Any]] = []
+    record_count = 0
     overwrite_op_counts: Dict[str, int] = {}
     black_write_op_counts: Dict[str, int] = {}
     overwrite_texture_source_bit_counts: Dict[str, int] = {}
@@ -683,24 +678,11 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
         if isinstance(phase_counts, dict):
             _bucket_bump(phase_counts, str(int(phase)))
 
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        stripped = line.strip()
-        if not stripped:
-            continue
-        record: Dict[str, Any] = {}
-        for token in stripped.split("\t"):
-            if "=" not in token:
-                continue
-            key, raw = token.split("=", 1)
-            key = key.strip()
-            raw = raw.strip()
-            if not key:
-                continue
-            parsed = _parse_int(raw)
-            record[key] = parsed if parsed is not None else raw
+    for line in _iter_nonempty_lines(path):
+        record = _parse_kv_record(line)
         if not record:
             continue
-        records.append(record)
+        record_count += 1
         frame_id = int(_u64(record, "frame"))
         if frame_id > 0:
             unique_frames.add(frame_id)
@@ -1055,7 +1037,6 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
                                     packet_stage_by_frame.get("tex0_rdram_probe_beats_tmem_count", 0) or 0
                                 ) + 1
 
-    record_count = len(records)
     non_overwrite_black_write_count = max(0, record_count - overwrite_record_count)
 
     def _build_top_color_rows(counts: Dict[int, int], denominator: int) -> List[Dict[str, Any]]:
@@ -1545,7 +1526,7 @@ def _parse_triangle_packet_log(path: Optional[Path]) -> Dict[str, Any]:
             "source_packet_profiles_by_frame_truncated_count": 0,
         }
 
-    records: List[Dict[str, Any]] = []
+    record_count = 0
     source_packet_stats: Dict[int, Dict[str, Any]] = {}
     source_packet_stats_by_frame_packet: Dict[Tuple[int, int], Dict[str, Any]] = {}
     total_sample_candidates = 0
@@ -1686,24 +1667,11 @@ def _parse_triangle_packet_log(path: Optional[Path]) -> Dict[str, Any]:
         if isinstance(phase_counts, dict):
             phase_counts[str(phase)] = int(phase_counts.get(str(phase), 0) or 0) + 1
 
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        stripped = line.strip()
-        if not stripped:
-            continue
-        record: Dict[str, Any] = {}
-        for token in stripped.split("\t"):
-            if "=" not in token:
-                continue
-            key, raw = token.split("=", 1)
-            key = key.strip()
-            raw = raw.strip()
-            if not key:
-                continue
-            parsed = _parse_int(raw)
-            record[key] = parsed if parsed is not None else raw
+    for line in _iter_nonempty_lines(path):
+        record = _parse_kv_record(line)
         if not record:
             continue
-        records.append(record)
+        record_count += 1
         frame_id = int(_u64(record, "frame"))
         if frame_id > 0:
             unique_frames.add(frame_id)
@@ -1848,7 +1816,7 @@ def _parse_triangle_packet_log(path: Optional[Path]) -> Dict[str, Any]:
         profile: Dict[str, Any] = {
             "source_packet_id": int(row.get("source_packet_id", 0) or 0),
             "record_count": record_count,
-            "record_ratio_of_triangle_log": _ratio(record_count, len(records)),
+            "record_ratio_of_triangle_log": _ratio(record_count, record_count_total),
             "sample_candidates": sample_candidates,
             "writes": writes,
             "write_ratio": _ratio(writes, sample_candidates),
@@ -1901,6 +1869,7 @@ def _parse_triangle_packet_log(path: Optional[Path]) -> Dict[str, Any]:
         return profile
 
     max_profiles = 4096
+    record_count_total = record_count
     ordered_rows = sorted(
         source_packet_stats.values(),
         key=lambda row: (
@@ -1930,7 +1899,7 @@ def _parse_triangle_packet_log(path: Optional[Path]) -> Dict[str, Any]:
         source_packet_profiles_by_frame.append(_build_packet_profile(row, include_frame_id=True))
 
     return {
-        "record_count": len(records),
+        "record_count": record_count_total,
         "total_sample_candidates": total_sample_candidates,
         "total_writes": total_writes,
         "total_alpha_reject": total_alpha_reject,

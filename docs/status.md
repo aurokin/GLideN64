@@ -54,6 +54,9 @@
   - frame-forensics summaries now fall back to overwrite-derived focus metrics when in-core frame counters report zero.
   - deep parity forensics summary generation now passes overwrite log input automatically.
   - telemetry bundle focus-cluster source is explicit (`forensics` vs `overwrite_log`) so analysis remains attributable.
+- Deep telemetry bundle stability fix landed:
+  - overwrite/triangle parsing now streams line-by-line in `rvk2_telemetry_bundle.py` (no full-file `read_text().splitlines()` allocation).
+  - validated against the prior 12GB overwrite-log failure case (`shadow-oracle/20260305-071322Z/off`): bundle regeneration now completes.
 
 ## Current Baseline (2026-03-05)
 - Latest non-shadow deep archive run: `paper_mario_intro.20260305-003843Z.57f1559c`
