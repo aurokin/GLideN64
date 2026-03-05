@@ -2317,28 +2317,28 @@ void testExecutorVIOriginRecentHistorySelection()
 		"Executor recent-history selection frame should produce present pixels");
 	expectEq(
 		secondOut.presentFrame.pixels[0],
-		fillB.fillColor,
-		"Executor should fall back to current live surface when VI-origin target has no live writes");
+		fillA.fillColor,
+		"Executor should preserve VI-matched history surface when current live target has no VI match");
 	expectEq(
 		secondOut.summary.selectedPresentSurfaceAddress,
-		fillB.colorImageAddress,
-		"Executor should select most-written live surface when VI-origin target is history-only");
+		fillA.colorImageAddress,
+		"Executor should keep VI-origin matched history surface selection");
 	expectEq(
 		secondOut.summary.presentSelectionReason,
-		static_cast<u8>(rvk2::kExecutorPresentSelectionMostWrittenFallback),
-		"Executor should report most-written fallback reason for live fallback selection");
+		static_cast<u8>(rvk2::kExecutorPresentSelectionVIOriginRange),
+		"Executor should report VI-origin range selection when history surface matches VI origin");
 	expectEq(
 		secondOut.summary.viOriginMatchedSurface,
-		static_cast<u8>(0U),
-		"Executor should clear VI-origin match when replacing history selection with live fallback");
+		static_cast<u8>(1U),
+		"Executor should keep VI-origin match when preserving history selection");
 	expectEq(
 		secondOut.summary.selectedPresentSurfaceFromHistory,
-		static_cast<u8>(0U),
-		"Executor should report live fallback as non-history selection");
+		static_cast<u8>(1U),
+		"Executor should report VI-matched selection as history-backed");
 	expectEq(
 		secondOut.summary.selectedPresentSurfaceHistoryAge,
-		static_cast<u64>(0ULL),
-		"Executor should report zero history age for live fallback selection");
+		static_cast<u64>(1ULL),
+		"Executor should report one-frame history age for lagged VI-origin selection");
 }
 
 void testExecutorVIOriginOldHistoryFallsBackToLiveSurface()
@@ -2405,12 +2405,12 @@ void testExecutorVIOriginOldHistoryFallsBackToLiveSurface()
 
 	expectEq(
 		outB.summary.selectedPresentSurfaceAddress,
-		fillB.colorImageAddress,
-		"Executor should fall back to live surface on first VI-origin lagged frame when history target has no live writes");
+		fillA.colorImageAddress,
+		"Executor should preserve VI-matched history surface on first lagged VI-origin frame");
 	expectEq(
 		outC.summary.selectedPresentSurfaceAddress,
-		fillC.colorImageAddress,
-		"Executor should continue selecting current live surface while VI-origin history target remains unwritten");
+		fillA.colorImageAddress,
+		"Executor should continue selecting VI-matched history surface while candidate age remains in-range");
 	expectEq(
 		outD.summary.selectedPresentSurfaceAddress,
 		fillD.colorImageAddress,

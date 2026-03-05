@@ -1449,6 +1449,12 @@ struct TileAxisSampleCoord
 	u8 frac = 0U;
 };
 
+struct TileLocalTexelCoord
+{
+	s32 s = 0;
+	s32 t = 0;
+};
+
 inline s32 applyTileAxisShiftCoord5(
 	s32 _coord5,
 	u8 _shift)
@@ -1510,6 +1516,22 @@ inline TileAxisSampleCoord applyTileAxisTransform(
 
 	mapped.texel = tileBase + localTexel;
 	return mapped;
+}
+
+inline s32 decodeTileTexelBase(u16 _lo, u16 _hi)
+{
+	return static_cast<s32>(std::min<u16>(_lo, _hi) >> 2U);
+}
+
+inline TileLocalTexelCoord computeTileLocalTexelCoord(
+	const rvk2::RenderWorkPacket & _work,
+	s32 _s,
+	s32 _t)
+{
+	TileLocalTexelCoord local{};
+	local.s = _s - decodeTileTexelBase(_work.tileULS, _work.tileLRS);
+	local.t = _t - decodeTileTexelBase(_work.tileULT, _work.tileLRT);
+	return local;
 }
 
 inline void mixTextureSeed(u64 & _seed, u64 _value)
@@ -2520,8 +2542,11 @@ inline bool sampleCITextureFromTMEM(
 		? (_work.tileFormat & 0x7U)
 		: (_work.textureImageFormat & 0x7U);
 	const u8 size = _work.tileSize & 0x3U;
-	const s32 texelS = _s;
-	const s32 texelT = _t;
+	// TMEM addressing is relative to tile-local coordinates. Using absolute
+	// tile-space texels here skews row stride and odd/even row selection.
+	const TileLocalTexelCoord localTexel = computeTileLocalTexelCoord(_work, _s, _t);
+	const s32 texelS = localTexel.s;
+	const s32 texelT = localTexel.t;
 
 	const u8 lutMode = decodeTextureLUTMode(_work);
 	const u32 tMemMask = lutMode == 0U ? 0x1FFU : 0xFFU;
@@ -6896,9 +6921,14 @@ ExecutorOutput Executor::executeWithOutput(
 					: kExecutorPresentSelectionPreviousSurface;
 		}
 	}
-	if (historyIt != m_surfaceHistory.end()
-		&& debugPreferLiveSurfaceOverHistory()
-		&& !(viOriginMatchedSurface && debugKeepVIMatchedHistorySelection())) {
+		const bool viMatchedHistorySelection =
+			viOriginMatchedSurface
+			&& historyIt != m_surfaceHistory.end()
+			&& it == surfaces.end();
+		if (historyIt != m_surfaceHistory.end()
+			&& debugPreferLiveSurfaceOverHistory()
+			&& !(viMatchedHistorySelection
+				|| (viOriginMatchedSurface && debugKeepVIMatchedHistorySelection()))) {
 		const auto selectedLiveWriteIt = surfaceColorWrites.find(presentSurfaceAddress);
 		const bool selectedHasLiveWrites =
 			selectedLiveWriteIt != surfaceColorWrites.end()
