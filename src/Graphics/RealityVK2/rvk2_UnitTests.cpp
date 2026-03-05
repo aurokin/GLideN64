@@ -578,6 +578,10 @@ void testTMEMStateTransitions()
 	expectEq(model.snapshot().lastLoad.lrs, static_cast<u16>(0x2C0U), "LoadBlock lrs mismatch");
 	expectEq(model.snapshot().lastLoad.lrt, static_cast<u16>(0U), "LoadBlock lrt must be zero");
 	expectEq(model.snapshot().lastLoad.dxt, static_cast<u16>(0x321U), "LoadBlock dxt mismatch");
+	expectEq(tile3.uls, static_cast<u16>(0x111U), "LoadBlock tile uls mismatch");
+	expectEq(tile3.ult, static_cast<u16>(0x002U), "LoadBlock tile ult mismatch");
+	expectEq(tile3.lrs, static_cast<u16>(0x2C0U), "LoadBlock tile lrs mismatch");
+	expectEq(tile3.lrt, static_cast<u16>(0x321U), "LoadBlock tile lrt should track DXT");
 
 	rvk2::CommandPacket loadTile{};
 	loadTile.id = 5ULL;
@@ -590,6 +594,11 @@ void testTMEMStateTransitions()
 	expectEq(model.snapshot().lastLoad.tile, static_cast<u8>(2U), "LoadTile tile mismatch");
 	expectEq(model.snapshot().lastLoad.lrt, static_cast<u16>(0x0A0U), "LoadTile lrt mismatch");
 	expectEq(model.snapshot().lastLoad.dxt, static_cast<u16>(0U), "LoadTile dxt must be zero");
+	const rvk2::TileDescriptorState & tile2 = model.snapshot().tiles[2];
+	expectEq(tile2.uls, static_cast<u16>(0x020U), "LoadTile tile uls mismatch");
+	expectEq(tile2.ult, static_cast<u16>(0x040U), "LoadTile tile ult mismatch");
+	expectEq(tile2.lrs, static_cast<u16>(0x080U), "LoadTile tile lrs mismatch");
+	expectEq(tile2.lrt, static_cast<u16>(0x0A0U), "LoadTile tile lrt mismatch");
 
 	rvk2::CommandPacket loadTLUT{};
 	loadTLUT.id = 6ULL;
@@ -602,6 +611,11 @@ void testTMEMStateTransitions()
 	expectEq(model.snapshot().lastLoad.tile, static_cast<u8>(5U), "LoadTLUT tile mismatch");
 	expectEq(model.snapshot().lastLoad.lrs, static_cast<u16>(0x033U), "LoadTLUT lrs mismatch");
 	expectEq(model.snapshot().lastLoad.lrt, static_cast<u16>(0x044U), "LoadTLUT lrt mismatch");
+	const rvk2::TileDescriptorState & tile5 = model.snapshot().tiles[5];
+	expectEq(tile5.uls, static_cast<u16>(0x011U), "LoadTLUT tile uls mismatch");
+	expectEq(tile5.ult, static_cast<u16>(0x022U), "LoadTLUT tile ult mismatch");
+	expectEq(tile5.lrs, static_cast<u16>(0x033U), "LoadTLUT tile lrs mismatch");
+	expectEq(tile5.lrt, static_cast<u16>(0x044U), "LoadTLUT tile lrt mismatch");
 	expectEq(model.snapshot().lastPacketId, 6ULL, "TMEM last packet id mismatch after transition sequence");
 
 	const u32 expectedMask =
@@ -2358,32 +2372,32 @@ void testExecutorVIOriginRecentHistorySelection()
 		"Executor recent-history selection frame should produce present pixels");
 	expectEq(
 		secondOut.presentFrame.pixels[0],
-		fillB.fillColor,
-		"Executor should present compatible live surface when VI-origin match exists only in history");
+		fillA.fillColor,
+		"Executor should preserve VI-matched history surface when live frame lacks VI-origin match");
 	expectEq(
 		secondOut.summary.selectedPresentSurfaceAddress,
-		fillB.colorImageAddress,
-		"Executor should prefer current live compatible surface over stale VI-history-only selection");
+		fillA.colorImageAddress,
+		"Executor should keep VI-origin history candidate as selected present surface");
 	expectEq(
 		secondOut.summary.presentSelectionReason,
-		static_cast<u8>(rvk2::kExecutorPresentSelectionMostWrittenFallback),
-		"Executor live-proxy fallback should report most-written selection reason");
+		static_cast<u8>(rvk2::kExecutorPresentSelectionVIOriginRange),
+		"Executor history-preserve path should report VI-origin range selection");
 	expectEq(
 		secondOut.summary.viOriginMatchedSurface,
-		static_cast<u8>(0U),
-		"Executor live-proxy fallback should clear VI-origin matched flag");
+		static_cast<u8>(1U),
+		"Executor history-preserve path should keep VI-origin matched flag");
 	expectEq(
 		secondOut.summary.selectedPresentSurfaceFromHistory,
-		static_cast<u8>(0U),
-		"Executor live-proxy fallback should report non-history selection");
+		static_cast<u8>(1U),
+		"Executor history-preserve path should report history-backed selection");
 	expectEq(
 		secondOut.summary.historyVIOriginCandidateFound,
 		static_cast<u8>(1U),
-		"Executor live-proxy fallback should still report VI-history candidate telemetry");
+		"Executor history-preserve path should report VI-history candidate telemetry");
 	expectEq(
 		secondOut.summary.historyVIOriginCandidateAddress,
 		fillA.colorImageAddress,
-		"Executor live-proxy fallback should keep VI-history candidate address for carry analysis");
+		"Executor history-preserve path should keep VI-history candidate address");
 }
 
 void testExecutorVIOriginOldHistoryFallsBackToLiveSurface()
@@ -2450,12 +2464,12 @@ void testExecutorVIOriginOldHistoryFallsBackToLiveSurface()
 
 	expectEq(
 		outB.summary.selectedPresentSurfaceAddress,
-		fillB.colorImageAddress,
-		"Executor should prefer live surface on first lagged VI-origin frame when compatible");
+		fillA.colorImageAddress,
+		"Executor should keep VI-matched history surface on first lagged VI-origin frame");
 	expectEq(
 		outC.summary.selectedPresentSurfaceAddress,
-		fillC.colorImageAddress,
-		"Executor should continue preferring live compatible surfaces on subsequent lagged frames");
+		fillA.colorImageAddress,
+		"Executor should keep VI-matched history surface while candidate age is still recent");
 	expectEq(
 		outD.summary.selectedPresentSurfaceAddress,
 		fillD.colorImageAddress,

@@ -27,6 +27,19 @@ inline bool decodeTileIndex(u32 _w1, u8 & _tileIndex)
 	return true;
 }
 
+inline void applyTileBounds(
+	rvk2::TileDescriptorState & _tile,
+	u16 _uls,
+	u16 _ult,
+	u16 _lrs,
+	u16 _lrt)
+{
+	_tile.uls = _uls;
+	_tile.ult = _ult;
+	_tile.lrs = _lrs;
+	_tile.lrt = _lrt;
+}
+
 bool normalizeTileMasks()
 {
 	static const bool enabled = []() -> bool {
@@ -147,6 +160,7 @@ void TMEMModel::applyLoadTile(const CommandPacket & _packet)
 	if (!decodeTileIndex(_packet.w1, tileIndex))
 		return;
 
+	TileDescriptorState & tile = m_snapshot.tiles[tileIndex];
 	TMEMLoadRecord & load = m_snapshot.lastLoad;
 	load.sourcePacketId = _packet.id;
 	load.kind = TmemLoadKind::kTile;
@@ -156,7 +170,8 @@ void TMEMModel::applyLoadTile(const CommandPacket & _packet)
 	load.lrs = static_cast<u16>(bitRange(_packet.w1, 12, 12));
 	load.lrt = static_cast<u16>(bitRange(_packet.w1, 0, 12));
 	load.dxt = 0U;
-	m_snapshot.changedMask |= tmem_state_changed::kLoadTile;
+	applyTileBounds(tile, load.uls, load.ult, load.lrs, load.lrt);
+	m_snapshot.changedMask |= (tmem_state_changed::kLoadTile | tmem_state_changed::kTileSize);
 }
 
 void TMEMModel::applyLoadBlock(const CommandPacket & _packet)
@@ -165,6 +180,7 @@ void TMEMModel::applyLoadBlock(const CommandPacket & _packet)
 	if (!decodeTileIndex(_packet.w1, tileIndex))
 		return;
 
+	TileDescriptorState & tile = m_snapshot.tiles[tileIndex];
 	TMEMLoadRecord & load = m_snapshot.lastLoad;
 	load.sourcePacketId = _packet.id;
 	load.kind = TmemLoadKind::kBlock;
@@ -174,7 +190,9 @@ void TMEMModel::applyLoadBlock(const CommandPacket & _packet)
 	load.lrs = static_cast<u16>(bitRange(_packet.w1, 12, 12));
 	load.lrt = 0U;
 	load.dxt = static_cast<u16>(bitRange(_packet.w1, 0, 12));
-	m_snapshot.changedMask |= tmem_state_changed::kLoadBlock;
+	// LoadBlock updates the target tile bounds with SH carrying DXT semantics.
+	applyTileBounds(tile, load.uls, load.ult, load.lrs, load.dxt);
+	m_snapshot.changedMask |= (tmem_state_changed::kLoadBlock | tmem_state_changed::kTileSize);
 }
 
 void TMEMModel::applyLoadTLUT(const CommandPacket & _packet)
@@ -183,6 +201,7 @@ void TMEMModel::applyLoadTLUT(const CommandPacket & _packet)
 	if (!decodeTileIndex(_packet.w1, tileIndex))
 		return;
 
+	TileDescriptorState & tile = m_snapshot.tiles[tileIndex];
 	TMEMLoadRecord & load = m_snapshot.lastLoad;
 	load.sourcePacketId = _packet.id;
 	load.kind = TmemLoadKind::kTLUT;
@@ -192,7 +211,8 @@ void TMEMModel::applyLoadTLUT(const CommandPacket & _packet)
 	load.lrs = static_cast<u16>(bitRange(_packet.w1, 12, 12));
 	load.lrt = static_cast<u16>(bitRange(_packet.w1, 0, 12));
 	load.dxt = 0U;
-	m_snapshot.changedMask |= tmem_state_changed::kLoadTLUT;
+	applyTileBounds(tile, load.uls, load.ult, load.lrs, load.lrt);
+	m_snapshot.changedMask |= (tmem_state_changed::kLoadTLUT | tmem_state_changed::kTileSize);
 }
 
 } // namespace rvk2

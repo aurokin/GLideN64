@@ -286,7 +286,7 @@ DebugStageViewMode debugStageViewMode()
 	_X(debugTmem32UseCanonicalFetch, "REALITYVK_RVK2_DEBUG_TMEM32_CANONICAL_FETCH", false) \
 	_X(debugDisableVIHistoryPresentSelection, "REALITYVK_RVK2_DEBUG_DISABLE_VI_HISTORY_PRESENT", false) \
 	_X(debugPreferLiveSurfaceOverHistory, "REALITYVK_RVK2_DEBUG_PREFER_LIVE_SURFACE_OVER_HISTORY", true) \
-	_X(debugKeepVIMatchedHistorySelection, "REALITYVK_RVK2_DEBUG_KEEP_VI_MATCHED_HISTORY_SELECTION", false) \
+	_X(debugKeepVIMatchedHistorySelection, "REALITYVK_RVK2_DEBUG_KEEP_VI_MATCHED_HISTORY_SELECTION", true) \
 	_X(debugEnableSurfaceHistoryBootstrap, "REALITYVK_RVK2_DEBUG_ENABLE_SURFACE_HISTORY_BOOTSTRAP", false) \
 	_X(debugEnableCrossSurfaceBootstrap, "REALITYVK_RVK2_DEBUG_ENABLE_CROSS_SURFACE_BOOTSTRAP", false) \
 	_X(debugCrossSurfaceBootstrapCopyAllFromLastSurface, "REALITYVK_RVK2_DEBUG_CROSS_SURFACE_BOOTSTRAP_COPY_ALL", false) \
@@ -7116,7 +7116,8 @@ ExecutorOutput Executor::executeWithOutput(
 	if (viMatchedHistorySelection
 		&& frameHasLiveSurfaceWrites
 		&& historyIt != m_surfaceHistory.end()
-		&& debugPreferLiveSurfaceOverHistory()) {
+		&& debugPreferLiveSurfaceOverHistory()
+		&& !debugKeepVIMatchedHistorySelection()) {
 		u32 compatibleLiveAddress = 0U;
 		if (chooseMostWrittenCompatibleLiveSurface(historyIt->second, compatibleLiveAddress)
 			&& compatibleLiveAddress != 0U
