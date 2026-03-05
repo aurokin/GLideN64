@@ -32,11 +32,17 @@
 - Shadow-oracle evidence (same-run, 20-frame deep, replay disabled):
   - executor-vs-shadow `best_mae` improved `0.238958 -> 0.228807`.
   - executor-vs-shadow `best_rmse` improved `0.366680 -> 0.360818`.
+- Present-selection live-proxy follow-up landed:
+  - when VI matches history-only and a compatible live surface is present, executor now prefers the most-written compatible live surface.
+  - latest oracle moved slightly (`candidate_non_black_ratio` `0.584560 -> 0.586726`) but dominant missing-without-write gap persisted.
 - Remaining high-value leads are now upstream of final present handoff (overwrite cluster + raster/source divergence).
 - Deterministic shadow-oracle attribution (`frames=20`, retry `0`) now has a one-command workflow:
   - `./scripts/paper_mario_shadow_oracle.sh --frames 20 --retry-count 0`
-  - Current oracle gap snapshot: shadow-on `candidate_non_black_ratio=0.945481` vs executor-off `0.584560`.
+  - Current oracle gap snapshot: shadow-on `candidate_non_black_ratio=0.945481` vs executor-off `0.586726`.
   - Oracle missing attribution: `missing_without_write_ratio=0.8825` and `missing_without_write_with_prior_write_ratio=1.0`.
+- Shadow draw forwarding side-effect check:
+  - `REALITYVK_RVK2_SHADOW_DRAW=1` with `REALITYVK_RVK2_SHADOW_PRESENT=0` is byte-identical to shadow-off executor output.
+  - no-op forwarding is not the current structural blocker.
 - TMEM capture alignment checkpoint landed:
   - Runtime now exposes explicit post-write TMEM snapshot capture, wired after executed `LoadTile/LoadBlock/LoadTLUT` in both `RDP` list and synthetic `gDP` load paths.
   - Unit coverage added for render-work snapshot index linkage (`testRuntimeTMEMWriteSnapshotCapture`).

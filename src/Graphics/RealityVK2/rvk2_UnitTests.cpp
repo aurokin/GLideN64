@@ -2358,28 +2358,32 @@ void testExecutorVIOriginRecentHistorySelection()
 		"Executor recent-history selection frame should produce present pixels");
 	expectEq(
 		secondOut.presentFrame.pixels[0],
-		fillA.fillColor,
-		"Executor should preserve VI-matched history surface when current live target has no VI match");
+		fillB.fillColor,
+		"Executor should present compatible live surface when VI-origin match exists only in history");
 	expectEq(
 		secondOut.summary.selectedPresentSurfaceAddress,
-		fillA.colorImageAddress,
-		"Executor should keep VI-origin matched history surface selection");
+		fillB.colorImageAddress,
+		"Executor should prefer current live compatible surface over stale VI-history-only selection");
 	expectEq(
 		secondOut.summary.presentSelectionReason,
-		static_cast<u8>(rvk2::kExecutorPresentSelectionVIOriginRange),
-		"Executor should report VI-origin range selection when history surface matches VI origin");
+		static_cast<u8>(rvk2::kExecutorPresentSelectionMostWrittenFallback),
+		"Executor live-proxy fallback should report most-written selection reason");
 	expectEq(
 		secondOut.summary.viOriginMatchedSurface,
-		static_cast<u8>(1U),
-		"Executor should keep VI-origin match when preserving history selection");
+		static_cast<u8>(0U),
+		"Executor live-proxy fallback should clear VI-origin matched flag");
 	expectEq(
 		secondOut.summary.selectedPresentSurfaceFromHistory,
-		static_cast<u8>(1U),
-		"Executor should report VI-matched selection as history-backed");
+		static_cast<u8>(0U),
+		"Executor live-proxy fallback should report non-history selection");
 	expectEq(
-		secondOut.summary.selectedPresentSurfaceHistoryAge,
-		static_cast<u64>(1ULL),
-		"Executor should report one-frame history age for lagged VI-origin selection");
+		secondOut.summary.historyVIOriginCandidateFound,
+		static_cast<u8>(1U),
+		"Executor live-proxy fallback should still report VI-history candidate telemetry");
+	expectEq(
+		secondOut.summary.historyVIOriginCandidateAddress,
+		fillA.colorImageAddress,
+		"Executor live-proxy fallback should keep VI-history candidate address for carry analysis");
 }
 
 void testExecutorVIOriginOldHistoryFallsBackToLiveSurface()
@@ -2446,12 +2450,12 @@ void testExecutorVIOriginOldHistoryFallsBackToLiveSurface()
 
 	expectEq(
 		outB.summary.selectedPresentSurfaceAddress,
-		fillA.colorImageAddress,
-		"Executor should preserve VI-matched history surface on first lagged VI-origin frame");
+		fillB.colorImageAddress,
+		"Executor should prefer live surface on first lagged VI-origin frame when compatible");
 	expectEq(
 		outC.summary.selectedPresentSurfaceAddress,
-		fillA.colorImageAddress,
-		"Executor should continue selecting VI-matched history surface while candidate age remains in-range");
+		fillC.colorImageAddress,
+		"Executor should continue preferring live compatible surfaces on subsequent lagged frames");
 	expectEq(
 		outD.summary.selectedPresentSurfaceAddress,
 		fillD.colorImageAddress,

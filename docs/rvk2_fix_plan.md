@@ -84,6 +84,16 @@ Fix missing textures and missing geometry in `paper_mario_intro` on Vulkan `rvk2
 - [x] Added explicit TMEM post-write snapshot capture hooks for load execution paths (`RDP` command loop + synthetic `gDP` load helpers) and a runtime unit test (`testRuntimeTMEMWriteSnapshotCapture`).
 - [x] Revalidated quick smoke and deep 20-frame shadow oracle after TMEM snapshot-capture hooks.
 - [ ] TMEM snapshot-capture hook impact: no structural oracle movement yet (`candidate_non_black_ratio` and `missing_without_write_ratio` unchanged); continue to next attribution lane.
+- [x] Added a guarded VI-history live-proxy fallback in present selection:
+  - when VI matched a history-only surface and live frame surfaces exist with compatible dimensions/format, prefer the most-written compatible live surface.
+  - keep VI history candidate recorded for carry analysis instead of hard-locking to stale history present.
+- [x] Revalidated with deep shadow-oracle (`build/parity-runs/paper-mario/shadow-oracle/20260305-045842Z`):
+  - shadow-off `candidate_non_black_ratio`: `0.584560 -> 0.586726` (small directional gain).
+  - frame-26 selected surface now falls back to live (`present_select=4`, `present_surface=0x00583430`) when VI origin lagged.
+  - dominant gap unchanged: `missing_without_write_ratio=0.8825` with prior-write coverage still `1.0`.
+- [x] Proved `SHADOW_DRAW` side-effects are not the blocker:
+  - `SHADOW_DRAW=1, SHADOW_PRESENT=0` is byte-identical to baseline shadow-off metrics at 20 frames.
+  - conclusion: divergence is executor render behavior, not no-op forwarding side effects.
 
 ## Current Lane-1 Evidence Snapshot
 - Deep run: `build/parity-runs/paper-mario/archive/paper_mario_intro.20260304-222205Z.21ceca95`
@@ -123,3 +133,5 @@ Fix missing textures and missing geometry in `paper_mario_intro` on Vulkan `rvk2
 | 2026-03-04 23:59Z | Lane 0 | Full deep checkpoint (`paper_mario_intro.20260304-235955Z.63c167f0`) | archive compare vs `20260304-230122Z` | `VI origin mismatch` suspected-gap removed |
 | 2026-03-05 00:38Z | Lane 1 | Promote TMEM8/TMEM32 load-kind row-XOR mapping into default executor path | quick-smoke matrix + deep checkpoint (`paper_mario_intro.20260305-003843Z.57f1559c`) | RMSE/MAE improved; suspected-gap set unchanged |
 | 2026-03-05 01:45Z | Tooling | Added deterministic shadow-oracle script (`paper_mario_shadow_oracle.sh`) and docs wiring | deep oracle run (`frames=20`, retry `0`) | Enabled packet-attributed off-vs-on loop |
+| 2026-03-05 05:00Z | Lane 0 | Prefer compatible live surface over VI-history-only present selection (keep history candidate for carry telemetry) | build + deep shadow-oracle (`20260305-045842Z`) + frame-forensics diff | Small structural gain (`0.584560 -> 0.586726`), dominant missing-without-write gap unchanged |
+| 2026-03-05 05:12Z | Diagnosis | Verify shadow-forwarding side effects | 20-frame A/B (`SHADOW_DRAW=0/1`, `SHADOW_PRESENT=0`) | No executor output change; issue remains in executor path |

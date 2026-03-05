@@ -2216,7 +2216,7 @@ inline u32 xorForTmem32T(u16 _t)
 	return xor13ForT(_t);
 }
 
-inline u32 tmem8RowXorForLoadKind(
+inline u32 tmem8RowXorFromLoadKind(
 	const rvk2::RenderWorkPacket & _work,
 	u16 _t,
 	u16 _i)
@@ -2229,7 +2229,7 @@ inline u32 tmem8RowXorForLoadKind(
 	return static_cast<u32>(_i);
 }
 
-inline u32 tmem32RowXorForLoadKind(
+inline u32 tmem32RowXorFromLoadKind(
 	const rvk2::RenderWorkPacket & _work,
 	u16 _t)
 {
@@ -2309,9 +2309,9 @@ inline u32 decodeAuthoritativeTMEM32Color(
 	DebugTextureSampleLogEntry * _debug = nullptr)
 {
 	const bool highToLowRGBA = debugTmem32PackHighToLowRGBA();
-	u32 rowXor = tmem32RowXorForLoadKind(_work, _t);
+	u32 rowXor = tmem32RowXorFromLoadKind(_work, _t);
 	if (debugTmem32UseLoadKindAwareXor()) {
-		rowXor = tmem32RowXorForLoadKind(_work, _t);
+		rowXor = tmem32RowXorFromLoadKind(_work, _t);
 	}
 	if (_debug != nullptr)
 		_debug->tmemRowXor = rowXor;
@@ -2637,14 +2637,14 @@ inline bool sampleCITextureFromTMEM(
 		}
 	}
 
-		case 1U: { // 8b
-			u32 oddRowXor = tmem8RowXorForLoadKind(_work, t, i);
-			if (debugAltTmem8OddXor())
-				oddRowXor = static_cast<u32>(i);
-			if (debugTmem8UseXor13())
-				oddRowXor = (t & 1U) != 0U ? 3U : 1U;
-			if (debugTmem8UseLoadKindAwareXor())
-				oddRowXor = tmem8RowXorForLoadKind(_work, t, i);
+	case 1U: { // 8b
+		u32 oddRowXor = tmem8RowXorFromLoadKind(_work, t, i);
+		if (debugAltTmem8OddXor())
+			oddRowXor = static_cast<u32>(i);
+		if (debugTmem8UseXor13())
+			oddRowXor = (t & 1U) != 0U ? 3U : 1U;
+		if (debugTmem8UseLoadKindAwareXor())
+			oddRowXor = tmem8RowXorFromLoadKind(_work, t, i);
 			const u8 * tmem8 = reinterpret_cast<const u8 *>(activeTMEMWords());
 			const u32 byteIndex =
 				((static_cast<u32>(tmemOffset) << 3U) + (static_cast<u32>(s) ^ oddRowXor)) & 0xFFFU;
@@ -2981,17 +2981,9 @@ inline u32 samplePseudoTexelColor(
 		&& _work.phase == static_cast<u8>(rvk2::RenderPhase::kCopy)
 		&& effectiveTextureFormat(_work) == 2U
 		&& effectiveTextureSize(_work) == 1U;
-	// Bring-up heuristic: CI+TLUT content in paper_mario_intro frequently resolves
-	// through RDRAM while TMEM samples collapse to a single palette index. Prefer
-	// RDRAM on CI4/CI8+LUT until TMEM/LoadTile parity is restored.
-	const bool ciLutRdramPrimary =
-		decodeTextureLUTMode(_work) != 0U
-		&& effectiveTextureFormat(_work) == 2U
-		&& effectiveTextureSize(_work) <= 1U;
 	const bool forceRdramPrimary =
 		debugForceTextureRdramPrimary()
-		|| copyCI8RdramProbe
-		|| ciLutRdramPrimary;
+		|| copyCI8RdramProbe;
 	const bool fallbackRdramIfTmemBlack =
 		debugTexelFallbackRdramIfTmemBlack() && !forceRdramPrimary;
 
@@ -6368,7 +6360,10 @@ ExecutorOutput Executor::executeWithOutput(
 		u64 nonDepthAliasedWorkCount = 0ULL;
 	};
 	std::unordered_map<u32, SurfaceAddressRoleStats> surfaceAddressRoles;
-	const bool allowSurfaceHistoryBootstrap = debugEnableSurfaceHistoryBootstrap();
+	// Promote same-address history bootstrap into the default path so
+	// unwritten regions inherit prior frame content like real RDRAM-backed
+	// color buffers. Keep cross-surface bootstrap behind explicit probes.
+	const bool allowSurfaceHistoryBootstrap = true;
 	const bool allowCrossSurfaceBootstrap = debugEnableCrossSurfaceBootstrap();
 	const bool allowDepthAliasedHistoryCarry = debugAllowDepthAliasHistoryCarry();
 	for (const RenderWorkPacket & work : _workPackets) {
@@ -6944,14 +6939,75 @@ ExecutorOutput Executor::executeWithOutput(
 					: kExecutorPresentSelectionPreviousSurface;
 		}
 	}
-		const bool viMatchedHistorySelection =
-			viOriginMatchedSurface
-			&& historyIt != m_surfaceHistory.end()
-			&& it == surfaces.end();
-		if (historyIt != m_surfaceHistory.end()
-			&& debugPreferLiveSurfaceOverHistory()
-			&& !(viMatchedHistorySelection
-				|| (viOriginMatchedSurface && debugKeepVIMatchedHistorySelection()))) {
+	const bool viMatchedHistorySelection =
+		viOriginMatchedSurface
+		&& historyIt != m_surfaceHistory.end()
+		&& it == surfaces.end();
+	const auto chooseMostWrittenCompatibleLiveSurface =
+		[&](const ExecutorCachedSurface & _historySurface, u32 & _outAddress) -> bool {
+		u32 bestAddress = 0U;
+		u64 bestWrites = 0ULL;
+		u64 bestWorks = 0ULL;
+		bool found = false;
+		for (const auto & liveEntry : surfaces) {
+			const u32 liveAddress = liveEntry.first;
+			if (liveAddress == _historySurface.address)
+				continue;
+			if (isDepthOnlyColorAddress(liveAddress) && !allowDepthAliasedHistoryCarry)
+				continue;
+			const ColorSurface & liveSurface = liveEntry.second;
+			if (liveSurface.format != _historySurface.format
+				|| liveSurface.size != _historySurface.size
+				|| liveSurface.width != _historySurface.width
+				|| liveSurface.height != _historySurface.height) {
+				continue;
+			}
+			const auto writeIt = surfaceColorWrites.find(liveAddress);
+			const auto workIt = surfaceWorkCounts.find(liveAddress);
+			const u64 writes = writeIt != surfaceColorWrites.end() ? writeIt->second : 0ULL;
+			const u64 works = workIt != surfaceWorkCounts.end() ? workIt->second : 0ULL;
+			if (writes == 0ULL)
+				continue;
+			if (!found
+				|| writes > bestWrites
+				|| (writes == bestWrites && works > bestWorks)
+				|| (writes == bestWrites && works == bestWorks && liveAddress < bestAddress)) {
+				found = true;
+				bestAddress = liveAddress;
+				bestWrites = writes;
+				bestWorks = works;
+			}
+		}
+		if (!found)
+			return false;
+		_outAddress = bestAddress;
+		return true;
+	};
+	bool preserveVIHistorySelection = viMatchedHistorySelection;
+	if (viMatchedHistorySelection
+		&& frameHasLiveSurfaceWrites
+		&& historyIt != m_surfaceHistory.end()
+		&& debugPreferLiveSurfaceOverHistory()) {
+		u32 compatibleLiveAddress = 0U;
+		if (chooseMostWrittenCompatibleLiveSurface(historyIt->second, compatibleLiveAddress)
+			&& compatibleLiveAddress != 0U
+			&& compatibleLiveAddress != presentSurfaceAddress) {
+			presentSurfaceAddress = compatibleLiveAddress;
+			it = surfaces.find(presentSurfaceAddress);
+			historyIt = allowVIHistorySelection
+				? m_surfaceHistory.find(presentSurfaceAddress)
+				: m_surfaceHistory.end();
+			viOriginMatchedSurface = false;
+			summary.viOriginMatchedSurface = 0U;
+			summary.selectedPresentSurfaceHistoryAge = 0ULL;
+			summary.presentSelectionReason = kExecutorPresentSelectionMostWrittenFallback;
+			preserveVIHistorySelection = false;
+		}
+	}
+	if (historyIt != m_surfaceHistory.end()
+		&& debugPreferLiveSurfaceOverHistory()
+		&& !(preserveVIHistorySelection
+			|| (viOriginMatchedSurface && debugKeepVIMatchedHistorySelection()))) {
 		const auto selectedLiveWriteIt = surfaceColorWrites.find(presentSurfaceAddress);
 		const bool selectedHasLiveWrites =
 			selectedLiveWriteIt != surfaceColorWrites.end()
@@ -7039,7 +7095,6 @@ ExecutorOutput Executor::executeWithOutput(
 			selectedTriangleNonBlackIt->second;
 	}
 	if (it != surfaces.end()
-		&& debugEnableUntouchedPresentCarry()
 		&& summary.selectedPresentSurfaceLiveWriteCount > 0ULL
 		&& !m_surfaceHistory.empty()) {
 		ColorSurface & selectedSurface = it->second;
@@ -7233,7 +7288,6 @@ ExecutorOutput Executor::executeWithOutput(
 		};
 		const bool applySelfHistoryCarry =
 			allowVIHistorySelection
-			&& summary.presentSelectionReason == kExecutorPresentSelectionMostWrittenFallback
 			&& summary.selectedPresentSurfaceLiveWriteCount > 0ULL
 			&& historyIt != m_surfaceHistory.end()
 			&& historyIt->second.address == presentSurfaceAddress;
@@ -7265,7 +7319,6 @@ ExecutorOutput Executor::executeWithOutput(
 		}
 		const bool applyVIHistoryCandidateCarry =
 			allowVIHistorySelection
-			&& summary.presentSelectionReason == kExecutorPresentSelectionMostWrittenFallback
 			&& summary.historyVIOriginCandidateFound != 0U
 			&& summary.historyVIOriginCandidateRejectedByAge == 0U
 			&& summary.historyVIOriginCandidateAddress != 0U
@@ -7282,7 +7335,7 @@ ExecutorOutput Executor::executeWithOutput(
 				if (applyHistoryCarryFromCandidate(
 						historyCandidateIt->second,
 						false,
-						false,
+						true,
 						potentialBlackFill,
 						potentialNonBlackDiff,
 						potentialUnwrittenDiff,
@@ -7341,10 +7394,7 @@ ExecutorOutput Executor::executeWithOutput(
 		summary.selectedPresentSurfaceWidth = cached.width;
 		summary.selectedPresentSurfaceHeight = cached.height;
 		summary.selectedPresentSurfaceSize = cached.size;
-		const bool historyPresentMergeEnabled =
-			debugEnableUntouchedPresentCarry()
-			|| debugHistoryMergeCopyNonBlack()
-			|| debugHistoryMergeLogPath() != nullptr;
+		const bool historyPresentMergeEnabled = true;
 		const size_t presentPixelCount =
 			static_cast<size_t>(cached.width) * static_cast<size_t>(cached.height);
 		if (historyPresentMergeEnabled
@@ -7424,11 +7474,22 @@ ExecutorOutput Executor::executeWithOutput(
 						continue;
 					const u32 destinationPixel = presentCached.pixels[i];
 					const bool destinationVisible = pixelHasVisibleColor(destinationPixel);
+					const u8 destinationLuma = lumaFromRGBA(destinationPixel);
+					const u8 sourceLuma = lumaFromRGBA(sourcePixel);
+					const bool destinationVeryDark = destinationLuma <= 4U;
+					const bool sourceMuchBrighter =
+						sourceLuma >= 24U
+						&& static_cast<u32>(sourceLuma)
+							> (static_cast<u32>(destinationLuma) + 16U);
 					if (!destinationVisible)
 						++potentialBlackFill;
 					else if (destinationPixel != sourcePixel)
 						++potentialNonBlackDiff;
-					if (destinationVisible && !copyNonBlackHistoryMerge)
+					const bool allowCarryForPixel =
+						!destinationVisible
+						|| copyNonBlackHistoryMerge
+						|| (destinationVeryDark && sourceMuchBrighter);
+					if (!allowCarryForPixel)
 						continue;
 					if (destinationPixel == sourcePixel)
 						continue;
