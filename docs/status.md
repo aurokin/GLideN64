@@ -43,11 +43,15 @@
 - Present-selection live-proxy follow-up landed:
   - when VI matches history-only and a compatible live surface is present, executor now prefers the most-written compatible live surface.
   - latest oracle moved slightly (`candidate_non_black_ratio` `0.584560 -> 0.586726`) but dominant missing-without-write gap persisted.
+- VI-history carry escalation checkpoint landed (fallback-only, executor default path):
+  - when strict VI-history carry finds large non-black diff potential but copies `0`, fallback-selected frames now retry with visible-diff carry under a tight age/diff gate.
+  - oracle frame-forensics (`20260305-124849Z`) confirms carry activation on fallback frames `18/20/22/24/26` (`copied=12572/14551/16159/17767/19372`).
+  - quick smoke remained stable (`candidate_non_black_ratio=0.775134`); 20-frame oracle off lane stayed in the prior movement band (`0.586726`) and missing-without-write remains dominant (`0.882528`).
 - Remaining high-value leads are now upstream of final present handoff (overwrite cluster + raster/source divergence).
 - Deterministic shadow-oracle attribution (`frames=10` or `20`, retry `0`) now has a one-command workflow:
   - `./scripts/paper_mario_shadow_oracle.sh --frames 20 --retry-count 0`
-  - Latest oracle snapshot (`20260305-094633Z`, `frames=10`): shadow-on `candidate_non_black_ratio=0.885972` vs executor-off `0.673351`.
-  - Oracle missing attribution remains dominated by missing-without-write (`0.9123`) with prior-write coverage (`1.0`).
+  - Latest oracle snapshot (`20260305-124849Z`, `frames=20`): shadow-on `candidate_non_black_ratio=0.945481` vs executor-off `0.586726`.
+  - Oracle missing attribution remains dominated by missing-without-write (`0.882528`) with prior-write coverage (`1.0`).
 - Shadow draw forwarding side-effect check:
   - `REALITYVK_RVK2_SHADOW_DRAW=1` with `REALITYVK_RVK2_SHADOW_PRESENT=0` is byte-identical to shadow-off executor output.
   - no-op forwarding is not the current structural blocker.

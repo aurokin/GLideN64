@@ -3403,6 +3403,8 @@ inline u32 bitsPerPixelFromSurfaceSize(u8 _size)
 
 constexpr size_t kExecutorSurfaceHistoryLimit = 6U;
 constexpr u64 kExecutorVIHistorySelectionMaxAge = 2ULL;
+constexpr u64 kExecutorVIHistoryCarryAggressiveMinNonBlackDiff = 8192ULL;
+constexpr u64 kExecutorVIHistoryCarryAggressiveMaxAge = 1ULL;
 
 bool expectedSurfaceSizeFromVIStatus(const rvk2::ExecutorConfig & _config, u8 & _outSurfaceSize)
 {
@@ -7376,16 +7378,17 @@ ExecutorOutput Executor::executeWithOutput(
 		const bool selectedSurfaceValid =
 			selectedPixelCount > 0U
 			&& selectedSurface.pixels.size() >= selectedPixelCount;
-		const auto applyHistoryCarryFromCandidate =
-			[&](
-				const ExecutorCachedSurface & _candidate,
-				bool _allowSameAddress,
-				bool _requireRecentFrame,
-				u64 & _potentialBlackFill,
-				u64 & _potentialNonBlackDiff,
-				u64 & _potentialUnwrittenDiff,
-				u64 & _copiedPixels,
-				u64 & _copiedUnwrittenPixels) -> bool {
+			const auto applyHistoryCarryFromCandidate =
+				[&](
+					const ExecutorCachedSurface & _candidate,
+					bool _allowSameAddress,
+					bool _requireRecentFrame,
+					bool _allowVisibleDiffCarry,
+					u64 & _potentialBlackFill,
+					u64 & _potentialNonBlackDiff,
+					u64 & _potentialUnwrittenDiff,
+					u64 & _copiedPixels,
+					u64 & _copiedUnwrittenPixels) -> bool {
 			_potentialBlackFill = 0ULL;
 			_potentialNonBlackDiff = 0ULL;
 			_potentialUnwrittenDiff = 0ULL;
@@ -7433,13 +7436,14 @@ ExecutorOutput Executor::executeWithOutput(
 					++_potentialNonBlackDiff;
 				if (destinationUnwritten && destinationPixel != sourcePixel)
 					++_potentialUnwrittenDiff;
-				const bool allowCarryForPixel =
-					!destinationVisible
-					|| destinationUnwritten
-					|| (destinationVeryDark && sourceMuchBrighter);
-				if (!allowCarryForPixel || destinationPixel == sourcePixel)
-					continue;
-				selectedSurface.pixels[i] = sourcePixel;
+					const bool allowCarryForPixel =
+						!destinationVisible
+						|| destinationUnwritten
+						|| (destinationVeryDark && sourceMuchBrighter)
+						|| (_allowVisibleDiffCarry && destinationVisible);
+					if (!allowCarryForPixel || destinationPixel == sourcePixel)
+						continue;
+					selectedSurface.pixels[i] = sourcePixel;
 				if (sourceHasCoverage && selectedSurface.coverage.size() >= selectedPixelCount) {
 					selectedSurface.coverage[i] =
 						static_cast<u8>(_candidate.coverage[i] & 0x7U);
@@ -7466,14 +7470,15 @@ ExecutorOutput Executor::executeWithOutput(
 			u64 potentialUnwrittenDiff = 0ULL;
 			u64 copiedPixels = 0ULL;
 			u64 copiedUnwrittenPixels = 0ULL;
-			if (applyHistoryCarryFromCandidate(
-					historyIt->second,
-					true,
-					true,
-					potentialBlackFill,
-					potentialNonBlackDiff,
-					potentialUnwrittenDiff,
-					copiedPixels,
+				if (applyHistoryCarryFromCandidate(
+						historyIt->second,
+						true,
+						true,
+						false,
+						potentialBlackFill,
+						potentialNonBlackDiff,
+						potentialUnwrittenDiff,
+						copiedPixels,
 					copiedUnwrittenPixels)) {
 				summary.selectedPresentSurfaceSelfHistoryCarrySourceAddress =
 					historyIt->second.address;
@@ -7498,22 +7503,51 @@ ExecutorOutput Executor::executeWithOutput(
 			const auto historyCandidateIt = m_surfaceHistory.find(summary.historyVIOriginCandidateAddress);
 			if (historyCandidateIt != m_surfaceHistory.end()) {
 				u64 potentialBlackFill = 0ULL;
-				u64 potentialNonBlackDiff = 0ULL;
-				u64 potentialUnwrittenDiff = 0ULL;
-				u64 copiedPixels = 0ULL;
-				u64 copiedUnwrittenPixels = 0ULL;
-				if (applyHistoryCarryFromCandidate(
-						historyCandidateIt->second,
-						false,
-						false,
-						potentialBlackFill,
-						potentialNonBlackDiff,
-						potentialUnwrittenDiff,
-						copiedPixels,
-						copiedUnwrittenPixels)) {
-					summary.selectedPresentSurfaceVIHistoryCarrySourceAddress =
-						historyCandidateIt->second.address;
-					summary.selectedPresentSurfaceVIHistoryCarryPotentialBlackFillCount = potentialBlackFill;
+					u64 potentialNonBlackDiff = 0ULL;
+					u64 potentialUnwrittenDiff = 0ULL;
+					u64 copiedPixels = 0ULL;
+					u64 copiedUnwrittenPixels = 0ULL;
+					const u64 historyCandidateAge = summary.historyVIOriginCandidateAge;
+					if (applyHistoryCarryFromCandidate(
+							historyCandidateIt->second,
+							false,
+							false,
+							false,
+							potentialBlackFill,
+							potentialNonBlackDiff,
+							potentialUnwrittenDiff,
+							copiedPixels,
+							copiedUnwrittenPixels)) {
+						if (copiedPixels == 0ULL
+							&& historyCandidateAge > 0ULL
+							&& historyCandidateAge <= kExecutorVIHistoryCarryAggressiveMaxAge
+							&& potentialNonBlackDiff >= kExecutorVIHistoryCarryAggressiveMinNonBlackDiff) {
+							u64 aggressivePotentialBlackFill = 0ULL;
+							u64 aggressivePotentialNonBlackDiff = 0ULL;
+							u64 aggressivePotentialUnwrittenDiff = 0ULL;
+							u64 aggressiveCopiedPixels = 0ULL;
+							u64 aggressiveCopiedUnwrittenPixels = 0ULL;
+							if (applyHistoryCarryFromCandidate(
+									historyCandidateIt->second,
+									false,
+									false,
+									true,
+									aggressivePotentialBlackFill,
+									aggressivePotentialNonBlackDiff,
+									aggressivePotentialUnwrittenDiff,
+									aggressiveCopiedPixels,
+									aggressiveCopiedUnwrittenPixels)
+								&& aggressiveCopiedPixels > copiedPixels) {
+								potentialBlackFill = aggressivePotentialBlackFill;
+								potentialNonBlackDiff = aggressivePotentialNonBlackDiff;
+								potentialUnwrittenDiff = aggressivePotentialUnwrittenDiff;
+								copiedPixels = aggressiveCopiedPixels;
+								copiedUnwrittenPixels = aggressiveCopiedUnwrittenPixels;
+							}
+						}
+						summary.selectedPresentSurfaceVIHistoryCarrySourceAddress =
+							historyCandidateIt->second.address;
+						summary.selectedPresentSurfaceVIHistoryCarryPotentialBlackFillCount = potentialBlackFill;
 					summary.selectedPresentSurfaceVIHistoryCarryPotentialNonBlackDiffCount = potentialNonBlackDiff;
 					summary.selectedPresentSurfaceVIHistoryCarryPotentialUnwrittenDiffCount = potentialUnwrittenDiff;
 					summary.selectedPresentSurfaceVIHistoryCarryCopiedCount = copiedPixels;

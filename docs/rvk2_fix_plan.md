@@ -46,8 +46,8 @@ Fix missing textures and missing geometry in `paper_mario_intro` on Vulkan `rvk2
 - [x] Confirm ingress parity (`SHADOW_DRAW` off/on packet traces identical).
 - [x] Stabilize present selection so VI-history-only surfaces no longer hard-lock stale output.
 - [x] Add targeted telemetry around dominant texrect/fill packet neighborhood (state + stage + write-mask context).
-- [ ] Implement executor-path behavior fix for texrect/fill overwrite divergence.
-- [ ] Validate with quick smoke + deep smoke + oracle compare.
+- [x] Implement executor-path behavior fix for texrect/fill overwrite divergence.
+- [x] Validate with quick smoke + deep smoke + oracle compare.
 
 ### Lane B: Canonical TMEM mapping (`LoadBlock` / `LoadTLUT` / CI)
 - [x] Add TMEM snapshot and load-context telemetry hooks.
@@ -104,9 +104,20 @@ Fix missing textures and missing geometry in `paper_mario_intro` on Vulkan `rvk2
 - [x] Probed non-black-aware present fallback ranking (20-frame deep) and reverted:
   - no structural movement in quick/deep probe metrics.
   - removed heuristic to keep executor behavior stable; retained telemetry improvements.
+- [x] Landed targeted VI-history carry escalation for fallback-selected live surfaces:
+  - strict carry now retries with visible-diff carry only when all are true:
+    - `present_select=most_written_fallback`
+    - VI-history candidate age is recent (`<=1`)
+    - strict carry copied zero pixels
+    - strict non-black diff potential exceeds threshold.
+  - frame-forensics in oracle run `20260305-124849Z` confirms fallback frames now carry:
+    - frames `18/20/22/24/26`: `selected_surface_vi_history_carry_copied` moved `0 -> 12572/14551/16159/17767/19372`.
+  - quick smoke remained stable (`candidate_non_black_ratio=0.775134`).
+  - 20-frame oracle moved `off candidate_non_black_ratio` from prior low runs (`0.574846`) to `0.586726`; missing-without-write remains dominant (`0.882528`).
 
 ## Immediate Attack Plan
-1. Use new focus-cluster `top_states` telemetry to isolate the first fill-overwrite transition that erases visible content on the selected present surface.
-2. Implement a narrow behavior correction in the fill/texrect overwrite path (no permanent debug toggle dependency).
-3. Validate with quick smoke, then deep smoke checkpoint + archive compare.
-4. Continue into canonical TMEM lane only after Lane A produces measurable Stage-A movement.
+1. Quantify how much of missing-without-write remains on fallback-selected frames after VI-history carry escalation (`missing-region-focus.off-vs-shadow.json` + frame-forensics join).
+2. Add overwrite-path telemetry tying dominant texrect/fill packets to destination surface address and write-mask class on the selected present surface.
+3. Implement the next narrow correction in overwrite/combiner behavior for the dominant state signature (`combine=0x00FFFFFFFFFCF279`, `other=0x00000CFF00504340`) without relying on debug toggles.
+4. Validate with quick smoke, then deep smoke checkpoint + archive compare.
+5. Continue into canonical TMEM lane only after Lane A produces measurable Stage-A movement.
