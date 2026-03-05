@@ -1525,9 +1525,14 @@ if [[ "${DEEP_TELEMETRY}" == "1" ]]; then
 
   echo "==> [telemetry] summarize frame forensics"
   if [[ -s "${CANDIDATE_FRAME_FORENSICS_OUT}" ]]; then
+    forensics_summary_args=(
+      --input "${CANDIDATE_FRAME_FORENSICS_OUT}"
+    )
+    if [[ -n "${CANDIDATE_OVERWRITE_LOG_OUT}" && -s "${CANDIDATE_OVERWRITE_LOG_OUT}" ]]; then
+      forensics_summary_args+=(--overwrite "${CANDIDATE_OVERWRITE_LOG_OUT}")
+    fi
     if python3 "${ROOT_DIR}/scripts/rvk2_forensics_summary.py" \
-      --input "${CANDIDATE_FRAME_FORENSICS_OUT}" \
-      --overwrite "${CANDIDATE_OVERWRITE_OUT}" \
+      "${forensics_summary_args[@]}" \
       > "${CANDIDATE_FRAME_FORENSICS_SUMMARY_OUT}"; then
       DEEP_FORENSICS_SUMMARY_EXIT_CODE="0"
     else
@@ -1535,8 +1540,7 @@ if [[ "${DEEP_TELEMETRY}" == "1" ]]; then
       echo "WARN: full forensics summary failed (exit=${DEEP_FORENSICS_SUMMARY_EXIT_CODE})." >&2
     fi
     if python3 "${ROOT_DIR}/scripts/rvk2_forensics_summary.py" \
-      --input "${CANDIDATE_FRAME_FORENSICS_OUT}" \
-      --overwrite "${CANDIDATE_OVERWRITE_OUT}" \
+      "${forensics_summary_args[@]}" \
       --active-only \
       > "${CANDIDATE_FRAME_FORENSICS_ACTIVE_SUMMARY_OUT}"; then
       DEEP_FORENSICS_ACTIVE_SUMMARY_EXIT_CODE="0"

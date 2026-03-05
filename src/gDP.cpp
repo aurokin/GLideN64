@@ -762,8 +762,15 @@ void gDPLoadTile(u32 tile, u32 uls, u32 ult, u32 lrs, u32 lrt)
 	if (gDP.loadTile->lrt > gDP.scissor.lry)
 		height2 = static_cast<u32>(gDP.scissor.lry) - gDP.loadTile->ult;
 
-	if (CheckForFrameBufferTexture(address, info.width, bpl2*height2))
-		return;
+	const bool framebufferTextureDetected =
+		CheckForFrameBufferTexture(address, info.width, bpl2 * height2);
+	if (framebufferTextureDetected) {
+		// RVK2 currently samples TMEM snapshots for texture fetch. If we return
+		// early here, framebuffer-texture loads never populate TMEM and RVK2
+		// resolves texels as black. Keep legacy behavior outside RVK2 ingestion.
+		if (!shouldSubmitRvk2SyntheticRdp())
+			return;
+	}
 
 	if (address >= RDRAMSize) {
 		DebugMsg(DEBUG_ERROR, "gDPLoadTile is skipped because load address is greater than RDRAM size.\n");

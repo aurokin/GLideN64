@@ -3125,8 +3125,8 @@ void testTexRectStateSensitivityConformance()
 		baseOut.summary.colorWriteCount,
 		"tmem load transition should preserve texrect write count");
 	expectTrue(
-		loadOut.summary.presentHash != baseOut.summary.presentHash,
-		"tmem load transition should alter texrect output hash");
+		loadOut.summary.presentHash == baseOut.summary.presentHash,
+		"tmem load metadata transition should not alter texrect output hash");
 }
 
 void testRenderStateInputSensitivityConformance()

@@ -2253,23 +2253,20 @@ inline u32 tmem8RowXorFromLoadKind(
 	u16 _t,
 	u16 _i)
 {
-	if (_work.tmemLoadKind == static_cast<u8>(rvk2::TmemLoadKind::kTile))
-		return 0U;
-	if (_work.tmemLoadKind == static_cast<u8>(rvk2::TmemLoadKind::kBlock))
-		return static_cast<u32>(_i) << 1U;
+	// Match GLideN64 TMEM fetch rules: row parity drives the byte-lane XOR for
+	// 8b samples regardless of which load opcode last touched TMEM.
+	(void)_work;
 	(void)_t;
-	return static_cast<u32>(_i);
+	return static_cast<u32>(_i) << 1U;
 }
 
 inline u32 tmem32RowXorFromLoadKind(
 	const rvk2::RenderWorkPacket & _work,
 	u16 _t)
 {
-	if (_work.tmemLoadKind == static_cast<u8>(rvk2::TmemLoadKind::kTile))
-		return 0U;
-	if (_work.tmemLoadKind == static_cast<u8>(rvk2::TmemLoadKind::kBlock))
-		return xorForTmem32T(_t);
-	return xor13ForT(_t);
+	// 32b TMEM split fetches also use row parity XOR independent of load kind.
+	(void)_work;
+	return xorForTmem32T(_t);
 }
 
 inline s32 computeLegacySplit32LineStride(const rvk2::RenderWorkPacket & _work)
@@ -3013,19 +3010,18 @@ inline u32 samplePseudoTexelColor(
 		&& _work.phase == static_cast<u8>(rvk2::RenderPhase::kCopy)
 		&& effectiveTextureFormat(_work) == 2U
 		&& effectiveTextureSize(_work) == 1U;
-	// Bring-up heuristic: CI+TLUT content in paper_mario_intro frequently resolves
-	// through RDRAM while TMEM samples collapse to a single palette index. Prefer
-	// RDRAM on CI4/CI8+LUT until TMEM/LoadTile parity is restored.
-	const bool ciLutRdramPrimary =
+	// CI+TLUT path: prefer TMEM as the canonical source, but keep an automatic
+	// RDRAM fallback when TMEM resolves to black so we preserve bring-up safety.
+	const bool ciLutHybridFallback =
 		decodeTextureLUTMode(_work) != 0U
 		&& effectiveTextureFormat(_work) == 2U
 		&& effectiveTextureSize(_work) <= 1U;
 	const bool forceRdramPrimary =
 		debugForceTextureRdramPrimary()
-		|| copyCI8RdramProbe
-		|| ciLutRdramPrimary;
+		|| copyCI8RdramProbe;
 	const bool fallbackRdramIfTmemBlack =
-		debugTexelFallbackRdramIfTmemBlack() && !forceRdramPrimary;
+		(debugTexelFallbackRdramIfTmemBlack() || ciLutHybridFallback)
+		&& !forceRdramPrimary;
 
 	const auto finalizeTextureSample = [&](u32 _rawColor, bool _needsLUT, u32 _sourceBit, u8 _sourceKind) -> u32 {
 		recordTextureSampleMode(_work, _needsLUT, _sampleSlot);
