@@ -38,27 +38,22 @@
 - Lane advancement gate: require movement in `candidate_non_black_ratio` + missing-region metrics; do not use RMSE-only wins.
 
 ## Current Diagnosis Snapshot (2026-03-04)
-- Baseline archive run:
-  - `paper_mario_intro.20260304-190750Z.10319b63`
+- Latest non-shadow deep archive run:
+  - `paper_mario_intro.20260304-235955Z.63c167f0`
 - Metrics:
-  - `rmse=0.365291`
-  - `mae=0.278921`
-  - `candidate_non_black_ratio=0.775134`
-  - `candidate_mean_luma=0.297241`
-- Missing attribution:
-  - `source_missing_pixels=16310`
-  - `missing_with_write_ratio=0.103985`
-  - `missing_without_write_ratio=0.896015`
-  - `missing_without_write_with_prior_write_ratio=1.0`
-  - left-segment `missing_without_write_ratio=0.954816`
-- Dominant texrect state cluster in missing region:
-  - `combine_mux=0x00FFFFFFFFFCF279` (`56/57`)
-  - `other_modes=0x00000CFF00504340` (`57/57`)
-  - `tile_line=50` (`56/57`)
-  - `texture_image_width=200` (`56/57`)
-- Interpretation:
-  - dominant missing pixels remain unwritten in the focus frame and strongly overlap prior-frame writes.
-  - texrect state-cluster and present/handoff coherence remain primary fix lanes.
+  - `rmse=0.350840`
+  - `mae=0.250593`
+  - `candidate_non_black_ratio=0.766445`
+  - `candidate_mean_luma=0.269865`
+- Checkpointed present-path fix:
+  - VI-matched history selection is preserved by default when live fallback would break VI-origin coherence.
+  - Archive compare (`20260304-230122Z -> 20260304-235955Z`) removed suspected gap:
+    - `VI origin did not match selected present surface`
+- Remaining dominant leads:
+  - black-write stream still clusters around:
+    - `op=fill`, `combine=0x00FFFFFFFFFCF87C`, `other_modes=0x00308C7F00000000`
+  - top source packets still report zero shade RGB in overwrite-heavy paths.
+  - replay still reports present-size/hash divergence, indicating upstream raster/source mismatch remains.
 
 ## Standard Execution Loop
 1. Quick smoke for fast regression check:
@@ -94,6 +89,22 @@ python3 scripts/rvk2_archive_compare.py \
 ./scripts/paper_mario_focus_deep.sh --frames 120
 ./scripts/paper_mario_shadow_ab.sh --frames 20
 ```
+
+## Shadow Oracle Loop (Same-Run)
+- Use when reference dumpfb is non-actionable and you need executor-local attribution:
+1. Run deep with shadow present and executor dump enabled:
+```bash
+REALITYVK_PM_SCENARIO_ID=paper_mario_intro \
+REALITYVK_PM_PROFILE=deep \
+REALITYVK_PM_VISUAL_GATE=0 \
+REALITYVK_RVK2_SHADOW_DRAW=1 \
+REALITYVK_RVK2_SHADOW_PRESENT=1 \
+./scripts/paper_mario_parity.sh
+```
+2. Compare same-run `candidate` (shadow-present) vs `executor-present` artifact:
+- candidate: `build/parity-runs/paper-mario/paper_mario_intro.candidate.png`
+- executor dump: `build/parity-runs/paper-mario/telemetry/paper_mario_intro.candidate.executor-present.ppm`
+3. Use this pair for missing-region attribution before changing raster/TMEM lanes.
 
 ## Telemetry Hygiene
 - Manual prune command:

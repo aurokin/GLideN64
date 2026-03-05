@@ -14,6 +14,14 @@ Fix missing textures and missing geometry in `paper_mario_intro` on Vulkan `rvk2
 
 ## Lane Order (Locked)
 
+### Lane 0: Present / VI-origin coherence
+- [x] Reproduce executor-vs-shadow divergence in same-run mode.
+- [x] Prove whether VI-matched history selection affects executor output.
+- [x] Promote VI-matched history preservation into default present selection logic (no debug toggle required).
+- [x] Validate with short deep shadow-oracle A/B (`20` frames, replay disabled).
+- [x] Validate with full deep smoke archive checkpoint (no shadow).
+- [ ] Follow-up: reduce present-size/present-hash replay mismatches once raster parity improves.
+
 ### Lane 1: LoadBlock TMEM addressing (`dxt` + odd/even interleave)
 - [x] Audit current `LoadBlock` write-address logic against hardware-like mapping expectations.
 - [ ] Implement canonical address mapping path (single source of truth).
@@ -54,6 +62,12 @@ Fix missing textures and missing geometry in `paper_mario_intro` on Vulkan `rvk2
 - [x] Identified dominant CI+LUT failure: TMEM samples collapse to index `0xFF` while RDRAM probe remains non-black in the same writes.
 - [x] Added temporary CI+LUT RDRAM-primary heuristic in executor (bring-up path; documented for later rollback/refinement).
 - [x] Ran deep checkpoint after heuristic; metrics moved in the expected structural direction (`candidate_non_black_ratio +2.38pp` vs prior deep run).
+- [x] Added same-run shadow-oracle attribution workflow (`shadow-present candidate` vs `executor-present dump`).
+- [x] Identified present-selection override as a regression source: VI-matched history surfaces were being replaced by most-written live fallback.
+- [x] Promoted VI-matched history preservation into default path (no permanent debug toggle needed).
+- [x] Verified with short deep shadow-oracle A/B (`20` frames): executor-vs-shadow compare improved (`best_mae 0.238958 -> 0.228807`).
+- [x] Ran full deep checkpoint (`paper_mario_intro.20260304-235955Z.63c167f0`) and confirmed suspected gap removal: `VI origin did not match selected present surface`.
+- [ ] Continue next lane focus on dominant overwrite cluster (`op=fill combine=0x00FFFFFFFFFCF87C other_modes=0x00308C7F00000000`) and zero-shade triangle path.
 
 ## Current Lane-1 Evidence Snapshot
 - Deep run: `build/parity-runs/paper-mario/archive/paper_mario_intro.20260304-222205Z.21ceca95`
@@ -81,3 +95,6 @@ Fix missing textures and missing geometry in `paper_mario_intro` on Vulkan `rvk2
 | 2026-03-04 22:41Z | Lane 2 | Added TLUT lookup telemetry and traced CI+LUT black-write cluster | Detailed overwrite probe | Confirmed |
 | 2026-03-04 22:52Z | Lane 2 | Applied temporary CI+LUT RDRAM-primary heuristic | Deep checkpoint + archive compare | Structural improvement; keep iterating |
 | 2026-03-04 23:03Z | Lane 2 | Checkpoint commit/push (`70895391`) | pre-push gate | Pushed |
+| 2026-03-04 23:40Z | Lane 0 | Shadow-oracle same-run attribution showed present-selection override divergence | short deep A/B (`20` frames) | Confirmed |
+| 2026-03-04 23:50Z | Lane 0 | Preserve VI-matched history selection by default in executor present selection | build + short deep A/B | Promoted |
+| 2026-03-04 23:59Z | Lane 0 | Full deep checkpoint (`paper_mario_intro.20260304-235955Z.63c167f0`) | archive compare vs `20260304-230122Z` | `VI origin mismatch` suspected-gap removed |
