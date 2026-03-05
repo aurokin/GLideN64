@@ -57,6 +57,15 @@
 - Deep telemetry bundle stability fix landed:
   - overwrite/triangle parsing now streams line-by-line in `rvk2_telemetry_bundle.py` (no full-file `read_text().splitlines()` allocation).
   - validated against the prior 12GB overwrite-log failure case (`shadow-oracle/20260305-071322Z/off`): bundle regeneration now completes.
+- Deep forensics-summary stability/perf fix landed:
+  - overwrite fallback parser now streams line-by-line and fast-filters for `focus_cluster=1/2`.
+  - overwrite fallback parse is skipped unless forensics focus counters are zero.
+  - 12GB overwrite fallback timing improved from ~2m16s to ~1m18s with low RSS.
+- Shadow-off vs shadow-on command ingress parity confirmed:
+  - packet traces are byte-identical (same SHA256 + line count) in oracle run `20260305-070621Z`.
+  - divergence is downstream in executor generation/present behavior, not command ingestion.
+- Same-address bootstrap promotion probe result:
+  - default-on probe (20-frame quick A/B) showed no structural movement; reverted to default-off to avoid noise.
 
 ## Current Baseline (2026-03-05)
 - Latest non-shadow deep archive run: `paper_mario_intro.20260305-003843Z.57f1559c`

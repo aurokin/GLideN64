@@ -105,6 +105,17 @@ Fix missing textures and missing geometry in `paper_mario_intro` on Vulkan `rvk2
   - `rvk2_telemetry_bundle.py` now streams overwrite/triangle logs line-by-line instead of `read_text().splitlines()` loading.
   - added shared key/value record parser helpers to reduce parser duplication and keep behavior stable.
   - validated on prior OOM case (`shadow-oracle/20260305-071322Z` with `12G` overwrite log): bundle generation now completes (`paper_mario_intro.telemetry-bundle.retry.json`).
+- [x] Hardened forensics summary overwrite fallback parsing for large deep telemetry logs.
+  - `rvk2_forensics_summary.py` now streams overwrite logs line-by-line.
+  - overwrite fallback parsing now fast-filters rows that do not contain `focus_cluster=1/2`.
+  - only parses overwrite fallback when forensics focus counters are zero (skip heavy overwrite scan otherwise).
+  - 12GB overwrite fallback timing improved (`active-only`): `2m16s -> 1m18s`, peak RSS stayed low (`~17MB`).
+- [x] Revalidated shadow off/on ingress assumption.
+  - off/on packet traces in oracle run `20260305-070621Z` are byte-identical (same line count + SHA256).
+  - executor-vs-shadow divergence remains generation/present path, not command ingestion.
+- [x] Probed default-on same-address surface bootstrap and reverted.
+  - promoted bootstrap default in probe branch, ran 20-frame A/B, observed no movement in quick structural metrics.
+  - reverted bootstrap default change to keep runtime behavior stable.
 
 ## Current Lane-1 Evidence Snapshot
 - Deep run: `build/parity-runs/paper-mario/archive/paper_mario_intro.20260304-222205Z.21ceca95`
@@ -148,3 +159,6 @@ Fix missing textures and missing geometry in `paper_mario_intro` on Vulkan `rvk2
 | 2026-03-05 05:12Z | Diagnosis | Verify shadow-forwarding side effects | 20-frame A/B (`SHADOW_DRAW=0/1`, `SHADOW_PRESENT=0`) | No executor output change; issue remains in executor path |
 | 2026-03-05 06:18Z | Stability | Restore history-carry default guards after conformance regression | `local_gate.sh` | Gate back to PASS with live-proxy selection retained |
 | 2026-03-05 07:34Z | Tooling | Stream telemetry bundle parsing for overwrite/triangle logs | `local_gate.sh` + 12GB bundle regen (`shadow-oracle/20260305-071322Z/off`) | OOM resolved for deep bundle generation; large-run telemetry now completes |
+| 2026-03-05 07:58Z | Tooling | Stream + fast-filter overwrite fallback in forensics summary | `local_gate.sh` + timed 12GB `rvk2_forensics_summary.py --active-only` | Large overwrite fallback now bounded-memory and faster (`2m16s -> 1m18s`) |
+| 2026-03-05 08:03Z | Diagnosis | Verify shadow off/on packet ingress parity | SHA256 + line-count compare (`shadow-oracle/20260305-070621Z`) | Off/on packet traces are identical; divergence is executor generation/present |
+| 2026-03-05 08:05Z | Probe | Promote same-address bootstrap default (temporary) | 20-frame quick A/B (`bootstrap default on/off`) | No structural metric movement; reverted to prior default-off |

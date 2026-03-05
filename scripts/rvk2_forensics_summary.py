@@ -90,72 +90,75 @@ def parse_overwrite_focus(path: Optional[Path]) -> Dict[str, int]:
     }
     prev_texel_by_packet: Dict[int, int] = {}
     prev_tlut_by_packet: Dict[int, int] = {}
-    for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        line = raw.strip()
-        if not line:
-            continue
-        rec = parse_record(line)
-        if not rec:
-            continue
-        cluster = rec.get("focus_cluster", 0)
-        if cluster not in (1, 2):
-            continue
-        prev = rec.get("prev", 0)
-        new = rec.get("new", 0)
-        prev_mask = rec.get("prev_write_mask", 0) != 0
-        overwrite_black = rec.get("overwrite_to_black", 0) != 0
-        prev_vis = pixel_visible(prev)
-        new_vis = pixel_visible(new)
-        prev_luma = luma_from_rgba(prev)
-        new_luma = luma_from_rgba(new)
-        if cluster == 1:
-            focus["focus_fill_writes"] += 1
-            if prev_mask:
-                focus["focus_fill_write_mask_set"] += 1
-            else:
-                focus["focus_fill_write_mask_unset"] += 1
-            if overwrite_black:
-                focus["focus_fill_overwrite_black"] += 1
-            if prev_vis:
-                focus["focus_fill_prev_nonblack"] += 1
-            if new_vis:
-                focus["focus_fill_new_nonblack"] += 1
-            focus["focus_fill_prev_luma_sum"] += prev_luma
-            focus["focus_fill_new_luma_sum"] += new_luma
-        else:
-            focus["focus_texrect_writes"] += 1
-            if prev_mask:
-                focus["focus_texrect_write_mask_set"] += 1
-            else:
-                focus["focus_texrect_write_mask_unset"] += 1
-            if overwrite_black:
-                focus["focus_texrect_overwrite_black"] += 1
-            if prev_vis:
-                focus["focus_texrect_prev_nonblack"] += 1
-            if new_vis:
-                focus["focus_texrect_new_nonblack"] += 1
-            focus["focus_texrect_prev_luma_sum"] += prev_luma
-            focus["focus_texrect_new_luma_sum"] += new_luma
-            packet_id = rec.get("source_packet_id", -1)
-            texel = rec.get("texel", 0)
-            if packet_id in prev_texel_by_packet:
-                if texel == prev_texel_by_packet[packet_id]:
-                    focus["focus_texrect_texel_repeat"] += 1
+    with path.open("r", encoding="utf-8", errors="replace") as handle:
+        for raw in handle:
+            line = raw.strip()
+            if not line:
+                continue
+            if "focus_cluster=1" not in line and "focus_cluster=2" not in line:
+                continue
+            rec = parse_record(line)
+            if not rec:
+                continue
+            cluster = rec.get("focus_cluster", 0)
+            if cluster not in (1, 2):
+                continue
+            prev = rec.get("prev", 0)
+            new = rec.get("new", 0)
+            prev_mask = rec.get("prev_write_mask", 0) != 0
+            overwrite_black = rec.get("overwrite_to_black", 0) != 0
+            prev_vis = pixel_visible(prev)
+            new_vis = pixel_visible(new)
+            prev_luma = luma_from_rgba(prev)
+            new_luma = luma_from_rgba(new)
+            if cluster == 1:
+                focus["focus_fill_writes"] += 1
+                if prev_mask:
+                    focus["focus_fill_write_mask_set"] += 1
                 else:
-                    focus["focus_texrect_texel_change"] += 1
-            prev_texel_by_packet[packet_id] = texel
-            tlut_applied = rec.get("tex0_tlut_applied", 0) != 0
-            if tlut_applied:
-                focus["focus_texrect_tlut_applied"] += 1
-                tlut_addr = rec.get("tex0_tlut_addr", 0)
-                if packet_id in prev_tlut_by_packet:
-                    if tlut_addr == prev_tlut_by_packet[packet_id]:
-                        focus["focus_texrect_tlut_lookup_repeat"] += 1
-                    else:
-                        focus["focus_texrect_tlut_lookup_change"] += 1
-                prev_tlut_by_packet[packet_id] = tlut_addr
+                    focus["focus_fill_write_mask_unset"] += 1
+                if overwrite_black:
+                    focus["focus_fill_overwrite_black"] += 1
+                if prev_vis:
+                    focus["focus_fill_prev_nonblack"] += 1
+                if new_vis:
+                    focus["focus_fill_new_nonblack"] += 1
+                focus["focus_fill_prev_luma_sum"] += prev_luma
+                focus["focus_fill_new_luma_sum"] += new_luma
             else:
-                focus["focus_texrect_tlut_lookup_invalid"] += 1
+                focus["focus_texrect_writes"] += 1
+                if prev_mask:
+                    focus["focus_texrect_write_mask_set"] += 1
+                else:
+                    focus["focus_texrect_write_mask_unset"] += 1
+                if overwrite_black:
+                    focus["focus_texrect_overwrite_black"] += 1
+                if prev_vis:
+                    focus["focus_texrect_prev_nonblack"] += 1
+                if new_vis:
+                    focus["focus_texrect_new_nonblack"] += 1
+                focus["focus_texrect_prev_luma_sum"] += prev_luma
+                focus["focus_texrect_new_luma_sum"] += new_luma
+                packet_id = rec.get("source_packet_id", -1)
+                texel = rec.get("texel", 0)
+                if packet_id in prev_texel_by_packet:
+                    if texel == prev_texel_by_packet[packet_id]:
+                        focus["focus_texrect_texel_repeat"] += 1
+                    else:
+                        focus["focus_texrect_texel_change"] += 1
+                prev_texel_by_packet[packet_id] = texel
+                tlut_applied = rec.get("tex0_tlut_applied", 0) != 0
+                if tlut_applied:
+                    focus["focus_texrect_tlut_applied"] += 1
+                    tlut_addr = rec.get("tex0_tlut_addr", 0)
+                    if packet_id in prev_tlut_by_packet:
+                        if tlut_addr == prev_tlut_by_packet[packet_id]:
+                            focus["focus_texrect_tlut_lookup_repeat"] += 1
+                        else:
+                            focus["focus_texrect_tlut_lookup_change"] += 1
+                    prev_tlut_by_packet[packet_id] = tlut_addr
+                else:
+                    focus["focus_texrect_tlut_lookup_invalid"] += 1
     return focus
 
 
@@ -304,7 +307,9 @@ def main() -> int:
     focus_texrect_tlut_lookup_change = sum_field(records, "focus_texrect_tlut_lookup_change")
     focus_texrect_tlut_lookup_invalid = sum_field(records, "focus_texrect_tlut_lookup_invalid")
     focus_metrics_source = "forensics"
-    overwrite_focus = parse_overwrite_focus(Path(args.overwrite) if args.overwrite else None)
+    overwrite_focus: Dict[str, int] = {}
+    if focus_fill_writes == 0 or focus_texrect_writes == 0:
+        overwrite_focus = parse_overwrite_focus(Path(args.overwrite) if args.overwrite else None)
     if focus_fill_writes == 0 and overwrite_focus.get("focus_fill_writes", 0) > 0:
         focus_metrics_source = "overwrite"
         focus_fill_writes = overwrite_focus.get("focus_fill_writes", 0)
