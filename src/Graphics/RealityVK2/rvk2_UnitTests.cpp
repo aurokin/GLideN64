@@ -2372,32 +2372,28 @@ void testExecutorVIOriginRecentHistorySelection()
 		"Executor recent-history selection frame should produce present pixels");
 	expectEq(
 		secondOut.presentFrame.pixels[0],
-		fillA.fillColor,
-		"Executor should preserve VI-matched history surface when live frame lacks VI-origin match");
+		fillB.fillColor,
+		"Executor should prefer compatible live surface when VI-origin only matches history");
 	expectEq(
 		secondOut.summary.selectedPresentSurfaceAddress,
-		fillA.colorImageAddress,
-		"Executor should keep VI-origin history candidate as selected present surface");
-	expectEq(
-		secondOut.summary.presentSelectionReason,
-		static_cast<u8>(rvk2::kExecutorPresentSelectionVIOriginRange),
-		"Executor history-preserve path should report VI-origin range selection");
-	expectEq(
-		secondOut.summary.viOriginMatchedSurface,
-		static_cast<u8>(1U),
-		"Executor history-preserve path should keep VI-origin matched flag");
+		fillB.colorImageAddress,
+		"Executor should choose compatible live surface instead of stale VI-history candidate");
 	expectEq(
 		secondOut.summary.selectedPresentSurfaceFromHistory,
-		static_cast<u8>(1U),
-		"Executor history-preserve path should report history-backed selection");
+		static_cast<u8>(0U),
+		"Executor live-prefer path should report live-surface selection");
 	expectEq(
 		secondOut.summary.historyVIOriginCandidateFound,
 		static_cast<u8>(1U),
-		"Executor history-preserve path should report VI-history candidate telemetry");
+		"Executor should still report VI-history candidate telemetry when promoting live surface");
 	expectEq(
 		secondOut.summary.historyVIOriginCandidateAddress,
 		fillA.colorImageAddress,
-		"Executor history-preserve path should keep VI-history candidate address");
+		"Executor should keep VI-history candidate address telemetry even when presenting live");
+	expectEq(
+		secondOut.summary.viOriginMatchedSurface,
+		static_cast<u8>(0U),
+		"Executor live-prefer path should clear VI-origin matched flag when selected live surface differs");
 }
 
 void testExecutorVIOriginOldHistoryFallsBackToLiveSurface()
@@ -2464,12 +2460,12 @@ void testExecutorVIOriginOldHistoryFallsBackToLiveSurface()
 
 	expectEq(
 		outB.summary.selectedPresentSurfaceAddress,
-		fillA.colorImageAddress,
-		"Executor should keep VI-matched history surface on first lagged VI-origin frame");
+		fillB.colorImageAddress,
+		"Executor should promote first compatible live surface on lagged VI-origin frame");
 	expectEq(
 		outC.summary.selectedPresentSurfaceAddress,
-		fillA.colorImageAddress,
-		"Executor should keep VI-matched history surface while candidate age is still recent");
+		fillC.colorImageAddress,
+		"Executor should continue preferring newest compatible live surface");
 	expectEq(
 		outD.summary.selectedPresentSurfaceAddress,
 		fillD.colorImageAddress,
@@ -2485,16 +2481,13 @@ void testExecutorVIOriginOldHistoryFallsBackToLiveSurface()
 				== static_cast<u8>(rvk2::kExecutorPresentSelectionLastSurface),
 		"Executor live fallback should report either most-written fallback or last-surface selection reason");
 	expectEq(
-		outD.summary.viOriginMatchedSurface,
+		outB.summary.viOriginMatchedSurface,
 		static_cast<u8>(0U),
-		"Executor old-history fallback should clear VI-origin matched flag");
+		"Executor live-prefer path should clear VI-origin matched flag");
 	expectEq(
-		outD.summary.selectedPresentSurfaceFromHistory,
+		outB.summary.selectedPresentSurfaceFromHistory,
 		static_cast<u8>(0U),
-		"Executor old-history fallback should report non-history selection");
-	expectTrue(
-		outD.summary.selectedPresentSurfaceHistoryAge == 0ULL || outD.summary.selectedPresentSurfaceHistoryAge == 1ULL,
-		"Executor old-history fallback should not report stale history age for live selection");
+		"Executor live-prefer path should report non-history selection");
 	(void)outA;
 }
 

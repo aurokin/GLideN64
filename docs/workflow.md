@@ -28,36 +28,36 @@
 - Source of truth for decisions: deep archive metrics + telemetry bundle, not monitor screenshots alone.
 - Legacy note: older archives may contain `screenshot_*` reference captures; refresh with `REALITYVK_PM_REFRESH_REFERENCE=1` when migrating old caches.
 
-## Decision Lock (2026-03-04)
-- Inner-loop oracle: accepted `shadow-on` candidate output for structural texture/geometry pacing.
+## Decision Lock (2026-03-05)
+- Inner-loop oracle: use `shadow-on` only for same-run structural attribution (not as an acceptance target).
 - Fix order lock:
-  1. `LoadBlock` TMEM addressing (`dxt` progression + odd/even interleave)
-  2. `LoadTLUT` / CI palette path
-  3. tile/load mutation semantics (`SetTileSize` restoration correctness)
-- Temporary fallback toggles are allowed for bring-up only; they must be removed or intentionally promoted before final acceptance.
-- Lane advancement gate: require movement in `candidate_non_black_ratio` + missing-region metrics; do not use RMSE-only wins.
+  1. overwrite/combiner state cluster (`fill` + texrect packet neighborhood)
+  2. canonical TMEM mapping (`LoadBlock`/`LoadTLUT`/CI path)
+  3. triangle visibility/raster recovery
+  4. replay parity cleanup once structure is recovered
+- Temporary fallback toggles are allowed only as probes and must not be required for a landed fix.
+- Lane advancement gate: require movement in `candidate_non_black_ratio` and missing-region attribution metrics; do not accept RMSE-only wins.
 
 ## Current Diagnosis Snapshot (2026-03-05)
 - Latest non-shadow deep archive run:
-  - `paper_mario_intro.20260305-003843Z.57f1559c`
+  - `paper_mario_intro.20260305-100328Z.cdf22eca`
 - Metrics:
-  - `rmse=0.346580`
-  - `mae=0.249116`
-  - `candidate_non_black_ratio=0.766512`
-  - `candidate_mean_luma=0.268280`
-- Checkpointed present-path fix:
-  - VI-matched history selection is preserved by default when live fallback would break VI-origin coherence.
-  - Archive compare (`20260304-230122Z -> 20260304-235955Z`) removed suspected gap:
-    - `VI origin did not match selected present surface`
-- Checkpointed TMEM load-kind row-XOR fix:
-  - TMEM8/TMEM32 load-kind-aware row-XOR mapping is now default executor behavior.
-  - Archive compare (`20260304-235955Z -> 20260305-003843Z`) improved:
-    - `rmse -0.004260`, `mae -0.001477`, `candidate_non_black_ratio +0.01pp`
+  - `rmse=0.371346`
+  - `mae=0.276243`
+  - `candidate_non_black_ratio=0.775134`
+  - `candidate_mean_luma=0.297256`
+- Present policy checkpoint:
+  - when VI origin maps only to history and a compatible live surface has writes, executor now prefers live by default.
+  - probe override remains available: `REALITYVK_RVK2_DEBUG_KEEP_VI_MATCHED_HISTORY_SELECTION=1`.
+- Deterministic oracle snapshot (`20260305-094633Z`, `frames=10`, retry `0`):
+  - shadow-on `candidate_non_black_ratio=0.885972`
+  - shadow-off `candidate_non_black_ratio=0.673351`
+  - `missing_without_write_ratio=0.9123`, `missing_without_write_with_prior_write_ratio=1.0`
 - Remaining dominant leads:
-  - black-write stream still clusters around:
-    - `op=fill`, `combine=0x00FFFFFFFFFCF87C`, `other_modes=0x00308C7F00000000`
-  - top source packets still report zero shade RGB in overwrite-heavy paths.
-  - replay still reports present-size/hash divergence, indicating upstream raster/source mismatch remains.
+  - missing-region prior hits still cluster in texrect/fill neighborhood around
+    `combine=0x00FFFFFFFFFCF87C` and `other_modes=0x00208C7F00000000/0x00308C7F00000000`.
+  - replay still reports present-size/hash divergence, but this is currently treated as a secondary signal until Stage-A structure improves.
+  - TMEM load-kind row-XOR stays probe-only (debug toggles), pending full canonical TMEM mapping.
 
 ## Standard Execution Loop
 1. Quick smoke for fast regression check:
@@ -106,8 +106,8 @@ REALITYVK_PM_VISUAL_GATE=0 \
 2. Review generated artifacts under `build/parity-runs/paper-mario/shadow-oracle/<stamp>/oracle-compare`.
 3. Prioritize `missing_without_write_ratio` and top `missing_with_write_packet_hits` from
    `missing-region-focus.off-vs-shadow.json`.
-4. If needed, run the manual same-run variant below for narrow experiments:
-1. Run deep with shadow present and executor dump enabled:
+4. If needed, run the manual same-run variant below for narrow experiments.
+5. Run deep with shadow present and executor dump enabled:
 ```bash
 REALITYVK_PM_SCENARIO_ID=paper_mario_intro \
 REALITYVK_PM_PROFILE=deep \
@@ -116,10 +116,10 @@ REALITYVK_RVK2_SHADOW_DRAW=1 \
 REALITYVK_RVK2_SHADOW_PRESENT=1 \
 ./scripts/paper_mario_parity.sh
 ```
-2. Compare same-run `candidate` (shadow-present) vs `executor-present` artifact:
+6. Compare same-run `candidate` (shadow-present) vs `executor-present` artifact:
 - candidate: `build/parity-runs/paper-mario/paper_mario_intro.candidate.png`
 - executor dump: `build/parity-runs/paper-mario/telemetry/paper_mario_intro.candidate.executor-present.ppm`
-3. Use this pair for missing-region attribution before changing raster/TMEM lanes.
+7. Use this pair for missing-region attribution before changing raster/TMEM lanes.
 
 ## Telemetry Hygiene
 - Manual prune command:

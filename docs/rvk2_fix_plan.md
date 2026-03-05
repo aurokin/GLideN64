@@ -4,7 +4,7 @@ Date started: 2026-03-04
 Owner: Codex (active execution)
 
 ## Objective
-Fix missing textures and missing geometry in `paper_mario_intro` on Vulkan `rvk2`, prioritizing structural recovery (content appears) before fine visual parity.
+Fix missing textures and missing geometry in `paper_mario_intro` on Vulkan `rvk2`, prioritizing structural recovery first (Stage A) and image error convergence second (Stage B).
 
 ## Acceptance Bar
 - [ ] `candidate_non_black_ratio >= 0.90`
@@ -12,164 +12,92 @@ Fix missing textures and missing geometry in `paper_mario_intro` on Vulkan `rvk2
 - [ ] `rmse <= 0.25`
 - [ ] `mae <= 0.20`
 
+## Current Baseline (2026-03-05)
+- Deep archive run: `paper_mario_intro.20260305-100328Z.cdf22eca`
+- Compare base: `paper_mario_intro.20260305-065447Z.36a63c79`
+- Metrics:
+  - `candidate_non_black_ratio=0.775134`
+  - `rmse=0.371346`
+  - `mae=0.276243`
+  - `candidate_mean_luma=0.297256`
+- Deep delta (`065447 -> 100328`):
+  - `candidate_non_black_ratio`: `+18.84pp`
+  - `rmse`: `+0.035550`
+  - `mae`: `+0.054247`
+  - suspected gaps: `14 -> 13`
+
+## Oracle Snapshot (Current Structural Signal)
+- Deterministic shadow oracle: `build/parity-runs/paper-mario/shadow-oracle/20260305-094633Z`
+- `frames=10`, retry `0`
+- Off vs on:
+  - shadow-off `candidate_non_black_ratio=0.673351`
+  - shadow-on `candidate_non_black_ratio=0.885972`
+- Missing-region attribution:
+  - `missing_without_write_ratio=0.9123`
+  - `missing_without_write_with_prior_write_ratio=1.0`
+- Dominant prior packet neighborhood remains texrect/fill cluster around:
+  - `combine=0x00FFFFFFFFFCF87C`
+  - `other_modes=0x00208C7F00000000` / `0x00308C7F00000000`
+
 ## Lane Order (Locked)
 
-### Lane 0: Present / VI-origin coherence
-- [x] Reproduce executor-vs-shadow divergence in same-run mode.
-- [x] Prove whether VI-matched history selection affects executor output.
-- [x] Promote VI-matched history preservation into default present selection logic (no debug toggle required).
-- [x] Validate with short deep shadow-oracle A/B (`20` frames, replay disabled).
-- [x] Validate with full deep smoke archive checkpoint (no shadow).
-- [ ] Follow-up: reduce present-size/present-hash replay mismatches once raster parity improves.
+### Lane A: Overwrite / combiner state-cluster (active)
+- [x] Isolate first structural divergence with deterministic off-vs-on oracle.
+- [x] Confirm ingress parity (`SHADOW_DRAW` off/on packet traces identical).
+- [x] Stabilize present selection so VI-history-only surfaces no longer hard-lock stale output.
+- [ ] Add targeted telemetry around dominant texrect/fill packet neighborhood (shade/combiner/blender outputs and write masks).
+- [ ] Implement executor-path behavior fix for texrect/fill overwrite divergence.
+- [ ] Validate with quick smoke + deep smoke + oracle compare.
 
-### Lane 1: LoadBlock TMEM addressing (`dxt` + odd/even interleave)
-- [x] Audit current `LoadBlock` write-address logic against hardware-like mapping expectations.
-- [x] Promote load-kind-aware TMEM row-XOR addressing into default executor path (no debug toggle required).
-- [ ] Implement full canonical address mapping path (single source of truth).
-- [x] Add telemetry fields for per-load mapping decisions (bounded/rate-limited).
-- [ ] Validate with 10-frame shadow A/B.
-- [ ] Validate with 20-frame shadow A/B.
-- [x] Run deep checkpoint and archive comparison.
+### Lane B: Canonical TMEM mapping (`LoadBlock` / `LoadTLUT` / CI)
+- [x] Add TMEM snapshot and load-context telemetry hooks.
+- [x] Keep load-kind XOR probes available via debug envs.
+- [ ] Implement single canonical TMEM write/fetch mapping path (remove split legacy/probe behavior).
+- [ ] Reconcile `dxt` progression + odd/even row behavior with runtime fetch logic.
+- [ ] Revalidate CI/TLUT decode path against canonical mapping.
 
-### Lane 2: LoadTLUT + CI path
-- [ ] Audit TLUT load path for swap/alignment behavior.
-- [ ] Implement/fix TLUT upload mapping + CI fetch assumptions.
-- [ ] Add TLUT CRC + palette-mode telemetry.
-- [ ] Validate with 10-frame and 20-frame shadow A/B.
-- [ ] Run deep checkpoint and archive comparison.
+### Lane C: Triangle visibility / raster recovery
+- [ ] Use focus-frame telemetry to prove whether missing geometry is decode/raster/drop vs overwrite.
+- [ ] Add per-stage probes for triangle visibility failures in affected frames.
+- [ ] Land raster visibility fix once Lane A/B no longer dominate missing regions.
 
-### Lane 3: Tile/load mutation semantics
-- [ ] Audit `SetTile`, `SetTileSize`, `LoadTile`, `LoadBlock`, `LoadTLUT` mutation and restore behavior.
-- [ ] Correct unit semantics (`line` words vs bytes, load-time tile edits).
-- [ ] Add targeted assertions/probes for tile state transitions.
-- [ ] Validate with 10-frame and 20-frame shadow A/B.
-- [ ] Run deep checkpoint and archive comparison.
+### Lane D: Replay parity cleanup (after Stage-A gains)
+- [ ] Reduce present-size/hash mismatch noise.
+- [ ] Keep non-stateful replay as triage signal only.
+- [ ] Promote stateful replay confidence after present-handoff/raster drift narrows.
+
+### Lane E: Debug/perf hardening
+- [ ] Ensure landed behavior fixes do not require persistent `REALITYVK_RVK2_DEBUG_*` toggles.
+- [ ] Keep probes discoverable, documented, and disabled by default.
+- [ ] Keep telemetry heavy-path scoped to deep profile.
 
 ## Execution Rules
-- Use shadow-on only as structural oracle for inner-loop convergence.
-- Do not land permanent fixes that require debug toggles.
-- Use quick smoke for local iterations; deep smoke for lane checkpoints.
-- Lane advancement requires structural metric improvement (`candidate_non_black_ratio`, `missing_without_write_ratio`).
+- One behavioral lane per checkpoint commit.
+- Run `./scripts/local_gate.sh` before each checkpoint commit.
+- Run quick smoke for fast iteration, deep smoke for behavior checkpoints.
+- Use oracle artifacts + archived metrics for decisions, not monitor screenshots alone.
+- Keep shadow mode as oracle only; final behavior must come from executor path with shadow off.
 
 ## Progress Log
 
 ### 2026-03-04
-- [x] Created execution plan and locked lane order.
-- [x] Started lane 1 implementation.
-- [x] Captured lane-1 deep baseline (`frames=10`) and archived telemetry bundle.
-- [x] Added TMEM sample telemetry fields for `LoadBlock` context (`tile/uls/ult/lrs/lrt/dxt/span/qwords/estimated_words_per_line`).
-- [x] Added TMEM sample TLUT telemetry (`tlut_applied`, lookup address, raw/decoded TLUT entries).
-- [ ] Apply first canonical `LoadBlock` addressing behavior change.
-- [x] Identified dominant CI+LUT failure: TMEM samples collapse to index `0xFF` while RDRAM probe remains non-black in the same writes.
-- [x] Added temporary CI+LUT RDRAM-primary heuristic in executor (bring-up path; documented for later rollback/refinement).
-- [x] Ran deep checkpoint after heuristic; metrics moved in the expected structural direction (`candidate_non_black_ratio +2.38pp` vs prior deep run).
-- [x] Added same-run shadow-oracle attribution workflow (`shadow-present candidate` vs `executor-present dump`).
-- [x] Identified present-selection override as a regression source: VI-matched history surfaces were being replaced by most-written live fallback.
-- [x] Promoted VI-matched history preservation into default path (no permanent debug toggle needed).
-- [x] Verified with short deep shadow-oracle A/B (`20` frames): executor-vs-shadow compare improved (`best_mae 0.238958 -> 0.228807`).
-- [x] Ran full deep checkpoint (`paper_mario_intro.20260304-235955Z.63c167f0`) and confirmed suspected gap removal: `VI origin did not match selected present surface`.
-- [ ] Continue next lane focus on dominant overwrite cluster (`op=fill combine=0x00FFFFFFFFFCF87C other_modes=0x00308C7F00000000`) and zero-shade triangle path.
+- [x] Created plan and locked objective/acceptance bar.
+- [x] Added deep telemetry and missing-region tooling for packet-attributed analysis.
+- [x] Added deterministic off-vs-on shadow oracle workflow.
+- [x] Identified dominant missing-without-write class as primary structural blocker.
 
 ### 2026-03-05
-- [x] Ran quick-smoke TMEM XOR matrix; best default behavior matched combined load-kind-aware TMEM8+TMEM32 row-XOR probes.
-- [x] Promoted load-kind-aware TMEM8/TMEM32 row-XOR behavior into default executor path (removed dependency on debug toggles for this fix).
-- [x] Rebuilt and revalidated quick smoke on default path (`rmse=0.346580`, `mae=0.249116`, `candidate_non_black_ratio=0.766512`).
-- [x] Ran deep checkpoint (`paper_mario_intro.20260305-003843Z.57f1559c`) and archive compare vs `20260304-235955Z`.
-- [ ] Continue next lane focus on dominant fill overwrite cluster and packet-level raster/source divergence.
-- [x] Added deterministic shadow-oracle runner (`paper_mario_shadow_oracle.sh`) for off-vs-on capture + diff + missing-region packet attribution in one command.
-- [x] Captured deterministic oracle baseline (`frames=20`, retry `0`):
-  - shadow-on `candidate_non_black_ratio=0.945481`
-  - executor-off `candidate_non_black_ratio=0.584560`
-  - oracle missing attribution: `missing_without_write_ratio=0.8825` (`with_prior_write_ratio=1.0`)
-- [x] Added explicit TMEM post-write snapshot capture hooks for load execution paths (`RDP` command loop + synthetic `gDP` load helpers) and a runtime unit test (`testRuntimeTMEMWriteSnapshotCapture`).
-- [x] Revalidated quick smoke and deep 20-frame shadow oracle after TMEM snapshot-capture hooks.
-- [ ] TMEM snapshot-capture hook impact: no structural oracle movement yet (`candidate_non_black_ratio` and `missing_without_write_ratio` unchanged); continue to next attribution lane.
-- [x] Added a guarded VI-history live-proxy fallback in present selection:
-  - when VI matched a history-only surface and live frame surfaces exist with compatible dimensions/format, prefer the most-written compatible live surface.
-  - keep VI history candidate recorded for carry analysis instead of hard-locking to stale history present.
-- [x] Revalidated with deep shadow-oracle (`build/parity-runs/paper-mario/shadow-oracle/20260305-045842Z`):
-  - shadow-off `candidate_non_black_ratio`: `0.584560 -> 0.586726` (small directional gain).
-  - frame-26 selected surface now falls back to live (`present_select=4`, `present_surface=0x00583430`) when VI origin lagged.
-  - dominant gap unchanged: `missing_without_write_ratio=0.8825` with prior-write coverage still `1.0`.
-- [x] Proved `SHADOW_DRAW` side-effects are not the blocker:
-  - `SHADOW_DRAW=1, SHADOW_PRESENT=0` is byte-identical to baseline shadow-off metrics at 20 frames.
-  - conclusion: divergence is executor render behavior, not no-op forwarding side effects.
-- [x] Restored history-carry merge/bootstrap gating to prior debug-controlled defaults after conformance regression sweep.
-  - kept the VI-history compatible-live proxy selection change intact.
-  - re-ran full `local_gate.sh`; rvk2 unit + conformance suites pass again.
-- [x] Backfilled focus-cluster telemetry from overwrite logs when frame-forensics focus counters are zero.
-  - `rvk2_telemetry_bundle.py` and `rvk2_forensics_summary.py` now auto-fallback to overwrite-derived focus metrics.
-  - deep parity forensics summaries now pass overwrite log input by default.
-  - `local_gate.sh` remains PASS after telemetry fallback wiring.
-- [x] Hardened telemetry bundle parsing for large deep telemetry logs.
-  - `rvk2_telemetry_bundle.py` now streams overwrite/triangle logs line-by-line instead of `read_text().splitlines()` loading.
-  - added shared key/value record parser helpers to reduce parser duplication and keep behavior stable.
-  - validated on prior OOM case (`shadow-oracle/20260305-071322Z` with `12G` overwrite log): bundle generation now completes (`paper_mario_intro.telemetry-bundle.retry.json`).
-- [x] Hardened forensics summary overwrite fallback parsing for large deep telemetry logs.
-  - `rvk2_forensics_summary.py` now streams overwrite logs line-by-line.
-  - overwrite fallback parsing now fast-filters rows that do not contain `focus_cluster=1/2`.
-  - only parses overwrite fallback when forensics focus counters are zero (skip heavy overwrite scan otherwise).
-  - 12GB overwrite fallback timing improved (`active-only`): `2m16s -> 1m18s`, peak RSS stayed low (`~17MB`).
-- [x] Revalidated shadow off/on ingress assumption.
-  - off/on packet traces in oracle run `20260305-070621Z` are byte-identical (same line count + SHA256).
-  - executor-vs-shadow divergence remains generation/present path, not command ingestion.
-- [x] Probed default-on same-address surface bootstrap and reverted.
-  - promoted bootstrap default in probe branch, ran 20-frame A/B, observed no movement in quick structural metrics.
-  - reverted bootstrap default change to keep runtime behavior stable.
-- [x] Added present-surface constrained prior-hit attribution in missing-region focus output.
-  - `rvk2_missing_region_focus.py` now emits separate `missing_without_write_prior_packet_hits_on_present_surface` and `...off_present_surface` lists.
-  - keeps dominant non-present full-screen fill traffic from hiding present-surface prior texrect packet clusters.
-- [x] Fixed TMEM load-kind XOR probe toggles to avoid no-op behavior while preserving legacy runtime defaults.
-  - `REALITYVK_RVK2_DEBUG_TMEM8_LOADKIND_XOR` and `REALITYVK_RVK2_DEBUG_TMEM32_LOADKIND_XOR` now change decode behavior only when explicitly enabled.
-  - default decode path remains legacy parity XOR so probe toggles no longer silently run the same logic as baseline.
-- [x] Revalidated stability after load-kind XOR probe-toggle fix.
-  - `local_gate.sh` passed.
-  - quick smoke baseline remained stable (`candidate_non_black_ratio=0.766435`, `rmse=0.371578`, `mae=0.275705`).
+- [x] Confirmed off/on ingress parity (packet trace line count + SHA match).
+- [x] Added TMEM post-write snapshot capture hooks and unit coverage.
+- [x] Hardened deep telemetry tooling for large logs (streaming parse, lower RSS).
+- [x] Added present-surface split in missing-region prior-hit attribution.
+- [x] Fixed TMEM load-kind XOR probe toggles so probe flags are no longer no-op.
+- [x] Landed present-selection policy change:
+  - when VI origin maps only to history and a compatible live surface has writes, prefer live by default.
+- [x] Revalidated with `local_gate.sh` and deep smoke checkpoint (`20260305-100328Z`).
 
-## Current Lane-1 Evidence Snapshot
-- Deep run: `build/parity-runs/paper-mario/archive/paper_mario_intro.20260304-222205Z.21ceca95`
-- Baseline metrics:
-  - `candidate_non_black_ratio=0.675517`
-  - `rmse=0.360563`
-  - `mae=0.256704`
-- Strongest bundle leads:
-  - focus frame `9` has texrect traffic without triangles (UI-only symptom in focus frame)
-  - replay state divergence starts early (`frame=9`)
-  - present-size / selected-surface mismatches are recurrent in stateful replay
-- CI+LUT telemetry finding (detailed overwrite probe):
-  - `tex0_format=2,size=1,lut_mode=2` dominates textured black writes.
-  - TMEM texel byte resolves to `0xFF` across sampled addresses, forcing TLUT index `255`.
-  - TLUT lookup resolved to address `0x7FC` (`raw=0x0100`, decoded=`0x0001`) across those rows.
-  - RDRAM probe for the same samples produced non-black values, indicating TMEM-side divergence rather than LUT decode collapse alone.
-- Latest lane-1 checkpoint (row-XOR default promotion):
-  - deep run: `build/parity-runs/paper-mario/archive/paper_mario_intro.20260305-003843Z.57f1559c`
-  - archive compare vs `paper_mario_intro.20260304-235955Z.63c167f0`:
-    - `rmse`: `0.350840 -> 0.346580` (`-0.004260`)
-    - `mae`: `0.250593 -> 0.249116` (`-0.001477`)
-    - `candidate_non_black_ratio`: `76.64% -> 76.65%` (`+0.01pp`)
-    - suspected gaps: unchanged count (`12`)
-
-## Checkpoint Log
-
-| Time (local) | Lane | Change | Validation | Result |
-|---|---|---|---|---|
-| 2026-03-04 | Setup | Created plan doc | N/A | Active |
-| 2026-03-04 22:20Z | Lane 1 | Deep baseline (`paper_mario_focus_deep --frames 10`) | Archive + bundle | Captured |
-| 2026-03-04 22:27Z | Lane 1 | Added per-sample `LoadBlock` context telemetry in executor overwrite logs | `local_gate` + smoke | Completed |
-| 2026-03-04 22:41Z | Lane 2 | Added TLUT lookup telemetry and traced CI+LUT black-write cluster | Detailed overwrite probe | Confirmed |
-| 2026-03-04 22:52Z | Lane 2 | Applied temporary CI+LUT RDRAM-primary heuristic | Deep checkpoint + archive compare | Structural improvement; keep iterating |
-| 2026-03-04 23:03Z | Lane 2 | Checkpoint commit/push (`70895391`) | pre-push gate | Pushed |
-| 2026-03-04 23:40Z | Lane 0 | Shadow-oracle same-run attribution showed present-selection override divergence | short deep A/B (`20` frames) | Confirmed |
-| 2026-03-04 23:50Z | Lane 0 | Preserve VI-matched history selection by default in executor present selection | build + short deep A/B | Promoted |
-| 2026-03-04 23:59Z | Lane 0 | Full deep checkpoint (`paper_mario_intro.20260304-235955Z.63c167f0`) | archive compare vs `20260304-230122Z` | `VI origin mismatch` suspected-gap removed |
-| 2026-03-05 00:38Z | Lane 1 | Promote TMEM8/TMEM32 load-kind row-XOR mapping into default executor path | quick-smoke matrix + deep checkpoint (`paper_mario_intro.20260305-003843Z.57f1559c`) | RMSE/MAE improved; suspected-gap set unchanged |
-| 2026-03-05 01:45Z | Tooling | Added deterministic shadow-oracle script (`paper_mario_shadow_oracle.sh`) and docs wiring | deep oracle run (`frames=20`, retry `0`) | Enabled packet-attributed off-vs-on loop |
-| 2026-03-05 05:00Z | Lane 0 | Prefer compatible live surface over VI-history-only present selection (keep history candidate for carry telemetry) | build + deep shadow-oracle (`20260305-045842Z`) + frame-forensics diff | Small structural gain (`0.584560 -> 0.586726`), dominant missing-without-write gap unchanged |
-| 2026-03-05 05:12Z | Diagnosis | Verify shadow-forwarding side effects | 20-frame A/B (`SHADOW_DRAW=0/1`, `SHADOW_PRESENT=0`) | No executor output change; issue remains in executor path |
-| 2026-03-05 06:18Z | Stability | Restore history-carry default guards after conformance regression | `local_gate.sh` | Gate back to PASS with live-proxy selection retained |
-| 2026-03-05 07:34Z | Tooling | Stream telemetry bundle parsing for overwrite/triangle logs | `local_gate.sh` + 12GB bundle regen (`shadow-oracle/20260305-071322Z/off`) | OOM resolved for deep bundle generation; large-run telemetry now completes |
-| 2026-03-05 07:58Z | Tooling | Stream + fast-filter overwrite fallback in forensics summary | `local_gate.sh` + timed 12GB `rvk2_forensics_summary.py --active-only` | Large overwrite fallback now bounded-memory and faster (`2m16s -> 1m18s`) |
-| 2026-03-05 08:03Z | Diagnosis | Verify shadow off/on packet ingress parity | SHA256 + line-count compare (`shadow-oracle/20260305-070621Z`) | Off/on packet traces are identical; divergence is executor generation/present |
-| 2026-03-05 08:05Z | Probe | Promote same-address bootstrap default (temporary) | 20-frame quick A/B (`bootstrap default on/off`) | No structural metric movement; reverted to prior default-off |
-| 2026-03-05 08:16Z | Tooling | Split prior missing-packet ranking by present-surface address | reran `rvk2_missing_region_focus.py` on oracle baseline | Present-surface prior texrect clusters are now isolated from non-present fill dominance |
-| 2026-03-05 09:18Z | Lane 1 | Make TMEM load-kind XOR probe toggles non-noop while preserving legacy defaults | `local_gate.sh` + quick smoke baseline | Probe toggles now actionable; baseline metrics stable |
+## Immediate Attack Plan
+1. Extend packet-neighborhood telemetry in Lane A for texrect/fill overwrite cluster (minimal overhead in quick profile).
+2. Patch executor behavior in that cluster, then run quick smoke + oracle.
+3. If Stage-A moves positively, run full deep smoke checkpoint and archive compare.
+4. Continue into canonical TMEM lane only after Lane A effect is measured.

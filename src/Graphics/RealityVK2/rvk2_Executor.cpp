@@ -286,7 +286,7 @@ DebugStageViewMode debugStageViewMode()
 	_X(debugTmem32UseCanonicalFetch, "REALITYVK_RVK2_DEBUG_TMEM32_CANONICAL_FETCH", false) \
 	_X(debugDisableVIHistoryPresentSelection, "REALITYVK_RVK2_DEBUG_DISABLE_VI_HISTORY_PRESENT", false) \
 	_X(debugPreferLiveSurfaceOverHistory, "REALITYVK_RVK2_DEBUG_PREFER_LIVE_SURFACE_OVER_HISTORY", true) \
-	_X(debugKeepVIMatchedHistorySelection, "REALITYVK_RVK2_DEBUG_KEEP_VI_MATCHED_HISTORY_SELECTION", true) \
+	_X(debugKeepVIMatchedHistorySelection, "REALITYVK_RVK2_DEBUG_KEEP_VI_MATCHED_HISTORY_SELECTION", false) \
 	_X(debugEnableSurfaceHistoryBootstrap, "REALITYVK_RVK2_DEBUG_ENABLE_SURFACE_HISTORY_BOOTSTRAP", false) \
 	_X(debugEnableCrossSurfaceBootstrap, "REALITYVK_RVK2_DEBUG_ENABLE_CROSS_SURFACE_BOOTSTRAP", false) \
 	_X(debugCrossSurfaceBootstrapCopyAllFromLastSurface, "REALITYVK_RVK2_DEBUG_CROSS_SURFACE_BOOTSTRAP_COPY_ALL", false) \
@@ -7536,8 +7536,11 @@ ExecutorOutput Executor::executeWithOutput(
 		summary.selectedPresentSurfaceWidth = cached.width;
 		summary.selectedPresentSurfaceHeight = cached.height;
 		summary.selectedPresentSurfaceSize = cached.size;
+		const bool autoHistoryPresentLiveMerge =
+			viMatchedHistorySelection && frameHasLiveSurfaceWrites;
 		const bool historyPresentMergeEnabled =
-			debugEnableUntouchedPresentCarry()
+			autoHistoryPresentLiveMerge
+			|| debugEnableUntouchedPresentCarry()
 			|| debugHistoryMergeCopyNonBlack()
 			|| debugHistoryMergeLogPath() != nullptr;
 		const size_t presentPixelCount =
@@ -7545,8 +7548,7 @@ ExecutorOutput Executor::executeWithOutput(
 		if (historyPresentMergeEnabled
 			&& presentPixelCount > 0U
 			&& presentCached.pixels.size() >= presentPixelCount
-			&& summary.selectedPresentSurfaceHistoryAge <= 2ULL
-			&& m_surfaceHistory.size() > 1U) {
+			&& summary.selectedPresentSurfaceHistoryAge <= 2ULL) {
 			const auto canMergeHistoryCandidate = [&](const ExecutorCachedSurface & _candidate) {
 				if (!_candidate.valid
 					|| _candidate.address == cached.address
@@ -7564,6 +7566,53 @@ ExecutorOutput Executor::executeWithOutput(
 					: 0ULL;
 				return candidateAge <= 8ULL;
 			};
+			const auto canMergeLiveCandidate = [&](u32 _candidateAddress, const ColorSurface & _candidate) {
+				if (_candidateAddress == cached.address
+					|| (isDepthOnlyColorAddress(_candidateAddress)
+						&& !allowDepthAliasedHistoryCarry)
+					|| _candidate.format != cached.format
+					|| _candidate.size != cached.size
+					|| _candidate.width != cached.width
+					|| _candidate.height < cached.height
+					|| _candidate.pixels.size() < presentPixelCount) {
+					return false;
+				}
+				const auto writesIt = surfaceColorWrites.find(_candidateAddress);
+				return writesIt != surfaceColorWrites.end() && writesIt->second > 0ULL;
+			};
+			struct LiveMergeCandidate
+			{
+				u32 address = 0U;
+				u64 writes = 0ULL;
+				u64 works = 0ULL;
+			};
+			std::vector<LiveMergeCandidate> liveMergeCandidates;
+			if (autoHistoryPresentLiveMerge) {
+				liveMergeCandidates.reserve(surfaces.size());
+				for (const auto & liveEntry : surfaces) {
+					const u32 liveAddress = liveEntry.first;
+					const ColorSurface & liveSurface = liveEntry.second;
+					if (!canMergeLiveCandidate(liveAddress, liveSurface))
+						continue;
+					const auto writesIt = surfaceColorWrites.find(liveAddress);
+					const auto worksIt = surfaceWorkCounts.find(liveAddress);
+					liveMergeCandidates.push_back(LiveMergeCandidate{
+						liveAddress,
+						writesIt != surfaceColorWrites.end() ? writesIt->second : 0ULL,
+						worksIt != surfaceWorkCounts.end() ? worksIt->second : 0ULL
+					});
+				}
+				std::sort(
+					liveMergeCandidates.begin(),
+					liveMergeCandidates.end(),
+					[](const LiveMergeCandidate & _a, const LiveMergeCandidate & _b) {
+						if (_a.writes != _b.writes)
+							return _a.writes > _b.writes;
+						if (_a.works != _b.works)
+							return _a.works > _b.works;
+						return _a.address < _b.address;
+					});
+			}
 
 			std::vector<const ExecutorCachedSurface *> historyMergeCandidates;
 			historyMergeCandidates.reserve(m_surfaceHistory.size());
@@ -7573,8 +7622,14 @@ ExecutorOutput Executor::executeWithOutput(
 				const ExecutorCachedSurface & candidate = historyEntry.second;
 				if (!canMergeHistoryCandidate(candidate))
 					continue;
-				if (!historyMergeCandidates.empty()
-					&& candidate.address == historyMergeCandidates.front()->address) {
+				bool duplicateCandidate = false;
+				for (const ExecutorCachedSurface * existing : historyMergeCandidates) {
+					if (existing != nullptr && existing->address == candidate.address) {
+						duplicateCandidate = true;
+						break;
+					}
+				}
+				if (duplicateCandidate) {
 					continue;
 				}
 				historyMergeCandidates.push_back(&candidate);
@@ -7590,18 +7645,20 @@ ExecutorOutput Executor::executeWithOutput(
 					return _a->address < _b->address;
 				});
 			summary.selectedPresentSurfaceHistoryMergeCandidateCount =
-				static_cast<u64>(historyMergeCandidates.size());
+				static_cast<u64>(historyMergeCandidates.size() + liveMergeCandidates.size());
 
 			u64 mergedHistoryPixels = 0ULL;
 			u32 mergedHistorySource = 0U;
 			bool mergedFromMultipleSources = false;
 			const bool copyNonBlackHistoryMerge = debugHistoryMergeCopyNonBlack();
+			const bool copyNonBlackFromLiveCandidates = debugHistoryMergeCopyNonBlack();
 			const auto mergeHistoryCandidatePixels =
 				[&](
 					u32 _candidateAddress,
 					const std::vector<u32> & _candidatePixels,
 					const std::vector<u8> * _candidateCoverage,
-					const std::vector<u8> * _candidateHiddenCoverage) {
+					const std::vector<u8> * _candidateHiddenCoverage,
+					bool _copyNonBlack) {
 				if (_candidatePixels.size() < presentPixelCount)
 					return;
 				const bool sourceHasCoverage =
@@ -7613,20 +7670,20 @@ ExecutorOutput Executor::executeWithOutput(
 				u64 mergedFromCandidate = 0ULL;
 				u64 potentialBlackFill = 0ULL;
 				u64 potentialNonBlackDiff = 0ULL;
-					for (size_t i = 0U; i < presentPixelCount; ++i) {
-						const u32 sourcePixel = _candidatePixels[i];
-						if (!pixelHasVisibleColor(sourcePixel))
-							continue;
-						const u32 destinationPixel = presentCached.pixels[i];
-						const bool destinationVisible = pixelHasVisibleColor(destinationPixel);
-						if (!destinationVisible)
-							++potentialBlackFill;
-						else if (destinationPixel != sourcePixel)
-							++potentialNonBlackDiff;
-						if (destinationVisible && !copyNonBlackHistoryMerge)
-							continue;
-						if (destinationPixel == sourcePixel)
-							continue;
+				for (size_t i = 0U; i < presentPixelCount; ++i) {
+					const u32 sourcePixel = _candidatePixels[i];
+					if (!pixelHasVisibleColor(sourcePixel))
+						continue;
+					const u32 destinationPixel = presentCached.pixels[i];
+					const bool destinationVisible = pixelHasVisibleColor(destinationPixel);
+					if (!destinationVisible)
+						++potentialBlackFill;
+					else if (destinationPixel != sourcePixel)
+						++potentialNonBlackDiff;
+					if (destinationVisible && !_copyNonBlack)
+						continue;
+					if (destinationPixel == sourcePixel)
+						continue;
 					presentCached.pixels[i] = sourcePixel;
 					if (sourceHasCoverage && presentCached.coverage.size() >= presentPixelCount)
 						presentCached.coverage[i] = static_cast<u8>((*_candidateCoverage)[i] & 0x7U);
@@ -7654,6 +7711,18 @@ ExecutorOutput Executor::executeWithOutput(
 					potentialNonBlackDiff,
 					mergedFromCandidate);
 			};
+			for (const LiveMergeCandidate & candidate : liveMergeCandidates) {
+				const auto liveIt = surfaces.find(candidate.address);
+				if (liveIt == surfaces.end())
+					continue;
+				const ColorSurface & live = liveIt->second;
+				mergeHistoryCandidatePixels(
+					candidate.address,
+					live.pixels,
+					&live.coverage,
+					&live.hiddenCoverage,
+					copyNonBlackFromLiveCandidates);
+			}
 			for (const ExecutorCachedSurface * candidate : historyMergeCandidates) {
 				if (candidate == nullptr)
 					continue;
@@ -7661,7 +7730,8 @@ ExecutorOutput Executor::executeWithOutput(
 					candidate->address,
 					candidate->pixels,
 					&candidate->coverage,
-					&candidate->hiddenCoverage);
+					&candidate->hiddenCoverage,
+					copyNonBlackHistoryMerge);
 			}
 			if (mergedHistoryPixels > 0ULL) {
 				summary.selectedPresentSurfaceUntouchedCarryCount = mergedHistoryPixels;

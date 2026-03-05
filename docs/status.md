@@ -23,12 +23,16 @@
 - Exit signal: no accepted behavior fix depends on `REALITYVK_RVK2_DEBUG_*`.
 
 ## Current Diagnosis Snapshot
-- Present-selection coherence checkpoint landed:
-  - VI-matched history selection is now preserved by default when live-surface fallback would break VI-origin coherence.
-  - Suspected gap removed in archive compare: `VI origin did not match selected present surface`.
-- TMEM load-kind row-XOR checkpoint landed:
-  - TMEM8/TMEM32 load-kind-aware row XOR is now default executor behavior (no debug env toggle required).
-  - Deep archive compare shows directional image-metric improvement with no new suspected gaps.
+- Present-selection policy checkpoint landed:
+  - when VI origin maps only to history but a compatible live surface has writes, executor now prefers live by default.
+  - temporary probe override remains available: `REALITYVK_RVK2_DEBUG_KEEP_VI_MATCHED_HISTORY_SELECTION=1`.
+- Structural movement after the default policy flip:
+  - quick smoke moved `candidate_non_black_ratio` from `0.766435` to `0.775134`.
+  - deep compare (`20260305-065447Z -> 20260305-100328Z`) moved `candidate_non_black_ratio` from `58.67%` to `77.51%` and reduced suspected gaps (`14 -> 13`).
+  - image-error metrics regressed (`rmse`/`mae`), so Stage-A structure remains the primary gate.
+- TMEM load-kind row-XOR status:
+  - load-kind-aware TMEM8/TMEM32 XOR paths remain probe-ready via debug envs.
+  - default runtime path currently keeps legacy XOR behavior pending canonical TMEM mapping work.
 - Shadow-oracle evidence (same-run, 20-frame deep, replay disabled):
   - executor-vs-shadow `best_mae` improved `0.238958 -> 0.228807`.
   - executor-vs-shadow `best_rmse` improved `0.366680 -> 0.360818`.
@@ -36,10 +40,10 @@
   - when VI matches history-only and a compatible live surface is present, executor now prefers the most-written compatible live surface.
   - latest oracle moved slightly (`candidate_non_black_ratio` `0.584560 -> 0.586726`) but dominant missing-without-write gap persisted.
 - Remaining high-value leads are now upstream of final present handoff (overwrite cluster + raster/source divergence).
-- Deterministic shadow-oracle attribution (`frames=20`, retry `0`) now has a one-command workflow:
+- Deterministic shadow-oracle attribution (`frames=10` or `20`, retry `0`) now has a one-command workflow:
   - `./scripts/paper_mario_shadow_oracle.sh --frames 20 --retry-count 0`
-  - Current oracle gap snapshot: shadow-on `candidate_non_black_ratio=0.945481` vs executor-off `0.586726`.
-  - Oracle missing attribution: `missing_without_write_ratio=0.8825` and `missing_without_write_with_prior_write_ratio=1.0`.
+  - Latest oracle snapshot (`20260305-094633Z`, `frames=10`): shadow-on `candidate_non_black_ratio=0.885972` vs executor-off `0.673351`.
+  - Oracle missing attribution remains dominated by missing-without-write (`0.9123`) with prior-write coverage (`1.0`).
 - Shadow draw forwarding side-effect check:
   - `REALITYVK_RVK2_SHADOW_DRAW=1` with `REALITYVK_RVK2_SHADOW_PRESENT=0` is byte-identical to shadow-off executor output.
   - no-op forwarding is not the current structural blocker.
@@ -71,19 +75,19 @@
   - default-on probe (20-frame quick A/B) showed no structural movement; reverted to default-off to avoid noise.
 
 ## Current Baseline (2026-03-05)
-- Latest non-shadow deep archive run: `paper_mario_intro.20260305-003843Z.57f1559c`
-- Comparison baseline for this checkpoint: `paper_mario_intro.20260304-235955Z.63c167f0`
+- Latest non-shadow deep archive run: `paper_mario_intro.20260305-100328Z.cdf22eca`
+- Comparison baseline for this checkpoint: `paper_mario_intro.20260305-065447Z.36a63c79`
 - Archive index: `build/parity-runs/paper-mario/archive/index.tsv`
 - Latest key metrics:
-  - `rmse=0.346580`
-  - `mae=0.249116`
-  - `candidate_non_black_ratio=0.766512`
-  - `candidate_mean_luma=0.268280`
-- Delta vs baseline (`235955 -> 003843`):
-  - `rmse`: `-0.004260`
-  - `mae`: `-0.001477`
-  - `candidate_non_black_ratio`: `+0.01pp`
-  - suspected gaps: unchanged (count `12`)
+  - `rmse=0.371346`
+  - `mae=0.276243`
+  - `candidate_non_black_ratio=0.775134`
+  - `candidate_mean_luma=0.297256`
+- Delta vs baseline (`065447 -> 100328`):
+  - `rmse`: `+0.035550`
+  - `mae`: `+0.054247`
+  - `candidate_non_black_ratio`: `+18.84pp`
+  - suspected gaps: `14 -> 13`
 
 ## Tooling Constraints
 - Upstream `GLideN64` `dumpfb-preset` capture remains black in agent-mode flow; treat reference non-black ratio as non-actionable.
