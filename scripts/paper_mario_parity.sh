@@ -1214,6 +1214,8 @@ track_knob_fingerprint() {
     "rvk2_disable_vi_history_present=${RVK2_DISABLE_VI_HISTORY_PRESENT}"
     "rvk2_prefer_live_surface=${RVK2_PREFER_LIVE_SURFACE_OVER_HISTORY}"
   )
+  rvk2_pm_append_prefixed_env_knob_kv knob_kv "REALITYVK_RVK2_DEBUG_" "env."
+  rvk2_pm_append_prefixed_env_knob_kv knob_kv "REALITYVK_RVK2_SHADOW_" "env."
   local -a knob_cmd=(
     python3 "${ROOT_DIR}/scripts/rvk2_knob_history.py"
     fingerprint

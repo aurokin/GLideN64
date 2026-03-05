@@ -1,6 +1,38 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 
+rvk2_pm_append_prefixed_env_passthrough() {
+  local out_array_name="$1"
+  local prefix="$2"
+  # shellcheck disable=SC2178
+  local -n _out="${out_array_name}"
+
+  local kv
+  while IFS= read -r kv; do
+    [[ -z "${kv}" ]] && continue
+    local key="${kv%%=*}"
+    [[ "${key}" == "${prefix}"* ]] || continue
+    _out+=("${kv}")
+  done < <(env | sort)
+}
+
+rvk2_pm_append_prefixed_env_knob_kv() {
+  local out_array_name="$1"
+  local prefix="$2"
+  local kv_prefix="$3"
+  # shellcheck disable=SC2178
+  local -n _out="${out_array_name}"
+
+  local kv
+  while IFS= read -r kv; do
+    [[ -z "${kv}" ]] && continue
+    local key="${kv%%=*}"
+    local value="${kv#*=}"
+    [[ "${key}" == "${prefix}"* ]] || continue
+    _out+=("${kv_prefix}${key}=${value}")
+  done < <(env | sort)
+}
+
 rvk2_pm_append_candidate_deep_telemetry_env() {
   local out_array_name="$1"
   local -n _deep_out="${out_array_name}"
@@ -66,4 +98,8 @@ rvk2_pm_append_candidate_debug_env() {
     "REALITYVK_RVK2_DEBUG_DISABLE_VI_HISTORY_PRESENT=${RVK2_DISABLE_VI_HISTORY_PRESENT}"
     "REALITYVK_RVK2_DEBUG_PREFER_LIVE_SURFACE_OVER_HISTORY=${RVK2_PREFER_LIVE_SURFACE_OVER_HISTORY}"
   )
+
+  # Allow direct smoke-time overrides for RVK2 debugging and shadow probes.
+  rvk2_pm_append_prefixed_env_passthrough _debug_out "REALITYVK_RVK2_DEBUG_"
+  rvk2_pm_append_prefixed_env_passthrough _debug_out "REALITYVK_RVK2_SHADOW_"
 }

@@ -27,6 +27,7 @@ class PaperMarioParityDryRunTests(unittest.TestCase):
         deep_override: Optional[str] = None,
         reference_plugin_name: str = "reference.so",
         frames_override: Optional[int] = None,
+        extra_env: Optional[dict[str, str]] = None,
     ) -> dict:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -76,6 +77,8 @@ class PaperMarioParityDryRunTests(unittest.TestCase):
                 env["REALITYVK_PM_DEEP_TELEMETRY"] = deep_override
             if frames_override is not None:
                 env["REALITYVK_PM_FRAMES_OVERRIDE"] = str(frames_override)
+            if extra_env:
+                env.update(extra_env)
 
             subprocess.run([str(self.script)], env=env, check=True, cwd=self.repo_root)
             self.assertTrue(dry_out.is_file())
@@ -136,6 +139,18 @@ class PaperMarioParityDryRunTests(unittest.TestCase):
     def test_frames_override_updates_effective_frames(self):
         payload = self._run_dry("basic", frames_override=17)
         self.assertEqual(int(payload.get("frames", -1)), 17)
+
+    def test_candidate_debug_env_passthrough_included(self):
+        payload = self._run_dry(
+            "basic",
+            extra_env={
+                "REALITYVK_RVK2_DEBUG_TMEM32_CANONICAL_FETCH": "1",
+                "REALITYVK_RVK2_SHADOW_DRAW": "1",
+            },
+        )
+        candidate_env = self._capture_env(payload, "candidate")
+        self.assertIn("REALITYVK_RVK2_DEBUG_TMEM32_CANONICAL_FETCH=1", candidate_env)
+        self.assertIn("REALITYVK_RVK2_SHADOW_DRAW=1", candidate_env)
 
 
 if __name__ == "__main__":
