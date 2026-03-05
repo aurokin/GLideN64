@@ -119,6 +119,12 @@ Fix missing textures and missing geometry in `paper_mario_intro` on Vulkan `rvk2
 - [x] Added present-surface constrained prior-hit attribution in missing-region focus output.
   - `rvk2_missing_region_focus.py` now emits separate `missing_without_write_prior_packet_hits_on_present_surface` and `...off_present_surface` lists.
   - keeps dominant non-present full-screen fill traffic from hiding present-surface prior texrect packet clusters.
+- [x] Fixed TMEM load-kind XOR probe toggles to avoid no-op behavior while preserving legacy runtime defaults.
+  - `REALITYVK_RVK2_DEBUG_TMEM8_LOADKIND_XOR` and `REALITYVK_RVK2_DEBUG_TMEM32_LOADKIND_XOR` now change decode behavior only when explicitly enabled.
+  - default decode path remains legacy parity XOR so probe toggles no longer silently run the same logic as baseline.
+- [x] Revalidated stability after load-kind XOR probe-toggle fix.
+  - `local_gate.sh` passed.
+  - quick smoke baseline remained stable (`candidate_non_black_ratio=0.766435`, `rmse=0.371578`, `mae=0.275705`).
 
 ## Current Lane-1 Evidence Snapshot
 - Deep run: `build/parity-runs/paper-mario/archive/paper_mario_intro.20260304-222205Z.21ceca95`
@@ -166,3 +172,4 @@ Fix missing textures and missing geometry in `paper_mario_intro` on Vulkan `rvk2
 | 2026-03-05 08:03Z | Diagnosis | Verify shadow off/on packet ingress parity | SHA256 + line-count compare (`shadow-oracle/20260305-070621Z`) | Off/on packet traces are identical; divergence is executor generation/present |
 | 2026-03-05 08:05Z | Probe | Promote same-address bootstrap default (temporary) | 20-frame quick A/B (`bootstrap default on/off`) | No structural metric movement; reverted to prior default-off |
 | 2026-03-05 08:16Z | Tooling | Split prior missing-packet ranking by present-surface address | reran `rvk2_missing_region_focus.py` on oracle baseline | Present-surface prior texrect clusters are now isolated from non-present fill dominance |
+| 2026-03-05 09:18Z | Lane 1 | Make TMEM load-kind XOR probe toggles non-noop while preserving legacy defaults | `local_gate.sh` + quick smoke baseline | Probe toggles now actionable; baseline metrics stable |

@@ -2253,20 +2253,30 @@ inline u32 tmem8RowXorFromLoadKind(
 	u16 _t,
 	u16 _i)
 {
-	// Match GLideN64 TMEM fetch rules: row parity drives the byte-lane XOR for
-	// 8b samples regardless of which load opcode last touched TMEM.
-	(void)_work;
-	(void)_t;
-	return static_cast<u32>(_i) << 1U;
+	switch (_work.tmemLoadKind) {
+	case static_cast<u8>(rvk2::TmemLoadKind::kTile):
+		return 0U;
+	case static_cast<u8>(rvk2::TmemLoadKind::kTLUT):
+		return xor13ForT(_t);
+	case static_cast<u8>(rvk2::TmemLoadKind::kBlock):
+	default:
+		return static_cast<u32>(_i) << 1U;
+	}
 }
 
 inline u32 tmem32RowXorFromLoadKind(
 	const rvk2::RenderWorkPacket & _work,
 	u16 _t)
 {
-	// 32b TMEM split fetches also use row parity XOR independent of load kind.
-	(void)_work;
-	return xorForTmem32T(_t);
+	switch (_work.tmemLoadKind) {
+	case static_cast<u8>(rvk2::TmemLoadKind::kTile):
+		return 0U;
+	case static_cast<u8>(rvk2::TmemLoadKind::kTLUT):
+		return xor13ForT(_t);
+	case static_cast<u8>(rvk2::TmemLoadKind::kBlock):
+	default:
+		return xorForTmem32T(_t);
+	}
 }
 
 inline s32 computeLegacySplit32LineStride(const rvk2::RenderWorkPacket & _work)
@@ -2338,10 +2348,9 @@ inline u32 decodeAuthoritativeTMEM32Color(
 	DebugTextureSampleLogEntry * _debug = nullptr)
 {
 	const bool highToLowRGBA = debugTmem32PackHighToLowRGBA();
-	u32 rowXor = tmem32RowXorFromLoadKind(_work, _t);
-	if (debugTmem32UseLoadKindAwareXor()) {
+	u32 rowXor = xorForTmem32T(_t);
+	if (debugTmem32UseLoadKindAwareXor())
 		rowXor = tmem32RowXorFromLoadKind(_work, _t);
-	}
 	if (_debug != nullptr)
 		_debug->tmemRowXor = rowXor;
 
@@ -2667,7 +2676,7 @@ inline bool sampleCITextureFromTMEM(
 	}
 
 	case 1U: { // 8b
-		u32 oddRowXor = tmem8RowXorFromLoadKind(_work, t, i);
+		u32 oddRowXor = static_cast<u32>(i) << 1U;
 		if (debugAltTmem8OddXor())
 			oddRowXor = static_cast<u32>(i);
 		if (debugTmem8UseXor13())
