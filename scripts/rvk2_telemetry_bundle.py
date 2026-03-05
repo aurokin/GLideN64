@@ -451,6 +451,9 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
                     "luma_increase": 0,
                     "luma_decrease": 0,
                     "luma_equal": 0,
+                    "dominant_state": {},
+                    "top_states": [],
+                    "top_source_packets": [],
                 },
                 "texrect": {
                     "writes": 0,
@@ -470,6 +473,9 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
                     "tlut_lookup_repeat": 0,
                     "tlut_lookup_change": 0,
                     "tlut_lookup_invalid": 0,
+                    "dominant_state": {},
+                    "top_states": [],
+                    "top_source_packets": [],
                 },
                 "source": "overwrite_log",
             },
@@ -546,6 +552,12 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
     focus_texrect_tlut_lookup_repeat = 0
     focus_texrect_tlut_lookup_change = 0
     focus_texrect_tlut_lookup_invalid = 0
+    focus_fill_state_counts: Dict[str, int] = {}
+    focus_fill_state_rows: Dict[str, Dict[str, Any]] = {}
+    focus_texrect_state_counts: Dict[str, int] = {}
+    focus_texrect_state_rows: Dict[str, Dict[str, Any]] = {}
+    focus_fill_packet_counts: Dict[int, int] = {}
+    focus_texrect_packet_counts: Dict[int, int] = {}
     focus_prev_texel_by_packet: Dict[int, int] = {}
     focus_prev_tlut_lookup_by_packet: Dict[int, int] = {}
     texel_slot_names = ("tex0", "tex1", "tex0_next")
@@ -578,6 +590,103 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
 
     def _fetch_label(value: int) -> str:
         return texel_fetch_variant_names.get(value, f"variant_{value}")
+
+    def _focus_state_common_fields(record: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "combine_mux": f"0x{_u64(record, 'combine_mux'):016X}",
+            "other_modes": f"0x{_u64(record, 'other_modes'):016X}",
+            "blend_params": f"0x{_u64(record, 'blend_params'):08X}",
+            "cycle_type": int(_u64(record, "cycle_type")),
+            "alpha_compare": int(_u64(record, "alpha_compare")),
+            "cvg_dest": int(_u64(record, "cvg_dest")),
+            "blend_mask": f"0x{_u64(record, 'blend_mask') & 0xFF:02X}",
+            "cvg_x_alpha": int(_u64(record, "cvg_x_alpha")),
+            "alpha_cvg_sel": int(_u64(record, "alpha_cvg_sel")),
+            "color_on_cvg": int(_u64(record, "color_on_cvg")),
+            "force_blender": int(_u64(record, "force_blender")),
+            "depth_source": int(_u64(record, "depth_source")),
+            "depth_test": int(_u64(record, "depth_test")),
+            "depth_compare_enable": int(_u64(record, "depth_compare_enable")),
+            "depth_update_enable": int(_u64(record, "depth_update_enable")),
+            "scissor_mode": int(_u64(record, "scissor_mode")),
+            "prim_color": f"0x{_u64(record, 'prim_color') & 0xFFFFFFFF:08X}",
+            "env_color": f"0x{_u64(record, 'env_color') & 0xFFFFFFFF:08X}",
+            "blend_color": f"0x{_u64(record, 'blend_color') & 0xFFFFFFFF:08X}",
+            "fog_color": f"0x{_u64(record, 'fog_color') & 0xFFFFFFFF:08X}",
+            "fill_color": f"0x{_u64(record, 'fill_color') & 0xFFFFFFFF:08X}",
+        }
+
+    def _focus_fill_state_key(record: Dict[str, Any]) -> str:
+        return (
+            f"{_u64(record, 'combine_mux'):016X}|"
+            f"{_u64(record, 'other_modes'):016X}|"
+            f"{_u64(record, 'blend_params'):08X}|"
+            f"{_u64(record, 'cycle_type') & 0xFF:02X}|"
+            f"{_u64(record, 'alpha_compare') & 0xFF:02X}|"
+            f"{_u64(record, 'cvg_dest') & 0xFF:02X}|"
+            f"{_u64(record, 'blend_mask') & 0xFF:02X}|"
+            f"{_u64(record, 'force_blender') & 0x1:01X}|"
+            f"{_u64(record, 'depth_test') & 0x1:01X}|"
+            f"{_u64(record, 'depth_compare_enable') & 0x1:01X}|"
+            f"{_u64(record, 'depth_update_enable') & 0x1:01X}|"
+            f"{_u64(record, 'fill_color') & 0xFFFFFFFF:08X}"
+        )
+
+    def _focus_texrect_state_key(record: Dict[str, Any]) -> str:
+        return (
+            f"{_u64(record, 'combine_mux'):016X}|"
+            f"{_u64(record, 'other_modes'):016X}|"
+            f"{_u64(record, 'blend_params'):08X}|"
+            f"{_u64(record, 'cycle_type') & 0xFF:02X}|"
+            f"{_u64(record, 'alpha_compare') & 0xFF:02X}|"
+            f"{_u64(record, 'cvg_dest') & 0xFF:02X}|"
+            f"{_u64(record, 'blend_mask') & 0xFF:02X}|"
+            f"{_u64(record, 'force_blender') & 0x1:01X}|"
+            f"{_u64(record, 'tile_format') & 0xFF:02X}|"
+            f"{_u64(record, 'tile_size') & 0xFF:02X}|"
+            f"{_u64(record, 'tile_line') & 0xFFFF:04X}|"
+            f"{_u64(record, 'tile_tmem') & 0xFFFF:04X}|"
+            f"{_u64(record, 'tile_palette') & 0xFF:02X}|"
+            f"{_u64(record, 'texture_image_format') & 0xFF:02X}|"
+            f"{_u64(record, 'texture_image_size') & 0xFF:02X}|"
+            f"{_u64(record, 'texture_image_width') & 0xFFFF:04X}"
+        )
+
+    def _focus_fill_state_row(record: Dict[str, Any]) -> Dict[str, Any]:
+        row = _focus_state_common_fields(record)
+        row.update(
+            {
+                "tile_format": int(_u64(record, "tile_format")),
+                "tile_size": int(_u64(record, "tile_size")),
+                "tile_line": int(_u64(record, "tile_line")),
+                "tile_tmem": int(_u64(record, "tile_tmem")),
+            }
+        )
+        return row
+
+    def _focus_texrect_state_row(record: Dict[str, Any]) -> Dict[str, Any]:
+        row = _focus_state_common_fields(record)
+        row.update(
+            {
+                "tile_format": int(_u64(record, "tile_format")),
+                "tile_size": int(_u64(record, "tile_size")),
+                "tile_line": int(_u64(record, "tile_line")),
+                "tile_tmem": int(_u64(record, "tile_tmem")),
+                "tile_palette": int(_u64(record, "tile_palette")),
+                "tile_cmt": int(_u64(record, "tile_cmt")),
+                "tile_cms": int(_u64(record, "tile_cms")),
+                "tile_maskt": int(_u64(record, "tile_maskt")),
+                "tile_masks": int(_u64(record, "tile_masks")),
+                "tile_shiftt": int(_u64(record, "tile_shiftt")),
+                "tile_shifts": int(_u64(record, "tile_shifts")),
+                "texture_image_format": int(_u64(record, "texture_image_format")),
+                "texture_image_size": int(_u64(record, "texture_image_size")),
+                "texture_image_width": int(_u64(record, "texture_image_width")),
+                "texture_image_address": f"0x{_u64(record, 'texture_image_address') & 0xFFFFFFFF:08X}",
+                "texrect_flip": int(_u64(record, "texrect_flip")),
+            }
+        )
+        return row
 
     texel_slot_summary_counts: Dict[str, Dict[str, Any]] = {
         slot: {
@@ -740,6 +849,10 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
             prev_write_mask = int(_u64(record, "prev_write_mask")) != 0
             if focus_cluster == 1:
                 focus_fill_writes += 1
+                if source_packet_id > 0:
+                    focus_fill_packet_counts[source_packet_id] = (
+                        focus_fill_packet_counts.get(source_packet_id, 0) + 1
+                    )
                 if prev_write_mask:
                     focus_fill_write_mask_set += 1
                 else:
@@ -758,8 +871,16 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
                     focus_fill_luma_decrease += 1
                 else:
                     focus_fill_luma_equal += 1
+                fill_state_key = _focus_fill_state_key(record)
+                focus_fill_state_counts[fill_state_key] = focus_fill_state_counts.get(fill_state_key, 0) + 1
+                if fill_state_key not in focus_fill_state_rows:
+                    focus_fill_state_rows[fill_state_key] = _focus_fill_state_row(record)
             else:
                 focus_texrect_writes += 1
+                if source_packet_id > 0:
+                    focus_texrect_packet_counts[source_packet_id] = (
+                        focus_texrect_packet_counts.get(source_packet_id, 0) + 1
+                    )
                 if prev_write_mask:
                     focus_texrect_write_mask_set += 1
                 else:
@@ -800,6 +921,12 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
                     focus_prev_tlut_lookup_by_packet[packet_key] = tlut_lookup
                 else:
                     focus_texrect_tlut_lookup_invalid += 1
+                texrect_state_key = _focus_texrect_state_key(record)
+                focus_texrect_state_counts[texrect_state_key] = (
+                    focus_texrect_state_counts.get(texrect_state_key, 0) + 1
+                )
+                if texrect_state_key not in focus_texrect_state_rows:
+                    focus_texrect_state_rows[texrect_state_key] = _focus_texrect_state_row(record)
 
         texture_source_bits = _u64(record, "texture_source_bits")
         source_key = f"0x{texture_source_bits:08X}"
@@ -1123,6 +1250,55 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
         black_write_state_counts,
         black_write_state_rows,
         record_count,
+    )
+
+    def _build_top_focus_state_rows(
+        counts: Dict[str, int],
+        rows: Dict[str, Dict[str, Any]],
+        denominator: int,
+    ) -> List[Dict[str, Any]]:
+        result: List[Dict[str, Any]] = []
+        ordered = sorted(counts.items(), key=lambda item: item[1], reverse=True)
+        for state_key, count in ordered[:8]:
+            row = dict(rows.get(state_key, {}))
+            row["count"] = int(count)
+            row["ratio"] = _ratio(int(count), denominator)
+            result.append(row)
+        return result
+
+    def _build_focus_packet_rows(
+        counts: Dict[int, int],
+        denominator: int,
+    ) -> List[Dict[str, Any]]:
+        rows: List[Dict[str, Any]] = []
+        ordered = sorted(counts.items(), key=lambda item: item[1], reverse=True)
+        for source_packet_id, count in ordered[:16]:
+            rows.append(
+                {
+                    "source_packet_id": int(source_packet_id),
+                    "count": int(count),
+                    "ratio": _ratio(int(count), denominator),
+                }
+            )
+        return rows
+
+    focus_fill_top_states = _build_top_focus_state_rows(
+        focus_fill_state_counts,
+        focus_fill_state_rows,
+        focus_fill_writes,
+    )
+    focus_texrect_top_states = _build_top_focus_state_rows(
+        focus_texrect_state_counts,
+        focus_texrect_state_rows,
+        focus_texrect_writes,
+    )
+    focus_fill_top_packets = _build_focus_packet_rows(
+        focus_fill_packet_counts,
+        focus_fill_writes,
+    )
+    focus_texrect_top_packets = _build_focus_packet_rows(
+        focus_texrect_packet_counts,
+        focus_texrect_writes,
     )
     texel_slot_summaries: Dict[str, Any] = {}
     texel_detail_available = False
@@ -1449,6 +1625,9 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
                 "luma_increase": focus_fill_luma_increase,
                 "luma_decrease": focus_fill_luma_decrease,
                 "luma_equal": focus_fill_luma_equal,
+                "dominant_state": focus_fill_top_states[0] if focus_fill_top_states else {},
+                "top_states": focus_fill_top_states,
+                "top_source_packets": focus_fill_top_packets,
             },
             "texrect": {
                 "writes": focus_texrect_writes,
@@ -1485,6 +1664,9 @@ def _parse_overwrite_log(path: Optional[Path]) -> Dict[str, Any]:
                     focus_texrect_tlut_lookup_invalid,
                     focus_texrect_tlut_applied + focus_texrect_tlut_lookup_invalid,
                 ),
+                "dominant_state": focus_texrect_top_states[0] if focus_texrect_top_states else {},
+                "top_states": focus_texrect_top_states,
+                "top_source_packets": focus_texrect_top_packets,
             },
             "source": "overwrite_log",
         },

@@ -33,6 +33,10 @@
 - TMEM load-kind row-XOR status:
   - load-kind-aware TMEM8/TMEM32 XOR paths remain probe-ready via debug envs.
   - default runtime path currently keeps legacy XOR behavior pending canonical TMEM mapping work.
+- Focus-cluster telemetry expansion landed:
+  - overwrite TSV rows now include cycle/alpha/cvg/blend/depth/color/tile/texture state fields for each logged write.
+  - telemetry bundle now emits `overwrite_summary.focus_clusters.{fill,texrect}.{dominant_state,top_states,top_source_packets}`.
+  - latest full deep shows fill-cluster dominant signature explicitly (`combine=0x00FFFFFFFFFCF87C`, `other_modes=0x00308C7F00000000`, `cycle_type=3`, `fill_color=0x00010001`).
 - Shadow-oracle evidence (same-run, 20-frame deep, replay disabled):
   - executor-vs-shadow `best_mae` improved `0.238958 -> 0.228807`.
   - executor-vs-shadow `best_rmse` improved `0.366680 -> 0.360818`.
@@ -73,21 +77,23 @@
   - this removes dominant non-present full-screen fill packets from masking present-surface texrect history clusters.
 - Same-address bootstrap promotion probe result:
   - default-on probe (20-frame quick A/B) showed no structural movement; reverted to default-off to avoid noise.
+- Non-black-aware present fallback probe result:
+  - 20-frame deep probe showed no structural movement; reverted to keep runtime selection behavior stable.
 
 ## Current Baseline (2026-03-05)
-- Latest non-shadow deep archive run: `paper_mario_intro.20260305-100328Z.cdf22eca`
-- Comparison baseline for this checkpoint: `paper_mario_intro.20260305-065447Z.36a63c79`
+- Latest non-shadow deep archive run: `paper_mario_intro.20260305-102706Z.b7c46e23`
+- Comparison baseline for this checkpoint: `paper_mario_intro.20260305-100328Z.cdf22eca`
 - Archive index: `build/parity-runs/paper-mario/archive/index.tsv`
 - Latest key metrics:
   - `rmse=0.371346`
   - `mae=0.276243`
   - `candidate_non_black_ratio=0.775134`
   - `candidate_mean_luma=0.297256`
-- Delta vs baseline (`065447 -> 100328`):
-  - `rmse`: `+0.035550`
-  - `mae`: `+0.054247`
-  - `candidate_non_black_ratio`: `+18.84pp`
-  - suspected gaps: `14 -> 13`
+- Delta vs baseline (`100328 -> 102706`):
+  - `rmse`: `+0.000000`
+  - `mae`: `+0.000000`
+  - `candidate_non_black_ratio`: `+0.00pp`
+  - suspected gaps: unchanged (`13`)
 
 ## Tooling Constraints
 - Upstream `GLideN64` `dumpfb-preset` capture remains black in agent-mode flow; treat reference non-black ratio as non-actionable.

@@ -40,7 +40,7 @@
 
 ## Current Diagnosis Snapshot (2026-03-05)
 - Latest non-shadow deep archive run:
-  - `paper_mario_intro.20260305-100328Z.cdf22eca`
+  - `paper_mario_intro.20260305-102706Z.b7c46e23`
 - Metrics:
   - `rmse=0.371346`
   - `mae=0.276243`
@@ -56,6 +56,7 @@
 - Remaining dominant leads:
   - missing-region prior hits still cluster in texrect/fill neighborhood around
     `combine=0x00FFFFFFFFFCF87C` and `other_modes=0x00208C7F00000000/0x00308C7F00000000`.
+  - expanded overwrite telemetry now records cycle/alpha/cvg/blend/depth/color/tile state per logged write and ranks dominant focus-cluster states in bundle output.
   - replay still reports present-size/hash divergence, but this is currently treated as a secondary signal until Stage-A structure improves.
   - TMEM load-kind row-XOR stays probe-only (debug toggles), pending full canonical TMEM mapping.
 

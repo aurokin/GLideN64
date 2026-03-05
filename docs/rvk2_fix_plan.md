@@ -45,7 +45,7 @@ Fix missing textures and missing geometry in `paper_mario_intro` on Vulkan `rvk2
 - [x] Isolate first structural divergence with deterministic off-vs-on oracle.
 - [x] Confirm ingress parity (`SHADOW_DRAW` off/on packet traces identical).
 - [x] Stabilize present selection so VI-history-only surfaces no longer hard-lock stale output.
-- [ ] Add targeted telemetry around dominant texrect/fill packet neighborhood (shade/combiner/blender outputs and write masks).
+- [x] Add targeted telemetry around dominant texrect/fill packet neighborhood (state + stage + write-mask context).
 - [ ] Implement executor-path behavior fix for texrect/fill overwrite divergence.
 - [ ] Validate with quick smoke + deep smoke + oracle compare.
 
@@ -95,9 +95,18 @@ Fix missing textures and missing geometry in `paper_mario_intro` on Vulkan `rvk2
 - [x] Landed present-selection policy change:
   - when VI origin maps only to history and a compatible live surface has writes, prefer live by default.
 - [x] Revalidated with `local_gate.sh` and deep smoke checkpoint (`20260305-100328Z`).
+- [x] Expanded overwrite log schema for focus-cluster diagnosis:
+  - added cycle/alpha/cvg/blend/depth/color/tile/texture state fields to overwrite TSV rows.
+  - added focus-cluster state ranking (`top_states`, `top_source_packets`, `dominant_state`) in telemetry bundle.
+- [x] Captured full deep checkpoint with expanded telemetry (`paper_mario_intro.20260305-102706Z.b7c46e23`):
+  - image metrics unchanged vs prior full deep baseline (expected telemetry-only change).
+  - dominant fill-cluster signature now explicit in bundle output (`combine=0x00FFFFFFFFFCF87C`, `other=0x00308C7F00000000`, `cycle_type=3`, `fill_color=0x00010001`).
+- [x] Probed non-black-aware present fallback ranking (20-frame deep) and reverted:
+  - no structural movement in quick/deep probe metrics.
+  - removed heuristic to keep executor behavior stable; retained telemetry improvements.
 
 ## Immediate Attack Plan
-1. Extend packet-neighborhood telemetry in Lane A for texrect/fill overwrite cluster (minimal overhead in quick profile).
-2. Patch executor behavior in that cluster, then run quick smoke + oracle.
-3. If Stage-A moves positively, run full deep smoke checkpoint and archive compare.
-4. Continue into canonical TMEM lane only after Lane A effect is measured.
+1. Use new focus-cluster `top_states` telemetry to isolate the first fill-overwrite transition that erases visible content on the selected present surface.
+2. Implement a narrow behavior correction in the fill/texrect overwrite path (no permanent debug toggle dependency).
+3. Validate with quick smoke, then deep smoke checkpoint + archive compare.
+4. Continue into canonical TMEM lane only after Lane A produces measurable Stage-A movement.
