@@ -64,6 +64,9 @@
 - Shadow-off vs shadow-on command ingress parity confirmed:
   - packet traces are byte-identical (same SHA256 + line count) in oracle run `20260305-070621Z`.
   - divergence is downstream in executor generation/present behavior, not command ingestion.
+- Missing-region prior-hit attribution is now split by present-surface address:
+  - `rvk2_missing_region_focus.py` emits prior packet-hit lists on-present vs off-present.
+  - this removes dominant non-present full-screen fill packets from masking present-surface texrect history clusters.
 - Same-address bootstrap promotion probe result:
   - default-on probe (20-frame quick A/B) showed no structural movement; reverted to default-off to avoid noise.
 

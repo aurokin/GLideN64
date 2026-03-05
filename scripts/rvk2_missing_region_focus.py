@@ -1371,6 +1371,31 @@ def main() -> int:
                 int(row.get("source_packet_id", 0) or 0),
             )
         )
+        present_surface_address = int(forensics_last.get("present_surface", 0) or 0)
+        prior_missing_packet_rows_present_surface: List[Dict[str, Any]] = []
+        prior_missing_packet_rows_other_surface: List[Dict[str, Any]] = []
+        for row in prior_missing_packet_rows:
+            color_image_address = int(row.get("color_image_address", 0) or 0)
+            if present_surface_address > 0 and color_image_address == present_surface_address:
+                prior_missing_packet_rows_present_surface.append(row)
+            else:
+                prior_missing_packet_rows_other_surface.append(row)
+        prior_missing_packet_present_pixels = sum(
+            int(row.get("pixel_hits", 0) or 0)
+            for row in prior_missing_packet_rows_present_surface
+        )
+        prior_missing_packet_other_pixels = sum(
+            int(row.get("pixel_hits", 0) or 0)
+            for row in prior_missing_packet_rows_other_surface
+        )
+        prior_missing_packet_present_work_hits = sum(
+            int(row.get("work_hits", 0) or 0)
+            for row in prior_missing_packet_rows_present_surface
+        )
+        prior_missing_packet_other_work_hits = sum(
+            int(row.get("work_hits", 0) or 0)
+            for row in prior_missing_packet_rows_other_surface
+        )
 
         missing_with_write_packet_rows: List[Dict[str, Any]] = []
         for packet_id, pixel_hits in missing_with_write_packet_pixel_hits.items():
@@ -1428,8 +1453,6 @@ def main() -> int:
                     ranked_rows_triangle_zero_sample += 1
 
         max_address_overlap = max(0, int(args.max_address_overlap))
-        present_surface_address = int(forensics_last.get("present_surface", 0) or 0)
-
         def _build_address_overlap_rows(
             address_masks: Dict[int, bytearray],
             address_op_masks: Dict[int, Dict[str, bytearray]],
@@ -1647,6 +1670,24 @@ def main() -> int:
                 for key, counter in sorted(prior_missing_state_pixel_counters.items())
             },
             "missing_without_write_prior_packet_hits": prior_missing_packet_rows[:64],
+            "missing_without_write_prior_packet_hits_on_present_surface": (
+                prior_missing_packet_rows_present_surface[:64]
+            ),
+            "missing_without_write_prior_packet_hits_off_present_surface": (
+                prior_missing_packet_rows_other_surface[:64]
+            ),
+            "missing_without_write_prior_packet_hits_on_present_surface_pixel_hits_sum": (
+                prior_missing_packet_present_pixels
+            ),
+            "missing_without_write_prior_packet_hits_off_present_surface_pixel_hits_sum": (
+                prior_missing_packet_other_pixels
+            ),
+            "missing_without_write_prior_packet_hits_on_present_surface_work_hits": (
+                prior_missing_packet_present_work_hits
+            ),
+            "missing_without_write_prior_packet_hits_off_present_surface_work_hits": (
+                prior_missing_packet_other_work_hits
+            ),
             "history": {
                 "frames_analyzed": len(history_frames),
                 "prior_frames_analyzed": len(history_prior_frame_ids),

@@ -116,6 +116,9 @@ Fix missing textures and missing geometry in `paper_mario_intro` on Vulkan `rvk2
 - [x] Probed default-on same-address surface bootstrap and reverted.
   - promoted bootstrap default in probe branch, ran 20-frame A/B, observed no movement in quick structural metrics.
   - reverted bootstrap default change to keep runtime behavior stable.
+- [x] Added present-surface constrained prior-hit attribution in missing-region focus output.
+  - `rvk2_missing_region_focus.py` now emits separate `missing_without_write_prior_packet_hits_on_present_surface` and `...off_present_surface` lists.
+  - keeps dominant non-present full-screen fill traffic from hiding present-surface prior texrect packet clusters.
 
 ## Current Lane-1 Evidence Snapshot
 - Deep run: `build/parity-runs/paper-mario/archive/paper_mario_intro.20260304-222205Z.21ceca95`
@@ -162,3 +165,4 @@ Fix missing textures and missing geometry in `paper_mario_intro` on Vulkan `rvk2
 | 2026-03-05 07:58Z | Tooling | Stream + fast-filter overwrite fallback in forensics summary | `local_gate.sh` + timed 12GB `rvk2_forensics_summary.py --active-only` | Large overwrite fallback now bounded-memory and faster (`2m16s -> 1m18s`) |
 | 2026-03-05 08:03Z | Diagnosis | Verify shadow off/on packet ingress parity | SHA256 + line-count compare (`shadow-oracle/20260305-070621Z`) | Off/on packet traces are identical; divergence is executor generation/present |
 | 2026-03-05 08:05Z | Probe | Promote same-address bootstrap default (temporary) | 20-frame quick A/B (`bootstrap default on/off`) | No structural metric movement; reverted to prior default-off |
+| 2026-03-05 08:16Z | Tooling | Split prior missing-packet ranking by present-surface address | reran `rvk2_missing_region_focus.py` on oracle baseline | Present-surface prior texrect clusters are now isolated from non-present fill dominance |
