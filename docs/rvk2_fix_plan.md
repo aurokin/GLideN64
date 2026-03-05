@@ -52,6 +52,7 @@ Fix missing textures and missing geometry in `paper_mario_intro` on Vulkan `rvk2
 ### Lane B: Canonical TMEM mapping (`LoadBlock` / `LoadTLUT` / CI)
 - [x] Add TMEM snapshot and load-context telemetry hooks.
 - [x] Keep load-kind XOR probes available via debug envs.
+- [x] Promote load-kind-aware TMEM row XOR defaults for TMEM8/TMEM32 runtime sampling.
 - [ ] Implement single canonical TMEM write/fetch mapping path (remove split legacy/probe behavior).
 - [ ] Reconcile `dxt` progression + odd/even row behavior with runtime fetch logic.
 - [ ] Revalidate CI/TLUT decode path against canonical mapping.
@@ -114,6 +115,14 @@ Fix missing textures and missing geometry in `paper_mario_intro` on Vulkan `rvk2
     - frames `18/20/22/24/26`: `selected_surface_vi_history_carry_copied` moved `0 -> 12572/14551/16159/17767/19372`.
   - quick smoke remained stable (`candidate_non_black_ratio=0.775134`).
   - 20-frame oracle moved `off candidate_non_black_ratio` from prior low runs (`0.574846`) to `0.586726`; missing-without-write remains dominant (`0.882528`).
+- [x] Promoted load-kind-aware TMEM row XOR defaults (`TMEM8` + `TMEM32`) from probe-only to runtime defaults:
+  - changed default runtime path to use load-kind-aware row XOR in texture sampling (`tmemLoadKind=tile/block/tlut`).
+  - quick smoke improved image error while preserving structure:
+    - `rmse=0.367426` (from `0.371448`)
+    - `mae=0.274906` (from `0.276416`)
+    - `candidate_non_black_ratio=0.775195` (from `0.775134`).
+  - 20-frame oracle off lane improved image error (`rmse=0.333528`, `mae=0.221082`) with stable structure (`candidate_non_black_ratio=0.586726`).
+  - missing-without-write attribution remains dominant (`0.882528`), so Lane A stays primary.
 
 ## Immediate Attack Plan
 1. Quantify how much of missing-without-write remains on fallback-selected frames after VI-history carry escalation (`missing-region-focus.off-vs-shadow.json` + frame-forensics join).

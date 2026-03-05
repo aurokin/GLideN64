@@ -31,8 +31,13 @@
   - deep compare (`20260305-065447Z -> 20260305-100328Z`) moved `candidate_non_black_ratio` from `58.67%` to `77.51%` and reduced suspected gaps (`14 -> 13`).
   - image-error metrics regressed (`rmse`/`mae`), so Stage-A structure remains the primary gate.
 - TMEM load-kind row-XOR status:
-  - load-kind-aware TMEM8/TMEM32 XOR paths remain probe-ready via debug envs.
-  - default runtime path currently keeps legacy XOR behavior pending canonical TMEM mapping work.
+  - load-kind-aware TMEM8/TMEM32 XOR paths are now default runtime behavior and remain overrideable via debug envs.
+  - latest 20-frame checks improved image error with structure stable:
+    - quick: `rmse=0.367426`, `mae=0.274906`, `candidate_non_black_ratio=0.775195`
+    - oracle off lane: `rmse=0.333528`, `mae=0.221082`, `candidate_non_black_ratio=0.586726`.
+- Focused deep overwrite telemetry lead (run `20260305-125600Z`):
+  - dominant texrect-copy packet cluster (`combine=0x00FFFFFFFFFCF87C`, `other=0x00208C7F00000000`) shows repeated TMEM-vs-RDRAM probe divergence in CI8+TLUT sampling rows (`tex0_tmem_fetch_variant=2`, `tex0_tmem_load_kind=tile`).
+  - dominant missing-with-write texrect cluster (`combine=0x00FFFFFFFFFCF279`, `other=0x00000CFF00504340`) still diverges under TMEM fetch variant `4`.
 - Focus-cluster telemetry expansion landed:
   - overwrite TSV rows now include cycle/alpha/cvg/blend/depth/color/tile/texture state fields for each logged write.
   - telemetry bundle now emits `overwrite_summary.focus_clusters.{fill,texrect}.{dominant_state,top_states,top_source_packets}`.

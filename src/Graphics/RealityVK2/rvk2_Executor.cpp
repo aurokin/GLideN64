@@ -256,7 +256,7 @@ DebugStageViewMode debugStageViewMode()
 	_X(debugPreserveTexRectNonBlackOverwrites, "REALITYVK_RVK2_DEBUG_TEXRECT_PRESERVE_NON_BLACK", false) \
 	_X(debugSwapTmem4Nibbles, "REALITYVK_RVK2_DEBUG_SWAP_TMEM4_NIBBLES", false) \
 	_X(debugAltTmem8OddXor, "REALITYVK_RVK2_DEBUG_ALT_TMEM8_XOR", false) \
-	_X(debugTmem8UseLoadKindAwareXor, "REALITYVK_RVK2_DEBUG_TMEM8_LOADKIND_XOR", false) \
+	_X(debugTmem8UseLoadKindAwareXor, "REALITYVK_RVK2_DEBUG_TMEM8_LOADKIND_XOR", true) \
 	_X(debugTmem8UseXor13, "REALITYVK_RVK2_DEBUG_TMEM8_XOR13", false) \
 	_X(debugDisableTexturePerspCoord, "REALITYVK_RVK2_DEBUG_DISABLE_TEXTURE_PERSP_COORD", false) \
 	_X(debugDisableTextureLodCoord, "REALITYVK_RVK2_DEBUG_DISABLE_TEXTURE_LOD_COORD", false) \
@@ -282,7 +282,7 @@ DebugStageViewMode debugStageViewMode()
 	_X(debugTmem32UseDirectLinearFetch, "REALITYVK_RVK2_DEBUG_TMEM32_DIRECT_LINEAR", false) \
 	_X(debugTmem32UseXor02, "REALITYVK_RVK2_DEBUG_TMEM32_XOR02", false) \
 	_X(debugTmem32PackHighToLowRGBA, "REALITYVK_RVK2_DEBUG_TMEM32_PACK_HIGH_TO_LOW", false) \
-	_X(debugTmem32UseLoadKindAwareXor, "REALITYVK_RVK2_DEBUG_TMEM32_LOADKIND_XOR", false) \
+	_X(debugTmem32UseLoadKindAwareXor, "REALITYVK_RVK2_DEBUG_TMEM32_LOADKIND_XOR", true) \
 	_X(debugTmem32UseCanonicalFetch, "REALITYVK_RVK2_DEBUG_TMEM32_CANONICAL_FETCH", false) \
 	_X(debugDisableVIHistoryPresentSelection, "REALITYVK_RVK2_DEBUG_DISABLE_VI_HISTORY_PRESENT", false) \
 	_X(debugPreferLiveSurfaceOverHistory, "REALITYVK_RVK2_DEBUG_PREFER_LIVE_SURFACE_OVER_HISTORY", true) \
