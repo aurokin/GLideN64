@@ -76,6 +76,11 @@ Fix missing textures and missing geometry in `paper_mario_intro` on Vulkan `rvk2
 - [x] Rebuilt and revalidated quick smoke on default path (`rmse=0.346580`, `mae=0.249116`, `candidate_non_black_ratio=0.766512`).
 - [x] Ran deep checkpoint (`paper_mario_intro.20260305-003843Z.57f1559c`) and archive compare vs `20260304-235955Z`.
 - [ ] Continue next lane focus on dominant fill overwrite cluster and packet-level raster/source divergence.
+- [x] Added deterministic shadow-oracle runner (`paper_mario_shadow_oracle.sh`) for off-vs-on capture + diff + missing-region packet attribution in one command.
+- [x] Captured deterministic oracle baseline (`frames=20`, retry `0`):
+  - shadow-on `candidate_non_black_ratio=0.945481`
+  - executor-off `candidate_non_black_ratio=0.584560`
+  - oracle missing attribution: `missing_without_write_ratio=0.8825` (`with_prior_write_ratio=1.0`)
 
 ## Current Lane-1 Evidence Snapshot
 - Deep run: `build/parity-runs/paper-mario/archive/paper_mario_intro.20260304-222205Z.21ceca95`
@@ -114,3 +119,4 @@ Fix missing textures and missing geometry in `paper_mario_intro` on Vulkan `rvk2
 | 2026-03-04 23:50Z | Lane 0 | Preserve VI-matched history selection by default in executor present selection | build + short deep A/B | Promoted |
 | 2026-03-04 23:59Z | Lane 0 | Full deep checkpoint (`paper_mario_intro.20260304-235955Z.63c167f0`) | archive compare vs `20260304-230122Z` | `VI origin mismatch` suspected-gap removed |
 | 2026-03-05 00:38Z | Lane 1 | Promote TMEM8/TMEM32 load-kind row-XOR mapping into default executor path | quick-smoke matrix + deep checkpoint (`paper_mario_intro.20260305-003843Z.57f1559c`) | RMSE/MAE improved; suspected-gap set unchanged |
+| 2026-03-05 01:45Z | Tooling | Added deterministic shadow-oracle script (`paper_mario_shadow_oracle.sh`) and docs wiring | deep oracle run (`frames=20`, retry `0`) | Enabled packet-attributed off-vs-on loop |

@@ -96,6 +96,17 @@ python3 scripts/rvk2_archive_compare.py \
 
 ## Shadow Oracle Loop (Same-Run)
 - Use when reference dumpfb is non-actionable and you need executor-local attribution:
+1. Run the combined oracle workflow (off + on + diff + packet attribution):
+```bash
+REALITYVK_PM_SCENARIO_ID=paper_mario_intro \
+REALITYVK_PM_PROFILE=deep \
+REALITYVK_PM_VISUAL_GATE=0 \
+./scripts/paper_mario_shadow_oracle.sh --frames 20 --retry-count 0
+```
+2. Review generated artifacts under `build/parity-runs/paper-mario/shadow-oracle/<stamp>/oracle-compare`.
+3. Prioritize `missing_without_write_ratio` and top `missing_with_write_packet_hits` from
+   `missing-region-focus.off-vs-shadow.json`.
+4. If needed, run the manual same-run variant below for narrow experiments:
 1. Run deep with shadow present and executor dump enabled:
 ```bash
 REALITYVK_PM_SCENARIO_ID=paper_mario_intro \

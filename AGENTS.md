@@ -56,6 +56,13 @@ REALITYVK_PM_PROFILE=deep \
 REALITYVK_PM_VISUAL_GATE=0 \
 ./scripts/paper_mario_parity.sh
 ```
+- Shadow oracle deep attribution (when reference dumpfb is non-actionable):
+```bash
+REALITYVK_PM_SCENARIO_ID=paper_mario_intro \
+REALITYVK_PM_PROFILE=deep \
+REALITYVK_PM_VISUAL_GATE=0 \
+./scripts/paper_mario_shadow_oracle.sh --frames 20 --retry-count 0
+```
 - Use deep smoke when raster/texrect/triangle/VI/handoff/telemetry behavior changes.
 - Skip deep smoke for compile/unit/conformance-only failures or non-render refactors.
 - Replay performance default: `REALITYVK_PM_DEEP_TELEMETRY_REPLAY_JOBS=0` (all cores).

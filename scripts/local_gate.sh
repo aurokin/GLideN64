@@ -119,6 +119,7 @@ run_shellcheck() {
     "${ROOT_DIR}/scripts/paper_mario_iterate.sh"
     "${ROOT_DIR}/scripts/paper_mario_focus_deep.sh"
     "${ROOT_DIR}/scripts/paper_mario_shadow_ab.sh"
+    "${ROOT_DIR}/scripts/paper_mario_shadow_oracle.sh"
     "${ROOT_DIR}/scripts/paper_mario_telemetry_cleanup.sh"
     "${ROOT_DIR}/scripts/lib/validation.sh"
     "${ROOT_DIR}/scripts/lib/compare_view.sh"
