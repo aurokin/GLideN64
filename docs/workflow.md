@@ -37,18 +37,22 @@
 - Temporary fallback toggles are allowed for bring-up only; they must be removed or intentionally promoted before final acceptance.
 - Lane advancement gate: require movement in `candidate_non_black_ratio` + missing-region metrics; do not use RMSE-only wins.
 
-## Current Diagnosis Snapshot (2026-03-04)
+## Current Diagnosis Snapshot (2026-03-05)
 - Latest non-shadow deep archive run:
-  - `paper_mario_intro.20260304-235955Z.63c167f0`
+  - `paper_mario_intro.20260305-003843Z.57f1559c`
 - Metrics:
-  - `rmse=0.350840`
-  - `mae=0.250593`
-  - `candidate_non_black_ratio=0.766445`
-  - `candidate_mean_luma=0.269865`
+  - `rmse=0.346580`
+  - `mae=0.249116`
+  - `candidate_non_black_ratio=0.766512`
+  - `candidate_mean_luma=0.268280`
 - Checkpointed present-path fix:
   - VI-matched history selection is preserved by default when live fallback would break VI-origin coherence.
   - Archive compare (`20260304-230122Z -> 20260304-235955Z`) removed suspected gap:
     - `VI origin did not match selected present surface`
+- Checkpointed TMEM load-kind row-XOR fix:
+  - TMEM8/TMEM32 load-kind-aware row-XOR mapping is now default executor behavior.
+  - Archive compare (`20260304-235955Z -> 20260305-003843Z`) improved:
+    - `rmse -0.004260`, `mae -0.001477`, `candidate_non_black_ratio +0.01pp`
 - Remaining dominant leads:
   - black-write stream still clusters around:
     - `op=fill`, `combine=0x00FFFFFFFFFCF87C`, `other_modes=0x00308C7F00000000`

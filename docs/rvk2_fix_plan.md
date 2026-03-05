@@ -24,7 +24,8 @@ Fix missing textures and missing geometry in `paper_mario_intro` on Vulkan `rvk2
 
 ### Lane 1: LoadBlock TMEM addressing (`dxt` + odd/even interleave)
 - [x] Audit current `LoadBlock` write-address logic against hardware-like mapping expectations.
-- [ ] Implement canonical address mapping path (single source of truth).
+- [x] Promote load-kind-aware TMEM row-XOR addressing into default executor path (no debug toggle required).
+- [ ] Implement full canonical address mapping path (single source of truth).
 - [x] Add telemetry fields for per-load mapping decisions (bounded/rate-limited).
 - [ ] Validate with 10-frame shadow A/B.
 - [ ] Validate with 20-frame shadow A/B.
@@ -69,6 +70,13 @@ Fix missing textures and missing geometry in `paper_mario_intro` on Vulkan `rvk2
 - [x] Ran full deep checkpoint (`paper_mario_intro.20260304-235955Z.63c167f0`) and confirmed suspected gap removal: `VI origin did not match selected present surface`.
 - [ ] Continue next lane focus on dominant overwrite cluster (`op=fill combine=0x00FFFFFFFFFCF87C other_modes=0x00308C7F00000000`) and zero-shade triangle path.
 
+### 2026-03-05
+- [x] Ran quick-smoke TMEM XOR matrix; best default behavior matched combined load-kind-aware TMEM8+TMEM32 row-XOR probes.
+- [x] Promoted load-kind-aware TMEM8/TMEM32 row-XOR behavior into default executor path (removed dependency on debug toggles for this fix).
+- [x] Rebuilt and revalidated quick smoke on default path (`rmse=0.346580`, `mae=0.249116`, `candidate_non_black_ratio=0.766512`).
+- [x] Ran deep checkpoint (`paper_mario_intro.20260305-003843Z.57f1559c`) and archive compare vs `20260304-235955Z`.
+- [ ] Continue next lane focus on dominant fill overwrite cluster and packet-level raster/source divergence.
+
 ## Current Lane-1 Evidence Snapshot
 - Deep run: `build/parity-runs/paper-mario/archive/paper_mario_intro.20260304-222205Z.21ceca95`
 - Baseline metrics:
@@ -84,6 +92,13 @@ Fix missing textures and missing geometry in `paper_mario_intro` on Vulkan `rvk2
   - TMEM texel byte resolves to `0xFF` across sampled addresses, forcing TLUT index `255`.
   - TLUT lookup resolved to address `0x7FC` (`raw=0x0100`, decoded=`0x0001`) across those rows.
   - RDRAM probe for the same samples produced non-black values, indicating TMEM-side divergence rather than LUT decode collapse alone.
+- Latest lane-1 checkpoint (row-XOR default promotion):
+  - deep run: `build/parity-runs/paper-mario/archive/paper_mario_intro.20260305-003843Z.57f1559c`
+  - archive compare vs `paper_mario_intro.20260304-235955Z.63c167f0`:
+    - `rmse`: `0.350840 -> 0.346580` (`-0.004260`)
+    - `mae`: `0.250593 -> 0.249116` (`-0.001477`)
+    - `candidate_non_black_ratio`: `76.64% -> 76.65%` (`+0.01pp`)
+    - suspected gaps: unchanged count (`12`)
 
 ## Checkpoint Log
 
@@ -98,3 +113,4 @@ Fix missing textures and missing geometry in `paper_mario_intro` on Vulkan `rvk2
 | 2026-03-04 23:40Z | Lane 0 | Shadow-oracle same-run attribution showed present-selection override divergence | short deep A/B (`20` frames) | Confirmed |
 | 2026-03-04 23:50Z | Lane 0 | Preserve VI-matched history selection by default in executor present selection | build + short deep A/B | Promoted |
 | 2026-03-04 23:59Z | Lane 0 | Full deep checkpoint (`paper_mario_intro.20260304-235955Z.63c167f0`) | archive compare vs `20260304-230122Z` | `VI origin mismatch` suspected-gap removed |
+| 2026-03-05 00:38Z | Lane 1 | Promote TMEM8/TMEM32 load-kind row-XOR mapping into default executor path | quick-smoke matrix + deep checkpoint (`paper_mario_intro.20260305-003843Z.57f1559c`) | RMSE/MAE improved; suspected-gap set unchanged |

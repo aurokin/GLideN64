@@ -26,25 +26,28 @@
 - Present-selection coherence checkpoint landed:
   - VI-matched history selection is now preserved by default when live-surface fallback would break VI-origin coherence.
   - Suspected gap removed in archive compare: `VI origin did not match selected present surface`.
+- TMEM load-kind row-XOR checkpoint landed:
+  - TMEM8/TMEM32 load-kind-aware row XOR is now default executor behavior (no debug env toggle required).
+  - Deep archive compare shows directional image-metric improvement with no new suspected gaps.
 - Shadow-oracle evidence (same-run, 20-frame deep, replay disabled):
   - executor-vs-shadow `best_mae` improved `0.238958 -> 0.228807`.
   - executor-vs-shadow `best_rmse` improved `0.366680 -> 0.360818`.
 - Remaining high-value leads are now upstream of final present handoff (overwrite cluster + raster/source divergence).
 
-## Current Baseline (2026-03-04)
-- Latest non-shadow deep archive run: `paper_mario_intro.20260304-235955Z.63c167f0`
-- Comparison baseline for this checkpoint: `paper_mario_intro.20260304-230122Z.63c167f0`
+## Current Baseline (2026-03-05)
+- Latest non-shadow deep archive run: `paper_mario_intro.20260305-003843Z.57f1559c`
+- Comparison baseline for this checkpoint: `paper_mario_intro.20260304-235955Z.63c167f0`
 - Archive index: `build/parity-runs/paper-mario/archive/index.tsv`
 - Latest key metrics:
-  - `rmse=0.350840`
-  - `mae=0.250593`
-  - `candidate_non_black_ratio=0.766445`
-  - `candidate_mean_luma=0.269865`
-- Delta vs baseline (`230122 -> 235955`):
-  - `rmse`: `+0.000246`
-  - `mae`: `-0.000539`
-  - `candidate_non_black_ratio`: `-0.87pp`
-  - suspected gaps: removed `VI origin did not match selected present surface`
+  - `rmse=0.346580`
+  - `mae=0.249116`
+  - `candidate_non_black_ratio=0.766512`
+  - `candidate_mean_luma=0.268280`
+- Delta vs baseline (`235955 -> 003843`):
+  - `rmse`: `-0.004260`
+  - `mae`: `-0.001477`
+  - `candidate_non_black_ratio`: `+0.01pp`
+  - suspected gaps: unchanged (count `12`)
 
 ## Tooling Constraints
 - Upstream `GLideN64` `dumpfb-preset` capture remains black in agent-mode flow; treat reference non-black ratio as non-actionable.

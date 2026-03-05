@@ -2216,6 +2216,30 @@ inline u32 xorForTmem32T(u16 _t)
 	return xor13ForT(_t);
 }
 
+inline u32 tmem8RowXorForLoadKind(
+	const rvk2::RenderWorkPacket & _work,
+	u16 _t,
+	u16 _i)
+{
+	if (_work.tmemLoadKind == static_cast<u8>(rvk2::TmemLoadKind::kTile))
+		return 0U;
+	if (_work.tmemLoadKind == static_cast<u8>(rvk2::TmemLoadKind::kBlock))
+		return static_cast<u32>(_i) << 1U;
+	(void)_t;
+	return static_cast<u32>(_i);
+}
+
+inline u32 tmem32RowXorForLoadKind(
+	const rvk2::RenderWorkPacket & _work,
+	u16 _t)
+{
+	if (_work.tmemLoadKind == static_cast<u8>(rvk2::TmemLoadKind::kTile))
+		return 0U;
+	if (_work.tmemLoadKind == static_cast<u8>(rvk2::TmemLoadKind::kBlock))
+		return xorForTmem32T(_t);
+	return xor13ForT(_t);
+}
+
 inline s32 computeLegacySplit32LineStride(const rvk2::RenderWorkPacket & _work)
 {
 	const u16 lowU = std::min<u16>(_work.tileULS, _work.tileLRS);
@@ -2285,14 +2309,9 @@ inline u32 decodeAuthoritativeTMEM32Color(
 	DebugTextureSampleLogEntry * _debug = nullptr)
 {
 	const bool highToLowRGBA = debugTmem32PackHighToLowRGBA();
-	u32 rowXor = xorForTmem32T(_t);
+	u32 rowXor = tmem32RowXorForLoadKind(_work, _t);
 	if (debugTmem32UseLoadKindAwareXor()) {
-		if (_work.tmemLoadKind == static_cast<u8>(rvk2::TmemLoadKind::kTile))
-			rowXor = 0U;
-		else if (_work.tmemLoadKind == static_cast<u8>(rvk2::TmemLoadKind::kBlock))
-			rowXor = xorForTmem32T(_t);
-		else
-			rowXor = xor13ForT(_t);
+		rowXor = tmem32RowXorForLoadKind(_work, _t);
 	}
 	if (_debug != nullptr)
 		_debug->tmemRowXor = rowXor;
@@ -2619,20 +2638,13 @@ inline bool sampleCITextureFromTMEM(
 	}
 
 		case 1U: { // 8b
-			u32 oddRowXor =
-				debugAltTmem8OddXor()
-					? static_cast<u32>(i)
-					: (static_cast<u32>(i) << 1U);
-		if (debugTmem8UseXor13())
-			oddRowXor = (t & 1U) != 0U ? 3U : 1U;
-		if (debugTmem8UseLoadKindAwareXor()) {
-			if (_work.tmemLoadKind == static_cast<u8>(rvk2::TmemLoadKind::kTile))
-				oddRowXor = 0U;
-			else if (_work.tmemLoadKind == static_cast<u8>(rvk2::TmemLoadKind::kBlock))
-				oddRowXor = static_cast<u32>(i) << 1U;
-				else
-					oddRowXor = static_cast<u32>(i);
-			}
+			u32 oddRowXor = tmem8RowXorForLoadKind(_work, t, i);
+			if (debugAltTmem8OddXor())
+				oddRowXor = static_cast<u32>(i);
+			if (debugTmem8UseXor13())
+				oddRowXor = (t & 1U) != 0U ? 3U : 1U;
+			if (debugTmem8UseLoadKindAwareXor())
+				oddRowXor = tmem8RowXorForLoadKind(_work, t, i);
 			const u8 * tmem8 = reinterpret_cast<const u8 *>(activeTMEMWords());
 			const u32 byteIndex =
 				((static_cast<u32>(tmemOffset) << 3U) + (static_cast<u32>(s) ^ oddRowXor)) & 0xFFFU;
